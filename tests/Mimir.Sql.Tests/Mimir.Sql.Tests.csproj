@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Mimir.Sql.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Mimir.Sql\Mimir.Sql.csproj" />
+    <ProjectReference Include="..\..\src\Mimir.Shn\Mimir.Shn.csproj" />
+  </ItemGroup>
+
+</Project>

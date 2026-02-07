@@ -416,3 +416,20 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+
+# JetBrains Rider
+.idea/
+*.sln.iml
+
+# OS files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
+
+# Local test data (SHN files copied for testing)
+tests/**/TestData/*.shn
+!tests/**/TestData/.gitkeep
+
+# Mimir test projects (contain copyrighted game data)
+test-project/
