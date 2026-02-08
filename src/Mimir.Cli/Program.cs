@@ -23,89 +23,81 @@ var rootCommand = new RootCommand("Mimir - Fiesta Online server data toolkit");
 
 // --- import command ---
 var importCommand = new Command("import", "Import server data files into a Mimir project");
-var sourceArg = new Argument<DirectoryInfo>("source", "Path to server 9Data/Shine directory");
+var sourceArg = new Argument<DirectoryInfo>("source", "Path to server 9Data directory");
 var projectArg = new Argument<DirectoryInfo>("project", "Path to output Mimir project directory");
+var clientOption = new Option<DirectoryInfo?>("--client", "Path to client 9Data directory (optional)");
+clientOption.AddAlias("-c");
 importCommand.AddArgument(sourceArg);
 importCommand.AddArgument(projectArg);
+importCommand.AddOption(clientOption);
 
-importCommand.SetHandler(async (DirectoryInfo source, DirectoryInfo project) =>
+importCommand.SetHandler(async (DirectoryInfo source, DirectoryInfo project, DirectoryInfo? clientDir) =>
 {
     var logger = sp.GetRequiredService<ILogger<Program>>();
     var projectService = sp.GetRequiredService<IProjectService>();
     var providers = sp.GetServices<IDataProvider>().ToList();
 
-    logger.LogInformation("Importing from {Source} into {Project}", source.FullName, project.FullName);
-
-    var manifest = new MimirProject();
-    var files = source.EnumerateFiles("*", SearchOption.AllDirectories);
-
-    foreach (var file in files)
+    var manifest = new MimirProject
     {
-        var provider = providers.FirstOrDefault(p =>
-            p.SupportedExtensions.Contains(file.Extension.ToLowerInvariant()));
+        Sources = new Dictionary<string, string> { ["server"] = source.FullName }
+    };
+    if (clientDir is not null)
+        manifest.Sources["client"] = clientDir.FullName;
 
-        if (provider is null)
-        {
-            logger.LogDebug("Skipping {File} (no provider for {Extension})", file.Name, file.Extension);
-            continue;
-        }
+    // Track imported table files for duplicate comparison
+    var importedTables = new Dictionary<string, (TableFile file, string origin)>();
+    int conflicts = 0;
 
-        try
-        {
-            var entries = await provider.ReadAsync(file.FullName);
-            var sourceRelDir = Path.GetDirectoryName(Path.GetRelativePath(source.FullName, file.FullName)) ?? "";
-            foreach (var entry in entries)
-            {
-                var relativePath = Path.Combine("data", entry.Schema.SourceFormat, sourceRelDir,
-                    $"{entry.Schema.TableName}.json").Replace('\\', '/');
+    // --- Phase 1: Import server files ---
+    logger.LogInformation("Importing server data from {Source}", source.FullName);
+    conflicts += await ImportSource(source, project, SourceOrigin.Server, providers, projectService, manifest,
+        importedTables, logger);
 
-                var tableFile = new TableFile
-                {
-                    Header = new TableHeader
-                    {
-                        TableName = entry.Schema.TableName,
-                        SourceFormat = entry.Schema.SourceFormat,
-                        Metadata = entry.Schema.Metadata
-                    },
-                    Columns = entry.Schema.Columns,
-                    Data = entry.Rows
-                };
-
-                await projectService.WriteTableFileAsync(project.FullName, relativePath, tableFile);
-                manifest.Tables[entry.Schema.TableName] = relativePath;
-
-                logger.LogInformation("Imported {TableName} ({RowCount} rows)",
-                    entry.Schema.TableName, entry.Rows.Count);
-            }
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Failed to import {File}", file.Name);
-        }
+    // --- Phase 2: Import client files (if provided) ---
+    if (clientDir is not null)
+    {
+        logger.LogInformation("Importing client data from {Client}", clientDir.FullName);
+        conflicts += await ImportSource(clientDir, project, SourceOrigin.Client, providers, projectService, manifest,
+            importedTables, logger);
     }
 
     await projectService.SaveProjectAsync(project.FullName, manifest);
-    logger.LogInformation("Import complete: {Count} tables", manifest.Tables.Count);
 
-}, sourceArg, projectArg);
+    var shared = importedTables.Values.Count(t => t.origin == SourceOrigin.Shared);
+    var serverOnly = importedTables.Values.Count(t => t.origin == SourceOrigin.Server);
+    var clientOnly = importedTables.Values.Count(t => t.origin == SourceOrigin.Client);
+
+    logger.LogInformation("Import complete: {Total} tables ({Server} server, {Client} client, {Shared} shared, {Conflicts} conflicts)",
+        manifest.Tables.Count, serverOnly, clientOnly, shared, conflicts);
+
+}, sourceArg, projectArg, clientOption);
 
 // --- build command ---
 var buildCommand = new Command("build", "Build server data files from a Mimir project");
 var buildProjectArg = new Argument<DirectoryInfo>("project", "Path to Mimir project directory");
 var buildOutputArg = new Argument<DirectoryInfo>("output", "Path to output server data directory");
+var buildClientOption = new Option<DirectoryInfo?>("--client-output", "Path to output client data directory (optional)");
+buildClientOption.AddAlias("-c");
 buildCommand.AddArgument(buildProjectArg);
 buildCommand.AddArgument(buildOutputArg);
+buildCommand.AddOption(buildClientOption);
 
-buildCommand.SetHandler(async (DirectoryInfo project, DirectoryInfo output) =>
+buildCommand.SetHandler(async (DirectoryInfo project, DirectoryInfo output, DirectoryInfo? clientOutput) =>
 {
     var logger = sp.GetRequiredService<ILogger<Program>>();
     var projectService = sp.GetRequiredService<IProjectService>();
     var providers = sp.GetServices<IDataProvider>().ToDictionary(p => p.FormatId);
 
     logger.LogInformation("Building from {Project} to {Output}", project.FullName, output.FullName);
+    if (clientOutput is not null)
+        logger.LogInformation("Client output: {ClientOutput}", clientOutput.FullName);
 
     var manifest = await projectService.LoadProjectAsync(project.FullName);
     Directory.CreateDirectory(output.FullName);
+    if (clientOutput is not null)
+        Directory.CreateDirectory(clientOutput.FullName);
+
+    int serverBuilt = 0, clientBuilt = 0;
 
     foreach (var (name, entryPath) in manifest.Tables)
     {
@@ -130,24 +122,39 @@ buildCommand.SetHandler(async (DirectoryInfo project, DirectoryInfo output) =>
             continue;
         }
 
+        var origin = tableFile.Header.Metadata?.TryGetValue(SourceOrigin.MetadataKey, out var o) == true
+            ? o?.ToString() : null;
+
+        // Determine which outputs to write to
+        bool writeServer = origin is null or SourceOrigin.Server or SourceOrigin.Shared;
+        bool writeClient = clientOutput is not null
+            && origin is SourceOrigin.Client or SourceOrigin.Shared;
+
         try
         {
-            // Reconstruct original directory structure from manifest path
-            // entryPath looks like: data/shn/Shine/ItemInfo.json → Shine/ItemInfo.shn
-            // Strip "data/{format}/" prefix to get the relative source path
             var ext = provider.SupportedExtensions[0].TrimStart('.');
             var parts = entryPath.Replace('\\', '/').Split('/');
-            // Skip "data" and format prefix (e.g. "shn", "shinetable")
             var relParts = parts.Length > 2 ? parts[2..] : parts;
             var relDir = string.Join(Path.DirectorySeparatorChar.ToString(),
                 relParts.Take(relParts.Length - 1));
-            var outputDir = Path.Combine(output.FullName, relDir);
-            Directory.CreateDirectory(outputDir);
 
-            var outputPath = Path.Combine(outputDir, $"{name}.{ext}");
-            await provider.WriteAsync(outputPath, [entry]);
+            if (writeServer)
+            {
+                var dir = Path.Combine(output.FullName, relDir);
+                Directory.CreateDirectory(dir);
+                await provider.WriteAsync(Path.Combine(dir, $"{name}.{ext}"), [entry]);
+                serverBuilt++;
+            }
 
-            logger.LogInformation("Built {TableName}", name);
+            if (writeClient)
+            {
+                var dir = Path.Combine(clientOutput!.FullName, relDir);
+                Directory.CreateDirectory(dir);
+                await provider.WriteAsync(Path.Combine(dir, $"{name}.{ext}"), [entry]);
+                clientBuilt++;
+            }
+
+            logger.LogInformation("Built {TableName} ({Origin})", name, origin ?? "server");
         }
         catch (Exception ex)
         {
@@ -155,9 +162,10 @@ buildCommand.SetHandler(async (DirectoryInfo project, DirectoryInfo output) =>
         }
     }
 
-    logger.LogInformation("Build complete");
+    logger.LogInformation("Build complete: {Server} server files, {Client} client files",
+        serverBuilt, clientBuilt);
 
-}, buildProjectArg, buildOutputArg);
+}, buildProjectArg, buildOutputArg, buildClientOption);
 
 // --- query command ---
 var queryCommand = new Command("query", "Run SQL against a Mimir project");
@@ -514,6 +522,107 @@ rootCommand.AddCommand(dumpCommand);
 rootCommand.AddCommand(analyzeCommand);
 
 return await rootCommand.InvokeAsync(args);
+
+// --- import helper ---
+
+async Task<int> ImportSource(
+    DirectoryInfo sourceDir, DirectoryInfo projectDir, string origin,
+    List<IDataProvider> providers, IProjectService projectService, MimirProject manifest,
+    Dictionary<string, (TableFile file, string origin)> importedTables,
+    ILogger logger)
+{
+    int conflicts = 0;
+    var files = sourceDir.EnumerateFiles("*", SearchOption.AllDirectories);
+
+    foreach (var file in files)
+    {
+        var provider = providers.FirstOrDefault(p =>
+            p.SupportedExtensions.Contains(file.Extension.ToLowerInvariant()));
+
+        if (provider is null)
+        {
+            logger.LogDebug("Skipping {File} (no provider for {Extension})", file.Name, file.Extension);
+            continue;
+        }
+
+        try
+        {
+            var entries = await provider.ReadAsync(file.FullName);
+            var sourceRelDir = Path.GetDirectoryName(
+                Path.GetRelativePath(sourceDir.FullName, file.FullName)) ?? "";
+
+            foreach (var entry in entries)
+            {
+                var relativePath = Path.Combine("data", entry.Schema.SourceFormat, sourceRelDir,
+                    $"{entry.Schema.TableName}.json").Replace('\\', '/');
+
+                // Set source origin in metadata
+                var metadata = entry.Schema.Metadata ?? new Dictionary<string, object>();
+                metadata[SourceOrigin.MetadataKey] = origin;
+
+                var tableFile = new TableFile
+                {
+                    Header = new TableHeader
+                    {
+                        TableName = entry.Schema.TableName,
+                        SourceFormat = entry.Schema.SourceFormat,
+                        Metadata = metadata
+                    },
+                    Columns = entry.Schema.Columns,
+                    Data = entry.Rows
+                };
+
+                // Check for duplicate table from another source
+                if (importedTables.TryGetValue(entry.Schema.TableName, out var existing))
+                {
+                    var diff = TableComparer.FindDifference(existing.file, tableFile);
+                    if (diff is null)
+                    {
+                        // Identical data - mark as shared, keep the existing manifest path
+                        var existingPath = manifest.Tables[entry.Schema.TableName];
+                        var sharedMeta = existing.file.Header.Metadata ?? new Dictionary<string, object>();
+                        sharedMeta[SourceOrigin.MetadataKey] = SourceOrigin.Shared;
+                        var sharedFile = new TableFile
+                        {
+                            Header = new TableHeader
+                            {
+                                TableName = existing.file.Header.TableName,
+                                SourceFormat = existing.file.Header.SourceFormat,
+                                Metadata = sharedMeta
+                            },
+                            Columns = existing.file.Columns,
+                            Data = existing.file.Data
+                        };
+                        await projectService.WriteTableFileAsync(projectDir.FullName, existingPath, sharedFile);
+                        importedTables[entry.Schema.TableName] = (sharedFile, SourceOrigin.Shared);
+
+                        logger.LogInformation("Shared: {TableName} (identical in server and client)", entry.Schema.TableName);
+                    }
+                    else
+                    {
+                        // Data differs - this is a conflict
+                        conflicts++;
+                        logger.LogError("CONFLICT: {TableName} differs between sources: {Difference}",
+                            entry.Schema.TableName, diff);
+                    }
+                    continue;
+                }
+
+                await projectService.WriteTableFileAsync(projectDir.FullName, relativePath, tableFile);
+                manifest.Tables[entry.Schema.TableName] = relativePath;
+                importedTables[entry.Schema.TableName] = (tableFile, origin);
+
+                logger.LogInformation("Imported {TableName} ({RowCount} rows, {Origin})",
+                    entry.Schema.TableName, entry.Rows.Count, origin);
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to import {File}", file.Name);
+        }
+    }
+    return conflicts;
+}
 
 // --- shared helpers ---
 
