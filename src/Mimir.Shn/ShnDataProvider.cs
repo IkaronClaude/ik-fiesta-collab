@@ -9,6 +9,15 @@ namespace Mimir.Shn;
 
 public sealed class ShnDataProvider : IDataProvider
 {
+    // SHN files use EUC-KR (code page 949) for Korean strings
+    private static readonly Encoding ShnEncoding;
+
+    static ShnDataProvider()
+    {
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+        ShnEncoding = Encoding.GetEncoding(949);
+    }
+
     private readonly IShnCrypto _crypto;
     private readonly ILogger<ShnDataProvider> _logger;
 
@@ -39,7 +48,7 @@ public sealed class ShnDataProvider : IDataProvider
         }
 
         using var stream = new MemoryStream(decrypted);
-        using var reader2 = new BinaryReader(stream, Encoding.UTF8, leaveOpen: true);
+        using var reader2 = new BinaryReader(stream, ShnEncoding, leaveOpen: true);
 
         uint header = reader2.ReadUInt32();
         uint recordCount = reader2.ReadUInt32();
@@ -79,7 +88,7 @@ public sealed class ShnDataProvider : IDataProvider
         var header = GetMetadataUInt32(metadata, "header");
 
         using var content = new MemoryStream();
-        using (var writer = new BinaryWriter(content, Encoding.UTF8, leaveOpen: true))
+        using (var writer = new BinaryWriter(content, ShnEncoding, leaveOpen: true))
         {
             var columns = data.Schema.Columns;
             uint defaultRecordLength = CalculateDefaultRecordLength(columns);
@@ -265,7 +274,7 @@ public sealed class ShnDataProvider : IDataProvider
         var buffer = reader.ReadBytes(length);
         int end = 0;
         while (end < length && buffer[end] != 0x00) end++;
-        return end > 0 ? Encoding.UTF8.GetString(buffer, 0, end) : string.Empty;
+        return end > 0 ? ShnEncoding.GetString(buffer, 0, end) : string.Empty;
     }
 
     private static string ReadNullTerminatedString(BinaryReader reader)
@@ -275,14 +284,14 @@ public sealed class ShnDataProvider : IDataProvider
         int len = (int)(reader.BaseStream.Position - start - 1);
         if (len <= 0) return string.Empty;
         reader.BaseStream.Position = start;
-        var result = Encoding.UTF8.GetString(reader.ReadBytes(len));
+        var result = ShnEncoding.GetString(reader.ReadBytes(len));
         reader.ReadByte(); // consume the null terminator
         return result;
     }
 
     private static void WritePaddedString(BinaryWriter writer, string value, int length)
     {
-        var bytes = Encoding.UTF8.GetBytes(value);
+        var bytes = ShnEncoding.GetBytes(value);
         if (bytes.Length > length)
             throw new ArgumentOutOfRangeException(nameof(value),
                 $"String '{value}' ({bytes.Length} bytes) exceeds padded length {length}");
@@ -316,7 +325,7 @@ public sealed class ShnDataProvider : IDataProvider
 
     private static void WriteNullTerminatedString(BinaryWriter writer, string value, ref short varLength)
     {
-        var bytes = Encoding.UTF8.GetBytes(value);
+        var bytes = ShnEncoding.GetBytes(value);
         writer.Write(bytes);
         writer.Write((byte)0x00);
         varLength += (short)bytes.Length; // extra bytes beyond the 1-byte column length

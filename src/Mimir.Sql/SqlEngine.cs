@@ -364,16 +364,41 @@ public sealed class SqlEngine : ISqlEngine
             };
         }
 
+        // SQLite returns Int64 for all integers - use unchecked casts to handle unsigned values
+        if (value is long l)
+        {
+            return type switch
+            {
+                ColumnType.Byte => (byte)l,
+                ColumnType.SByte => (sbyte)l,
+                ColumnType.Int16 => (short)l,
+                ColumnType.UInt16 => (ushort)l,
+                ColumnType.Int32 => (int)l,
+                ColumnType.UInt32 => unchecked((uint)l),
+                ColumnType.UInt64 => unchecked((ulong)l),
+                ColumnType.Float => (float)l,
+                ColumnType.String => l.ToString(),
+                _ => l
+            };
+        }
+
+        // SQLite returns Double for REAL columns
+        if (value is double d)
+        {
+            return type switch
+            {
+                ColumnType.Float => (float)d,
+                ColumnType.Byte => (byte)d,
+                ColumnType.UInt16 => (ushort)d,
+                ColumnType.UInt32 => (uint)d,
+                ColumnType.Int32 => (int)d,
+                ColumnType.String => d.ToString(),
+                _ => d
+            };
+        }
+
         return type switch
         {
-            ColumnType.Byte => Convert.ToByte(value),
-            ColumnType.SByte => Convert.ToSByte(value),
-            ColumnType.Int16 => Convert.ToInt16(value),
-            ColumnType.UInt16 => Convert.ToUInt16(value),
-            ColumnType.Int32 => Convert.ToInt32(value),
-            ColumnType.UInt32 => Convert.ToUInt32(value),
-            ColumnType.UInt64 => Convert.ToUInt64(value),
-            ColumnType.Float => Convert.ToSingle(value),
             ColumnType.String => value.ToString()!,
             _ => value
         };
