@@ -6,15 +6,9 @@ namespace Mimir.Core.Project;
 
 public sealed class ProjectService : IProjectService
 {
-    private static readonly JsonSerializerOptions ManifestOptions = new()
+    private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        Converters = { new JsonStringEnumConverter() }
-    };
-
-    private static readonly JsonSerializerOptions RowOptions = new()
-    {
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
         Converters = { new JsonStringEnumConverter() }
     };
@@ -25,7 +19,7 @@ public sealed class ProjectService : IProjectService
     {
         var path = Path.Combine(projectDir, ManifestFileName);
         await using var stream = File.OpenRead(path);
-        return await JsonSerializer.DeserializeAsync<MimirProject>(stream, ManifestOptions, ct)
+        return await JsonSerializer.DeserializeAsync<MimirProject>(stream, JsonOptions, ct)
                ?? throw new InvalidDataException($"Failed to deserialize {path}");
     }
 
@@ -34,40 +28,22 @@ public sealed class ProjectService : IProjectService
         Directory.CreateDirectory(projectDir);
         var path = Path.Combine(projectDir, ManifestFileName);
         await using var stream = File.Create(path);
-        await JsonSerializer.SerializeAsync(stream, project, ManifestOptions, ct);
+        await JsonSerializer.SerializeAsync(stream, project, JsonOptions, ct);
     }
 
-    public async Task WriteTableDataAsync(string projectDir, TableEntry entry, TableData data, CancellationToken ct = default)
+    public async Task WriteTableFileAsync(string projectDir, string relativePath, TableFile tableFile, CancellationToken ct = default)
     {
-        var fullPath = Path.Combine(projectDir, entry.DataPath);
+        var fullPath = Path.Combine(projectDir, relativePath);
         Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
-
-        await using var writer = new StreamWriter(fullPath);
-        foreach (var row in data.Rows)
-        {
-            var line = JsonSerializer.Serialize(row, RowOptions);
-            await writer.WriteLineAsync(line.AsMemory(), ct);
-        }
+        await using var stream = File.Create(fullPath);
+        await JsonSerializer.SerializeAsync(stream, tableFile, JsonOptions, ct);
     }
 
-    public async Task<TableData> ReadTableDataAsync(string projectDir, TableEntry entry, CancellationToken ct = default)
+    public async Task<TableFile> ReadTableFileAsync(string projectDir, string relativePath, CancellationToken ct = default)
     {
-        var fullPath = Path.Combine(projectDir, entry.DataPath);
-        var rows = new List<Dictionary<string, object?>>();
-
-        using var reader = new StreamReader(fullPath);
-        while (await reader.ReadLineAsync(ct) is { } line)
-        {
-            if (string.IsNullOrWhiteSpace(line)) continue;
-            var row = JsonSerializer.Deserialize<Dictionary<string, object?>>(line, RowOptions)
-                      ?? throw new InvalidDataException($"Failed to deserialize row in {fullPath}");
-            rows.Add(row);
-        }
-
-        return new TableData
-        {
-            Schema = entry.Schema,
-            Rows = rows
-        };
+        var fullPath = Path.Combine(projectDir, relativePath);
+        await using var stream = File.OpenRead(fullPath);
+        return await JsonSerializer.DeserializeAsync<TableFile>(stream, JsonOptions, ct)
+               ?? throw new InvalidDataException($"Failed to deserialize {fullPath}");
     }
 }

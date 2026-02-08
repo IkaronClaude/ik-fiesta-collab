@@ -5,7 +5,9 @@ namespace Mimir.Core.Providers;
 /// <summary>
 /// A data provider knows how to read and write a specific file format
 /// (e.g. SHN, raw text tables). It converts between native file formats
-/// and the common TableData representation used by the JSONL project.
+/// and the common TableEntry representation used by the JSON project.
+/// Returns a list because some formats (e.g. raw tables) store multiple
+/// tables per file.
 /// </summary>
 public interface IDataProvider
 {
@@ -21,14 +23,14 @@ public interface IDataProvider
     IReadOnlyList<string> SupportedExtensions { get; }
 
     /// <summary>
-    /// Read a native file into the common TableData format.
+    /// Read a native file into one or more tables.
     /// </summary>
-    Task<TableData> ReadAsync(string filePath, CancellationToken ct = default);
+    Task<IReadOnlyList<TableEntry>> ReadAsync(string filePath, CancellationToken ct = default);
 
     /// <summary>
-    /// Write TableData back to the native file format.
+    /// Write one or more tables back to the native file format.
     /// Schema.Metadata and ColumnDefinition.SourceTypeCode are used
     /// to produce a byte-identical (or near-identical) output.
     /// </summary>
-    Task WriteAsync(string filePath, TableData data, CancellationToken ct = default);
+    Task WriteAsync(string filePath, IReadOnlyList<TableEntry> tables, CancellationToken ct = default);
 }

@@ -12,6 +12,7 @@ public enum ColumnType
     Int16,
     UInt32,
     Int32,
+    UInt64,
     Float,
     String
 }

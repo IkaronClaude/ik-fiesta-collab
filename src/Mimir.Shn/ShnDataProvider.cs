@@ -21,7 +21,7 @@ public sealed class ShnDataProvider : IDataProvider
     public string FormatId => "shn";
     public IReadOnlyList<string> SupportedExtensions => [".shn"];
 
-    public Task<TableData> ReadAsync(string filePath, CancellationToken ct = default)
+    public Task<IReadOnlyList<TableEntry>> ReadAsync(string filePath, CancellationToken ct = default)
     {
         var tableName = Path.GetFileNameWithoutExtension(filePath);
         _logger.LogDebug("Reading SHN file {FilePath}", filePath);
@@ -63,11 +63,13 @@ public sealed class ShnDataProvider : IDataProvider
             }
         };
 
-        return Task.FromResult(new TableData { Schema = schema, Rows = rows });
+        IReadOnlyList<TableEntry> result = [new TableEntry { Schema = schema, Rows = rows }];
+        return Task.FromResult(result);
     }
 
-    public Task WriteAsync(string filePath, TableData data, CancellationToken ct = default)
+    public Task WriteAsync(string filePath, IReadOnlyList<TableEntry> tables, CancellationToken ct = default)
     {
+        var data = tables[0];
         _logger.LogDebug("Writing SHN file {FilePath}", filePath);
 
         var metadata = data.Schema.Metadata
@@ -170,11 +172,12 @@ public sealed class ShnDataProvider : IDataProvider
                     2 => reader.ReadUInt16(),
                     3 or 11 or 18 or 27 => reader.ReadUInt32(),
                     5 => reader.ReadSingle(),
-                    9 or 24 => ReadPaddedString(reader, col.Definition.Length),
+                    9 or 10 or 24 => ReadPaddedString(reader, col.Definition.Length),
                     13 or 21 => reader.ReadInt16(),
                     20 => reader.ReadSByte(),
                     22 => reader.ReadInt32(),
-                    26 => ReadPaddedString(reader, (int)(rowLength - defaultRecordLength + 1)),
+                    26 => ReadNullTerminatedString(reader),
+                    29 => reader.ReadUInt64(),
                     _ => throw new InvalidDataException($"Unknown SHN column type {col.TypeCode}")
                 };
                 row[col.Definition.Name] = value;
@@ -229,7 +232,7 @@ public sealed class ShnDataProvider : IDataProvider
                     case 5:
                         writer.Write(ConvertToSingle(value));
                         break;
-                    case 9 or 24:
+                    case 9 or 10 or 24:
                         WritePaddedString(writer, value?.ToString() ?? "", col.Length);
                         break;
                     case 13 or 21:
@@ -242,9 +245,10 @@ public sealed class ShnDataProvider : IDataProvider
                         writer.Write(ConvertToInt32(value));
                         break;
                     case 26:
-                        var str = value?.ToString() ?? "";
-                        varLength += (short)str.Length;
-                        WritePaddedString(writer, str, str.Length + 1);
+                        WriteNullTerminatedString(writer, value?.ToString() ?? "", ref varLength);
+                        break;
+                    case 29:
+                        writer.Write(ConvertToUInt64(value));
                         break;
                 }
             }
@@ -262,6 +266,18 @@ public sealed class ShnDataProvider : IDataProvider
         int end = 0;
         while (end < length && buffer[end] != 0x00) end++;
         return end > 0 ? Encoding.UTF8.GetString(buffer, 0, end) : string.Empty;
+    }
+
+    private static string ReadNullTerminatedString(BinaryReader reader)
+    {
+        long start = reader.BaseStream.Position;
+        while (reader.ReadByte() != 0x00) { }
+        int len = (int)(reader.BaseStream.Position - start - 1);
+        if (len <= 0) return string.Empty;
+        reader.BaseStream.Position = start;
+        var result = Encoding.UTF8.GetString(reader.ReadBytes(len));
+        reader.ReadByte(); // consume the null terminator
+        return result;
     }
 
     private static void WritePaddedString(BinaryWriter writer, string value, int length)
@@ -282,10 +298,11 @@ public sealed class ShnDataProvider : IDataProvider
         2 => ColumnType.UInt16,
         3 or 11 or 18 or 27 => ColumnType.UInt32,
         5 => ColumnType.Float,
-        9 or 24 or 26 => ColumnType.String,
+        9 or 10 or 24 or 26 => ColumnType.String,
         13 or 21 => ColumnType.Int16,
         20 => ColumnType.SByte,
         22 => ColumnType.Int32,
+        29 => ColumnType.UInt64,
         _ => throw new InvalidDataException($"Unknown SHN type code {typeCode}")
     };
 
@@ -297,13 +314,22 @@ public sealed class ShnDataProvider : IDataProvider
         return length;
     }
 
-    private static byte ConvertToByte(object? v) => Convert.ToByte(v);
-    private static sbyte ConvertToSByte(object? v) => Convert.ToSByte(v);
-    private static ushort ConvertToUInt16(object? v) => Convert.ToUInt16(v);
-    private static short ConvertToInt16(object? v) => Convert.ToInt16(v);
-    private static uint ConvertToUInt32(object? v) => Convert.ToUInt32(v);
-    private static int ConvertToInt32(object? v) => Convert.ToInt32(v);
-    private static float ConvertToSingle(object? v) => Convert.ToSingle(v);
+    private static void WriteNullTerminatedString(BinaryWriter writer, string value, ref short varLength)
+    {
+        var bytes = Encoding.UTF8.GetBytes(value);
+        writer.Write(bytes);
+        writer.Write((byte)0x00);
+        varLength += (short)bytes.Length; // extra bytes beyond the 1-byte column length
+    }
+
+    private static byte ConvertToByte(object? v) => v is JsonElement je ? je.ValueKind == JsonValueKind.String ? byte.Parse(je.GetString()!) : (byte)je.GetUInt32() : Convert.ToByte(v);
+    private static sbyte ConvertToSByte(object? v) => v is JsonElement je ? je.ValueKind == JsonValueKind.String ? sbyte.Parse(je.GetString()!) : (sbyte)je.GetInt32() : Convert.ToSByte(v);
+    private static ushort ConvertToUInt16(object? v) => v is JsonElement je ? je.ValueKind == JsonValueKind.String ? ushort.Parse(je.GetString()!) : (ushort)je.GetUInt32() : Convert.ToUInt16(v);
+    private static short ConvertToInt16(object? v) => v is JsonElement je ? je.ValueKind == JsonValueKind.String ? short.Parse(je.GetString()!) : (short)je.GetInt32() : Convert.ToInt16(v);
+    private static uint ConvertToUInt32(object? v) => v is JsonElement je ? je.ValueKind == JsonValueKind.String ? uint.Parse(je.GetString()!) : je.GetUInt32() : Convert.ToUInt32(v);
+    private static int ConvertToInt32(object? v) => v is JsonElement je ? je.ValueKind == JsonValueKind.String ? int.Parse(je.GetString()!) : je.GetInt32() : Convert.ToInt32(v);
+    private static float ConvertToSingle(object? v) => v is JsonElement je ? je.ValueKind == JsonValueKind.String ? float.Parse(je.GetString()!) : je.GetSingle() : Convert.ToSingle(v);
+    private static ulong ConvertToUInt64(object? v) => v is JsonElement je ? je.ValueKind == JsonValueKind.String ? ulong.Parse(je.GetString()!) : je.GetUInt64() : Convert.ToUInt64(v);
 
     private static string GetMetadataString(Dictionary<string, object> metadata, string key)
     {

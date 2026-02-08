@@ -431,5 +431,8 @@ Desktop.ini
 tests/**/TestData/*.shn
 !tests/**/TestData/.gitkeep
 
-# Mimir test projects (contain copyrighted game data)
+# Mimir test projects and build artifacts (contain copyrighted game data)
 test-project/
+build-output/
+reimport-project/
+types.txt

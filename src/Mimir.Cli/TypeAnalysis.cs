@@ -31,8 +31,8 @@ public static class TypeAnalysis
             var lengths = usages.Select(u => u.Length).Distinct().OrderBy(l => l).ToList();
             Console.WriteLine($"Type {typeCode} (0x{typeCode:X2}) - used {usages.Count} times, lengths: [{string.Join(", ", lengths)}]");
 
-            // Show up to 5 example columns
-            foreach (var usage in usages.Take(5))
+            // Show up to 20 example columns
+            foreach (var usage in usages.Take(20))
             {
                 Console.WriteLine($"  {usage.FileName}.{usage.ColumnName} (len={usage.Length})");
                 foreach (var sample in usage.Samples.Take(3))
