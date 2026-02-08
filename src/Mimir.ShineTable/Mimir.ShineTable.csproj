@@ -1,8 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <RootNamespace>Mimir.RawTables</RootNamespace>
+    <RootNamespace>Mimir.ShineTable</RootNamespace>
   </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Mimir.ShineTable.Tests" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Mimir.Core\Mimir.Core.csproj" />

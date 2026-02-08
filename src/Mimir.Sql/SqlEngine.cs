@@ -346,7 +346,7 @@ public sealed class SqlEngine : ISqlEngine
 
     private static object ConvertFromSqlite(object value, ColumnType type)
     {
-        // SQLite may return strings for numeric columns (e.g. raw table data that couldn't be parsed on load)
+        // SQLite may return strings for numeric columns (e.g. shine table data that couldn't be parsed on load)
         if (value is string s)
         {
             return type switch

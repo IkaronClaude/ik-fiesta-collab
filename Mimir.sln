@@ -8,7 +8,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mimir.Core", "src\Mimir.Cor
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mimir.Shn", "src\Mimir.Shn\Mimir.Shn.csproj", "{A1B2C3D4-0002-0002-0002-000000000002}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mimir.RawTables", "src\Mimir.RawTables\Mimir.RawTables.csproj", "{A1B2C3D4-0003-0003-0003-000000000003}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mimir.ShineTable", "src\Mimir.ShineTable\Mimir.ShineTable.csproj", "{A1B2C3D4-0003-0003-0003-000000000003}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mimir.Sql", "src\Mimir.Sql\Mimir.Sql.csproj", "{A1B2C3D4-0004-0004-0004-000000000004}"
 EndProject
@@ -18,7 +18,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mimir.Core.Tests", "tests\M
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mimir.Shn.Tests", "tests\Mimir.Shn.Tests\Mimir.Shn.Tests.csproj", "{A1B2C3D4-0007-0007-0007-000000000007}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mimir.RawTables.Tests", "tests\Mimir.RawTables.Tests\Mimir.RawTables.Tests.csproj", "{A1B2C3D4-0008-0008-0008-000000000008}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mimir.ShineTable.Tests", "tests\Mimir.ShineTable.Tests\Mimir.ShineTable.Tests.csproj", "{A1B2C3D4-0008-0008-0008-000000000008}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mimir.Sql.Tests", "tests\Mimir.Sql.Tests\Mimir.Sql.Tests.csproj", "{A1B2C3D4-0009-0009-0009-000000000009}"
 EndProject

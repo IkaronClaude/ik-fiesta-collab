@@ -18,13 +18,26 @@ public sealed class DefinitionResolver
 
     public static async Task<ProjectDefinitions> LoadAsync(string projectDir, CancellationToken ct = default)
     {
-        var path = Path.Combine(projectDir, DefinitionsFileName);
-        if (!File.Exists(path))
+        var path = FindDefinitionsFile(projectDir);
+        if (path is null)
             return new ProjectDefinitions();
 
         await using var stream = File.OpenRead(path);
         return await JsonSerializer.DeserializeAsync<ProjectDefinitions>(stream, JsonOptions, ct)
                ?? new ProjectDefinitions();
+    }
+
+    private static string? FindDefinitionsFile(string startDir)
+    {
+        var dir = new DirectoryInfo(startDir);
+        while (dir is not null)
+        {
+            var candidate = Path.Combine(dir.FullName, DefinitionsFileName);
+            if (File.Exists(candidate))
+                return candidate;
+            dir = dir.Parent;
+        }
+        return null;
     }
 
     public static async Task SaveAsync(string projectDir, ProjectDefinitions file, CancellationToken ct = default)

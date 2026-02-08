@@ -1,13 +1,74 @@
+using System.Text.Json;
 using Mimir.Core.Models;
 
-namespace Mimir.RawTables;
+namespace Mimir.ShineTable;
 
 /// <summary>
 /// Parses the #table/#columntype/#columnname/#record text format.
 /// One file can contain multiple tables. Tab-separated values.
 /// </summary>
-internal static class TableFormatParser
+internal static class ShineTableFormatParser
 {
+    public static List<string> Write(IReadOnlyList<TableEntry> tables)
+    {
+        var lines = new List<string>();
+
+        foreach (var table in tables)
+        {
+            var meta = table.Schema.Metadata;
+            string tableName = meta?.TryGetValue("tableName", out var tn) == true
+                ? ToStr(tn) : table.Schema.TableName;
+
+            lines.Add($"#table\t{tableName}");
+            lines.Add("#columntype\t" + string.Join('\t', table.Schema.Columns.Select(MapTypeBack)));
+            lines.Add("#columnname\t" + string.Join('\t', table.Schema.Columns.Select(c => c.Name)));
+
+            foreach (var row in table.Rows)
+            {
+                var fields = table.Schema.Columns.Select(col =>
+                {
+                    var val = row.TryGetValue(col.Name, out var v) ? v : null;
+                    return FormatValue(val, col.Type);
+                });
+                lines.Add("#record\t" + string.Join('\t', fields));
+            }
+
+            lines.Add(""); // blank line between tables
+        }
+
+        return lines;
+    }
+
+    private static string MapTypeBack(ColumnDefinition col) => col.Type switch
+    {
+        ColumnType.Byte => "BYTE",
+        ColumnType.UInt16 => "WORD",
+        ColumnType.UInt32 => "DWRD",
+        ColumnType.Float => "FLOAT",
+        ColumnType.String when col.Length != 32 => $"STRING[{col.Length}]",
+        ColumnType.String => "INDEX",
+        _ => $"STRING[{col.Length}]"
+    };
+
+    private static string FormatValue(object? val, ColumnType type)
+    {
+        if (val is null or DBNull) return type == ColumnType.String ? "-" : "0";
+        if (val is JsonElement je) val = UnboxJsonElement(je);
+        var s = val.ToString() ?? "";
+        if (s.Length == 0) return type == ColumnType.String ? "-" : "0";
+        return s;
+    }
+
+    private static object UnboxJsonElement(JsonElement je) => je.ValueKind switch
+    {
+        JsonValueKind.Number when je.TryGetInt64(out var l) => l,
+        JsonValueKind.Number => je.GetDouble(),
+        JsonValueKind.String => je.GetString() ?? "",
+        _ => je.ToString()
+    };
+
+    private static string ToStr(object val) => val is JsonElement je ? je.GetString() ?? val.ToString()! : val.ToString()!;
+
     public static List<TableEntry> Parse(string filePath, string[] lines)
     {
         var tables = new List<TableEntry>();
@@ -128,13 +189,14 @@ internal static class TableFormatParser
             i++;
         }
 
-        if (columns == null || columns.Count == 0)
+        columns ??= BuildColumns(columnTypes, columnNames);
+        if (columns.Count == 0)
             return (null, i);
 
         var schema = new TableSchema
         {
             TableName = $"{fileName}_{tableName}",
-            SourceFormat = "rawtable",
+            SourceFormat = "shinetable",
             Columns = columns,
             Metadata = new Dictionary<string, object>
             {

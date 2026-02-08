@@ -7,14 +7,14 @@ using Mimir.Core.Models;
 using Mimir.Core.Project;
 using Mimir.Core.Providers;
 using Mimir.Shn;
-using Mimir.RawTables;
+using Mimir.ShineTable;
 using Mimir.Sql;
 
 var services = new ServiceCollection();
 services.AddLogging(b => b.AddConsole().SetMinimumLevel(LogLevel.Information));
 services.AddMimirCore();
 services.AddMimirShn();
-services.AddMimirRawTables();
+services.AddMimirShineTable();
 services.AddMimirSql();
 
 var sp = services.BuildServiceProvider();
@@ -137,7 +137,7 @@ buildCommand.SetHandler(async (DirectoryInfo project, DirectoryInfo output) =>
             // Strip "data/{format}/" prefix to get the relative source path
             var ext = provider.SupportedExtensions[0].TrimStart('.');
             var parts = entryPath.Replace('\\', '/').Split('/');
-            // Skip "data" and format prefix (e.g. "shn", "rawtable")
+            // Skip "data" and format prefix (e.g. "shn", "shinetable")
             var relParts = parts.Length > 2 ? parts[2..] : parts;
             var relDir = string.Join(Path.DirectorySeparatorChar.ToString(),
                 relParts.Take(relParts.Length - 1));

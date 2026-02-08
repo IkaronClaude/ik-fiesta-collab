@@ -1,14 +1,87 @@
+using System.Text.Json;
 using Mimir.Core.Models;
 
-namespace Mimir.RawTables;
+namespace Mimir.ShineTable;
 
 /// <summary>
 /// Parses the #DEFINE/#ENDDEFINE text format.
 /// Schema blocks define types upfront, then data rows reference them by name.
 /// Primarily used for server config (ServerInfo.txt, DefaultCharacterData.txt).
 /// </summary>
-internal static class DefineFormatParser
+internal static class ConfigTableFormatParser
 {
+    public static List<string> Write(IReadOnlyList<TableEntry> tables)
+    {
+        var lines = new List<string>();
+
+        foreach (var table in tables)
+        {
+            var meta = table.Schema.Metadata;
+            string typeName = meta?.TryGetValue("typeName", out var tn) == true
+                ? ToStr(tn) : table.Schema.TableName;
+
+            // Write schema block
+            lines.Add($"#DEFINE {typeName}");
+            foreach (var col in table.Schema.Columns)
+            {
+                string typeTag = MapTypeBack(col.Type);
+                lines.Add($"<{typeTag}>\t; {col.Name}");
+            }
+            lines.Add("#ENDDEFINE");
+            lines.Add("");
+
+            // Write data rows
+            foreach (var row in table.Rows)
+            {
+                var values = table.Schema.Columns.Select(col =>
+                {
+                    var val = row.TryGetValue(col.Name, out var v) ? v : null;
+                    return FormatCsvValue(val, col.Type);
+                });
+                lines.Add($"{typeName} {string.Join(", ", values)}");
+            }
+
+            lines.Add("");
+        }
+
+        return lines;
+    }
+
+    private static string MapTypeBack(ColumnType type) => type switch
+    {
+        ColumnType.String => "STRING",
+        ColumnType.Int32 => "INTEGER",
+        ColumnType.Float => "FLOAT",
+        ColumnType.Byte => "BYTE",
+        ColumnType.UInt16 => "WORD",
+        ColumnType.UInt32 => "DWORD",
+        _ => "STRING"
+    };
+
+    private static string FormatCsvValue(object? val, ColumnType type)
+    {
+        if (val is null or DBNull) return type == ColumnType.String ? "\"\"" : "0";
+        if (val is JsonElement je) val = UnboxJsonElement(je);
+        var s = val.ToString() ?? "";
+        if (s.Length == 0) return type == ColumnType.String ? "\"\"" : "0";
+        // Quote strings that contain commas or whitespace
+        if (type == ColumnType.String && (s.Contains(',') || s.Contains(' ') || s.Contains('\t')))
+            return $"\"{s}\"";
+        if (type == ColumnType.String)
+            return $"\"{s}\"";
+        return s;
+    }
+
+    private static object UnboxJsonElement(JsonElement je) => je.ValueKind switch
+    {
+        JsonValueKind.Number when je.TryGetInt64(out var l) => l,
+        JsonValueKind.Number => je.GetDouble(),
+        JsonValueKind.String => je.GetString() ?? "",
+        _ => je.ToString()
+    };
+
+    private static string ToStr(object val) => val is JsonElement je ? je.GetString() ?? val.ToString()! : val.ToString()!;
+
     public static List<TableEntry> Parse(string filePath, string[] lines)
     {
         string fileName = Path.GetFileNameWithoutExtension(filePath);
@@ -64,7 +137,7 @@ internal static class DefineFormatParser
             var schema = new TableSchema
             {
                 TableName = $"{fileName}_{typeName}",
-                SourceFormat = "rawtable-define",
+                SourceFormat = "configtable",
                 Columns = cols,
                 Metadata = new Dictionary<string, object>
                 {

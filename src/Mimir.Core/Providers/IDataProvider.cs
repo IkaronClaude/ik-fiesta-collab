@@ -12,7 +12,7 @@ namespace Mimir.Core.Providers;
 public interface IDataProvider
 {
     /// <summary>
-    /// Identifier for this provider (e.g. "shn", "rawtable").
+    /// Identifier for this provider (e.g. "shn", "shinetable").
     /// Matches the sourceFormat field in TableSchema.
     /// </summary>
     string FormatId { get; }

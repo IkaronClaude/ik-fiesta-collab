@@ -1,0 +1,34 @@
+{
+  "tables": {
+    "ItemInfo": {
+      "idColumn": "ID",
+      "keyColumn": "InxName",
+      "columnAnnotations": {
+        "InxName": { "displayName": "Index Name", "description": "Internal string identifier for the item" },
+        "Name": { "displayName": "Display Name", "description": "Localized name shown to players" },
+        "DemandLv": { "displayName": "Required Level", "description": "Minimum character level to equip" },
+        "AC": { "displayName": "Armor Class", "description": "Defense stat, +N defense when equipped" },
+        "MR": { "displayName": "Magic Resistance", "description": "Magic defense stat when equipped" },
+        "MinWC": { "displayName": "Min Weapon Class", "description": "Minimum physical damage" },
+        "MaxWC": { "displayName": "Max Weapon Class", "description": "Maximum physical damage" },
+        "MinMA": { "displayName": "Min Magic Attack", "description": "Minimum magic damage" },
+        "MaxMA": { "displayName": "Max Magic Attack", "description": "Maximum magic damage" },
+        "TH": { "displayName": "To Hit", "description": "Accuracy bonus" },
+        "TB": { "displayName": "To Block", "description": "Evasion/block bonus" },
+        "BuyPrice": { "displayName": "Buy Price", "description": "Cost in gold to purchase from NPC" },
+        "SellPrice": { "displayName": "Sell Price", "description": "Gold received when selling to NPC" },
+        "UseClass": { "displayName": "Usable Classes", "description": "Bitmask of classes that can equip this item" },
+        "UpLimit": { "displayName": "Upgrade Limit", "description": "Maximum upgrade/enhancement level" },
+        "SetItemIndex": { "displayName": "Set Index", "description": "Set bonus group this item belongs to" }
+      }
+    }
+  },
+  "constraints": [
+    {
+      "description": "NPC shop items reference ItemInfo",
+      "match": { "path": "data/shinetable/Shine/NPCItemList/**", "column": "Column*" },
+      "foreignKey": { "table": "ItemInfo" },
+      "emptyValues": ["-", ""]
+    }
+  ]
+}
