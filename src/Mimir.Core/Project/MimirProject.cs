@@ -20,8 +20,26 @@ public sealed class MimirProject
     public Dictionary<string, string>? Sources { get; set; }
 
     /// <summary>
+    /// Named environments with import/build paths.
+    /// Replaces Sources dict for multi-environment projects.
+    /// </summary>
+    [JsonPropertyName("environments")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Dictionary<string, EnvironmentConfig>? Environments { get; set; }
+
+    /// <summary>
     /// Table name -> relative path to the .json table file.
     /// </summary>
     [JsonPropertyName("tables")]
     public Dictionary<string, string> Tables { get; init; } = [];
+}
+
+public sealed class EnvironmentConfig
+{
+    [JsonPropertyName("importPath")]
+    public required string ImportPath { get; init; }
+
+    [JsonPropertyName("buildPath")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? BuildPath { get; init; }
 }

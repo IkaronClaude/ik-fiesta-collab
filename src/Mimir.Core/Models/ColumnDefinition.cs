@@ -20,4 +20,13 @@ public sealed class ColumnDefinition
     [JsonPropertyName("sourceTypeCode")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public int? SourceTypeCode { get; init; }
+
+    /// <summary>
+    /// Which environments this column belongs to.
+    /// null = present in ALL environments (shared).
+    /// ["server"] = server-only column.
+    /// </summary>
+    [JsonPropertyName("environments")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? Environments { get; set; }
 }

@@ -16,6 +16,16 @@ public sealed class TableFile
 
     [JsonPropertyName("data")]
     public required IReadOnlyList<Dictionary<string, object?>> Data { get; init; }
+
+    /// <summary>
+    /// Per-row environment annotations for merged tables.
+    /// null entry = row present in all environments (shared).
+    /// ["server"] = server-only row.
+    /// null list = non-merged table (all rows shared).
+    /// </summary>
+    [JsonPropertyName("rowEnvironments")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<List<string>?>? RowEnvironments { get; init; }
 }
 
 public sealed class TableHeader
