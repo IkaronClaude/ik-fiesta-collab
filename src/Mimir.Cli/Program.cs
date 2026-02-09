@@ -6,6 +6,7 @@ using Mimir.Core.Constraints;
 using Mimir.Core.Models;
 using Mimir.Core.Project;
 using Mimir.Core.Providers;
+using Mimir.Core.Templates;
 using Mimir.Shn;
 using Mimir.ShineTable;
 using Mimir.Sql;
@@ -22,55 +23,228 @@ var sp = services.BuildServiceProvider();
 var rootCommand = new RootCommand("Mimir - Fiesta Online server data toolkit");
 
 // --- import command ---
-var importCommand = new Command("import", "Import server data files into a Mimir project");
-var sourceArg = new Argument<DirectoryInfo>("source", "Path to server 9Data directory");
-var projectArg = new Argument<DirectoryInfo>("project", "Path to output Mimir project directory");
-var clientOption = new Option<DirectoryInfo?>("--client", "Path to client 9Data directory (optional)");
-clientOption.AddAlias("-c");
-importCommand.AddArgument(sourceArg);
-importCommand.AddArgument(projectArg);
-importCommand.AddOption(clientOption);
+var importCommand = new Command("import", "Import data files into a Mimir project using environments from mimir.json");
+var importProjectArg = new Argument<DirectoryInfo>("project", "Path to Mimir project directory (must have mimir.json with environments)");
+importCommand.AddArgument(importProjectArg);
 
-importCommand.SetHandler(async (DirectoryInfo source, DirectoryInfo project, DirectoryInfo? clientDir) =>
+importCommand.SetHandler(async (DirectoryInfo project) =>
 {
     var logger = sp.GetRequiredService<ILogger<Program>>();
     var projectService = sp.GetRequiredService<IProjectService>();
     var providers = sp.GetServices<IDataProvider>().ToList();
 
-    var manifest = new MimirProject
+    var manifest = await projectService.LoadProjectAsync(project.FullName);
+
+    if (manifest.Environments is null || manifest.Environments.Count == 0)
     {
-        Sources = new Dictionary<string, string> { ["server"] = source.FullName }
-    };
-    if (clientDir is not null)
-        manifest.Sources["client"] = clientDir.FullName;
+        logger.LogError("No environments defined in mimir.json. Add an 'environments' section with import paths.");
+        return;
+    }
 
-    // Track imported table files for duplicate comparison
-    var importedTables = new Dictionary<string, (TableFile file, string origin)>();
-    int conflicts = 0;
+    // Load template for merge actions
+    var template = await TemplateResolver.LoadAsync(project.FullName);
 
-    // --- Phase 1: Import server files ---
-    logger.LogInformation("Importing server data from {Source}", source.FullName);
-    conflicts += await ImportSource(source, project, SourceOrigin.Server, providers, projectService, manifest,
-        importedTables, logger);
+    // Phase 1: Read all tables from each environment into memory
+    var rawTables = new Dictionary<(string tableName, string envName), TableFile>();
 
-    // --- Phase 2: Import client files (if provided) ---
-    if (clientDir is not null)
+    foreach (var (envName, envConfig) in manifest.Environments)
     {
-        logger.LogInformation("Importing client data from {Client}", clientDir.FullName);
-        conflicts += await ImportSource(clientDir, project, SourceOrigin.Client, providers, projectService, manifest,
-            importedTables, logger);
+        var sourceDir = new DirectoryInfo(envConfig.ImportPath);
+        if (!sourceDir.Exists)
+        {
+            logger.LogWarning("Import path does not exist for environment {Env}: {Path}", envName, envConfig.ImportPath);
+            continue;
+        }
+
+        logger.LogInformation("Scanning environment {Env}: {Path}", envName, sourceDir.FullName);
+        var tables = await ReadAllTables(sourceDir, providers, logger);
+
+        foreach (var (tableName, tableFile) in tables)
+        {
+            rawTables[(tableName, envName)] = tableFile;
+            logger.LogDebug("Read {Table} from {Env} ({Rows} rows)", tableName, envName, tableFile.Data.Count);
+        }
+
+        logger.LogInformation("Read {Count} tables from {Env}", tables.Count, envName);
+    }
+
+    // Phase 2: Execute merge actions from template
+    var mergedTables = new Dictionary<string, TableFile>();
+    var allEnvMetadata = new Dictionary<string, Dictionary<string, EnvMergeMetadata>>(); // tableName → envName → metadata
+    int totalConflicts = 0;
+
+    var mergeActions = template.Actions.Where(a => a.Action is "copy" or "merge").ToList();
+    var tablesHandledByActions = new HashSet<string>();
+
+    foreach (var action in mergeActions)
+    {
+        if (action.Action == "copy" && action.From != null && action.To != null)
+        {
+            var key = (action.From.Table, action.From.Env);
+            if (rawTables.TryGetValue(key, out var raw))
+            {
+                mergedTables[action.To] = raw;
+                tablesHandledByActions.Add(action.To);
+
+                // Store base env column order
+                if (!allEnvMetadata.ContainsKey(action.To))
+                    allEnvMetadata[action.To] = new();
+                allEnvMetadata[action.To][action.From.Env] = new EnvMergeMetadata
+                {
+                    ColumnOrder = raw.Columns.Select(c => c.Name).ToList(),
+                    ColumnOverrides = new(),
+                    ColumnRenames = new()
+                };
+
+                logger.LogInformation("Copy: {From}@{Env} → {To}", action.From.Table, action.From.Env, action.To);
+            }
+            else
+            {
+                logger.LogWarning("Copy action: table {Table} not found in environment {Env}",
+                    action.From.Table, action.From.Env);
+            }
+        }
+        else if (action.Action == "merge" && action.From != null && action.Into != null && action.On != null)
+        {
+            var key = (action.From.Table, action.From.Env);
+            if (!rawTables.TryGetValue(key, out var source))
+            {
+                logger.LogWarning("Merge action: table {Table} not found in environment {Env}",
+                    action.From.Table, action.From.Env);
+                continue;
+            }
+
+            if (!mergedTables.TryGetValue(action.Into, out var target))
+            {
+                logger.LogWarning("Merge action: target table {Table} not yet created (need a copy action first)",
+                    action.Into);
+                continue;
+            }
+
+            var strategy = action.ColumnStrategy ?? "auto";
+            var result = TableMerger.Merge(target, source, action.On, action.From.Env, strategy);
+            mergedTables[action.Into] = result.Table;
+
+            // Accumulate env metadata
+            if (!allEnvMetadata.ContainsKey(action.Into))
+                allEnvMetadata[action.Into] = new();
+            foreach (var (eName, eMeta) in result.EnvMetadata)
+                allEnvMetadata[action.Into][eName] = eMeta;
+
+            if (result.Conflicts.Count > 0)
+            {
+                totalConflicts += result.Conflicts.Count;
+                foreach (var c in result.Conflicts.Take(5))
+                    logger.LogError("CONFLICT in {Table}: key={Key} col={Col} target={TVal} source={SVal}",
+                        action.Into, c.JoinKey, c.Column, c.TargetValue, c.SourceValue);
+                if (result.Conflicts.Count > 5)
+                    logger.LogError("  ... and {More} more conflicts in {Table}",
+                        result.Conflicts.Count - 5, action.Into);
+            }
+
+            logger.LogInformation("Merge: {From}@{Env} → {Into} ({Conflicts} conflicts)",
+                action.From.Table, action.From.Env, action.Into, result.Conflicts.Count);
+        }
+    }
+
+    // Phase 3: Tables without merge actions — copy directly if only in one env
+    var allTableNames = rawTables.Keys.Select(k => k.tableName).Distinct();
+    foreach (var tableName in allTableNames)
+    {
+        if (tablesHandledByActions.Contains(tableName)) continue;
+
+        var envs = rawTables.Keys.Where(k => k.tableName == tableName).Select(k => k.envName).ToList();
+        if (envs.Count == 1)
+        {
+            var key = (tableName, envs[0]);
+            mergedTables[tableName] = rawTables[key];
+            logger.LogDebug("Passthrough: {Table} (only in {Env})", tableName, envs[0]);
+        }
+        else
+        {
+            // Multiple envs but no merge action — check if identical
+            var first = rawTables[(tableName, envs[0])];
+            bool allIdentical = true;
+            foreach (var env in envs.Skip(1))
+            {
+                var diff = TableComparer.FindDifference(first, rawTables[(tableName, env)]);
+                if (diff != null)
+                {
+                    allIdentical = false;
+                    logger.LogWarning("Table {Table} exists in multiple envs but has no merge action and differs: {Diff}",
+                        tableName, diff);
+                    break;
+                }
+            }
+            if (allIdentical)
+            {
+                mergedTables[tableName] = first;
+                logger.LogDebug("Passthrough: {Table} (identical across envs)", tableName);
+            }
+            else
+            {
+                // Just take the first env's version and warn
+                mergedTables[tableName] = first;
+            }
+        }
+    }
+
+    // Phase 4: Write merged tables and update manifest
+    manifest.Tables.Clear();
+    int merged = 0;
+
+    foreach (var (tableName, tableFile) in mergedTables.OrderBy(kv => kv.Key))
+    {
+        // Determine relative path from source format
+        var relativePath = $"data/{tableFile.Header.SourceFormat}/{tableFile.Header.TableName}.json";
+
+        // Enrich metadata for merged tables
+        if (allEnvMetadata.TryGetValue(tableName, out var envMetas) && envMetas.Count > 1)
+        {
+            var metadata = tableFile.Header.Metadata ?? new Dictionary<string, object>();
+            metadata[SourceOrigin.MetadataKey] = EnvironmentInfo.MergedOrigin;
+
+            // Store per-env metadata
+            foreach (var (eName, eMeta) in envMetas)
+            {
+                metadata[eName] = new Dictionary<string, object?>
+                {
+                    ["columnOrder"] = eMeta.ColumnOrder,
+                    ["columnOverrides"] = eMeta.ColumnOverrides.Count > 0 ? eMeta.ColumnOverrides : null,
+                    ["columnRenames"] = eMeta.ColumnRenames.Count > 0 ? eMeta.ColumnRenames : null
+                };
+            }
+
+            var enrichedFile = new TableFile
+            {
+                Header = new TableHeader
+                {
+                    TableName = tableFile.Header.TableName,
+                    SourceFormat = tableFile.Header.SourceFormat,
+                    Metadata = metadata
+                },
+                Columns = tableFile.Columns,
+                Data = tableFile.Data,
+                RowEnvironments = tableFile.RowEnvironments
+            };
+
+            await projectService.WriteTableFileAsync(project.FullName, relativePath, enrichedFile);
+            merged++;
+        }
+        else
+        {
+            await projectService.WriteTableFileAsync(project.FullName, relativePath, tableFile);
+        }
+
+        manifest.Tables[tableName] = relativePath;
     }
 
     await projectService.SaveProjectAsync(project.FullName, manifest);
 
-    var shared = importedTables.Values.Count(t => t.origin == SourceOrigin.Shared);
-    var serverOnly = importedTables.Values.Count(t => t.origin == SourceOrigin.Server);
-    var clientOnly = importedTables.Values.Count(t => t.origin == SourceOrigin.Client);
+    logger.LogInformation("Import complete: {Total} tables ({Merged} merged, {Conflicts} conflicts)",
+        manifest.Tables.Count, merged, totalConflicts);
 
-    logger.LogInformation("Import complete: {Total} tables ({Server} server, {Client} client, {Shared} shared, {Conflicts} conflicts)",
-        manifest.Tables.Count, serverOnly, clientOnly, shared, conflicts);
-
-}, sourceArg, projectArg, clientOption);
+}, importProjectArg);
 
 // --- build command ---
 var buildCommand = new Command("build", "Build server data files from a Mimir project");
@@ -525,13 +699,10 @@ return await rootCommand.InvokeAsync(args);
 
 // --- import helper ---
 
-async Task<int> ImportSource(
-    DirectoryInfo sourceDir, DirectoryInfo projectDir, string origin,
-    List<IDataProvider> providers, IProjectService projectService, MimirProject manifest,
-    Dictionary<string, (TableFile file, string origin)> importedTables,
-    ILogger logger)
+async Task<Dictionary<string, TableFile>> ReadAllTables(
+    DirectoryInfo sourceDir, List<IDataProvider> providers, ILogger logger)
 {
-    int conflicts = 0;
+    var tables = new Dictionary<string, TableFile>();
     var files = sourceDir.EnumerateFiles("*", SearchOption.AllDirectories);
 
     foreach (var file in files)
@@ -539,89 +710,35 @@ async Task<int> ImportSource(
         var provider = providers.FirstOrDefault(p =>
             p.SupportedExtensions.Contains(file.Extension.ToLowerInvariant()));
 
-        if (provider is null)
-        {
-            logger.LogDebug("Skipping {File} (no provider for {Extension})", file.Name, file.Extension);
-            continue;
-        }
+        if (provider is null) continue;
 
         try
         {
             var entries = await provider.ReadAsync(file.FullName);
-            var sourceRelDir = Path.GetDirectoryName(
-                Path.GetRelativePath(sourceDir.FullName, file.FullName)) ?? "";
 
             foreach (var entry in entries)
             {
-                var relativePath = Path.Combine("data", entry.Schema.SourceFormat, sourceRelDir,
-                    $"{entry.Schema.TableName}.json").Replace('\\', '/');
-
-                // Set source origin in metadata
-                var metadata = entry.Schema.Metadata ?? new Dictionary<string, object>();
-                metadata[SourceOrigin.MetadataKey] = origin;
-
                 var tableFile = new TableFile
                 {
                     Header = new TableHeader
                     {
                         TableName = entry.Schema.TableName,
                         SourceFormat = entry.Schema.SourceFormat,
-                        Metadata = metadata
+                        Metadata = entry.Schema.Metadata
                     },
                     Columns = entry.Schema.Columns,
                     Data = entry.Rows
                 };
 
-                // Check for duplicate table from another source
-                if (importedTables.TryGetValue(entry.Schema.TableName, out var existing))
-                {
-                    var diff = TableComparer.FindDifference(existing.file, tableFile);
-                    if (diff is null)
-                    {
-                        // Identical data - mark as shared, keep the existing manifest path
-                        var existingPath = manifest.Tables[entry.Schema.TableName];
-                        var sharedMeta = existing.file.Header.Metadata ?? new Dictionary<string, object>();
-                        sharedMeta[SourceOrigin.MetadataKey] = SourceOrigin.Shared;
-                        var sharedFile = new TableFile
-                        {
-                            Header = new TableHeader
-                            {
-                                TableName = existing.file.Header.TableName,
-                                SourceFormat = existing.file.Header.SourceFormat,
-                                Metadata = sharedMeta
-                            },
-                            Columns = existing.file.Columns,
-                            Data = existing.file.Data
-                        };
-                        await projectService.WriteTableFileAsync(projectDir.FullName, existingPath, sharedFile);
-                        importedTables[entry.Schema.TableName] = (sharedFile, SourceOrigin.Shared);
-
-                        logger.LogInformation("Shared: {TableName} (identical in server and client)", entry.Schema.TableName);
-                    }
-                    else
-                    {
-                        // Data differs - this is a conflict
-                        conflicts++;
-                        logger.LogError("CONFLICT: {TableName} differs between sources: {Difference}",
-                            entry.Schema.TableName, diff);
-                    }
-                    continue;
-                }
-
-                await projectService.WriteTableFileAsync(projectDir.FullName, relativePath, tableFile);
-                manifest.Tables[entry.Schema.TableName] = relativePath;
-                importedTables[entry.Schema.TableName] = (tableFile, origin);
-
-                logger.LogInformation("Imported {TableName} ({RowCount} rows, {Origin})",
-                    entry.Schema.TableName, entry.Rows.Count, origin);
+                tables[entry.Schema.TableName] = tableFile;
             }
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Failed to import {File}", file.Name);
+            logger.LogError(ex, "Failed to read {File}", file.Name);
         }
     }
-    return conflicts;
+    return tables;
 }
 
 // --- shared helpers ---
