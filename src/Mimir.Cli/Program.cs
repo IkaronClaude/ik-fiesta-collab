@@ -247,99 +247,120 @@ importCommand.SetHandler(async (DirectoryInfo project) =>
 }, importProjectArg);
 
 // --- build command ---
-var buildCommand = new Command("build", "Build server data files from a Mimir project");
+var buildCommand = new Command("build", "Build data files from a Mimir project for a specific environment");
 var buildProjectArg = new Argument<DirectoryInfo>("project", "Path to Mimir project directory");
-var buildOutputArg = new Argument<DirectoryInfo>("output", "Path to output server data directory");
-var buildClientOption = new Option<DirectoryInfo?>("--client-output", "Path to output client data directory (optional)");
-buildClientOption.AddAlias("-c");
+var buildOutputArg = new Argument<DirectoryInfo>("output", "Path to output data directory");
+var buildEnvOption = new Option<string?>("--env", "Environment to build for (e.g. server, client)");
+buildEnvOption.AddAlias("-e");
+var buildAllOption = new Option<bool>("--all", "Build all environments to their configured buildPaths");
 buildCommand.AddArgument(buildProjectArg);
 buildCommand.AddArgument(buildOutputArg);
-buildCommand.AddOption(buildClientOption);
+buildCommand.AddOption(buildEnvOption);
+buildCommand.AddOption(buildAllOption);
 
-buildCommand.SetHandler(async (DirectoryInfo project, DirectoryInfo output, DirectoryInfo? clientOutput) =>
+buildCommand.SetHandler(async (DirectoryInfo project, DirectoryInfo output, string? envName, bool buildAll) =>
 {
     var logger = sp.GetRequiredService<ILogger<Program>>();
     var projectService = sp.GetRequiredService<IProjectService>();
     var providers = sp.GetServices<IDataProvider>().ToDictionary(p => p.FormatId);
 
-    logger.LogInformation("Building from {Project} to {Output}", project.FullName, output.FullName);
-    if (clientOutput is not null)
-        logger.LogInformation("Client output: {ClientOutput}", clientOutput.FullName);
-
     var manifest = await projectService.LoadProjectAsync(project.FullName);
-    Directory.CreateDirectory(output.FullName);
-    if (clientOutput is not null)
-        Directory.CreateDirectory(clientOutput.FullName);
+    var template = await TemplateResolver.LoadAsync(project.FullName);
 
-    int serverBuilt = 0, clientBuilt = 0;
-
-    foreach (var (name, entryPath) in manifest.Tables)
+    // Determine which environments to build
+    var envsToBuild = new Dictionary<string, string>(); // envName → outputDir
+    if (buildAll && manifest.Environments != null)
     {
-        var tableFile = await projectService.ReadTableFileAsync(project.FullName, entryPath);
-
-        var entry = new TableEntry
+        foreach (var (eName, eConfig) in manifest.Environments)
         {
-            Schema = new TableSchema
-            {
-                TableName = tableFile.Header.TableName,
-                SourceFormat = tableFile.Header.SourceFormat,
-                Columns = tableFile.Columns,
-                Metadata = tableFile.Header.Metadata
-            },
-            Rows = tableFile.Data
-        };
-
-        if (!providers.TryGetValue(entry.Schema.SourceFormat, out var provider))
-        {
-            logger.LogWarning("No provider for format {Format}, skipping {Table}",
-                entry.Schema.SourceFormat, name);
-            continue;
-        }
-
-        var origin = tableFile.Header.Metadata?.TryGetValue(SourceOrigin.MetadataKey, out var o) == true
-            ? o?.ToString() : null;
-
-        // Determine which outputs to write to
-        bool writeServer = origin is null or SourceOrigin.Server or SourceOrigin.Shared;
-        bool writeClient = clientOutput is not null
-            && origin is SourceOrigin.Client or SourceOrigin.Shared;
-
-        try
-        {
-            var ext = provider.SupportedExtensions[0].TrimStart('.');
-            var parts = entryPath.Replace('\\', '/').Split('/');
-            var relParts = parts.Length > 2 ? parts[2..] : parts;
-            var relDir = string.Join(Path.DirectorySeparatorChar.ToString(),
-                relParts.Take(relParts.Length - 1));
-
-            if (writeServer)
-            {
-                var dir = Path.Combine(output.FullName, relDir);
-                Directory.CreateDirectory(dir);
-                await provider.WriteAsync(Path.Combine(dir, $"{name}.{ext}"), [entry]);
-                serverBuilt++;
-            }
-
-            if (writeClient)
-            {
-                var dir = Path.Combine(clientOutput!.FullName, relDir);
-                Directory.CreateDirectory(dir);
-                await provider.WriteAsync(Path.Combine(dir, $"{name}.{ext}"), [entry]);
-                clientBuilt++;
-            }
-
-            logger.LogInformation("Built {TableName} ({Origin})", name, origin ?? "server");
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Failed to build {Table}", name);
+            var buildPath = eConfig.BuildPath ?? Path.Combine("build", eName);
+            var fullPath = Path.IsPathRooted(buildPath) ? buildPath : Path.Combine(project.FullName, buildPath);
+            envsToBuild[eName] = fullPath;
         }
     }
+    else if (envName != null)
+    {
+        envsToBuild[envName] = output.FullName;
+    }
+    else
+    {
+        // Legacy mode: build everything to output without splitting
+        envsToBuild[""] = output.FullName;
+    }
 
-    logger.LogInformation("Build complete: {Server} server files, {Client} client files",
-        serverBuilt, clientBuilt);
+    // Load env metadata from template (for merged table splitting)
+    // Build a map of tableName → envName → EnvMergeMetadata from persisted JSON metadata
+    var envMetadataMap = new Dictionary<string, Dictionary<string, EnvMergeMetadata>>();
 
-}, buildProjectArg, buildOutputArg, buildClientOption);
+    foreach (var (eName, outputDir) in envsToBuild)
+    {
+        Directory.CreateDirectory(outputDir);
+        int built = 0;
+
+        logger.LogInformation("Building {Env} to {Output}", eName == "" ? "all" : eName, outputDir);
+
+        foreach (var (name, entryPath) in manifest.Tables)
+        {
+            var tableFile = await projectService.ReadTableFileAsync(project.FullName, entryPath);
+
+            // Check if this is a merged table and we need to split
+            var origin = tableFile.Header.Metadata?.TryGetValue(SourceOrigin.MetadataKey, out var o) == true
+                ? o?.ToString() : null;
+
+            TableFile outputTable;
+            if (origin == EnvironmentInfo.MergedOrigin && eName != "")
+            {
+                // Extract per-env metadata from the table's metadata
+                var envMeta = ExtractEnvMetadata(tableFile, eName);
+                if (envMeta == null)
+                {
+                    logger.LogDebug("Skipping {Table} for env {Env} (no env metadata)", name, eName);
+                    continue;
+                }
+                outputTable = TableSplitter.Split(tableFile, eName, envMeta);
+            }
+            else
+            {
+                outputTable = tableFile;
+            }
+
+            var entry = new TableEntry
+            {
+                Schema = new TableSchema
+                {
+                    TableName = outputTable.Header.TableName,
+                    SourceFormat = outputTable.Header.SourceFormat,
+                    Columns = outputTable.Columns,
+                    Metadata = outputTable.Header.Metadata
+                },
+                Rows = outputTable.Data
+            };
+
+            if (!providers.TryGetValue(entry.Schema.SourceFormat, out var provider))
+            {
+                logger.LogWarning("No provider for format {Format}, skipping {Table}",
+                    entry.Schema.SourceFormat, name);
+                continue;
+            }
+
+            try
+            {
+                var ext = provider.SupportedExtensions[0].TrimStart('.');
+                var dir = outputDir;
+                Directory.CreateDirectory(dir);
+                await provider.WriteAsync(Path.Combine(dir, $"{name}.{ext}"), [entry]);
+                built++;
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Failed to build {Table}", name);
+            }
+        }
+
+        logger.LogInformation("Built {Count} files for {Env}", built, eName == "" ? "all" : eName);
+    }
+
+}, buildProjectArg, buildOutputArg, buildEnvOption, buildAllOption);
 
 // --- query command ---
 var queryCommand = new Command("query", "Run SQL against a Mimir project");
@@ -808,4 +829,51 @@ async Task SaveAllTables(
         saved++;
     }
     Console.WriteLine($"Saved {saved} tables.");
+}
+
+EnvMergeMetadata? ExtractEnvMetadata(TableFile tableFile, string envName)
+{
+    if (tableFile.Header.Metadata == null) return null;
+    if (!tableFile.Header.Metadata.TryGetValue(envName, out var raw)) return null;
+
+    // The metadata is stored as a JsonElement from deserialization
+    if (raw is not System.Text.Json.JsonElement je || je.ValueKind != System.Text.Json.JsonValueKind.Object)
+        return null;
+
+    var columnOrder = new List<string>();
+    if (je.TryGetProperty("columnOrder", out var coElem) && coElem.ValueKind == System.Text.Json.JsonValueKind.Array)
+    {
+        foreach (var item in coElem.EnumerateArray())
+            if (item.GetString() is string s)
+                columnOrder.Add(s);
+    }
+
+    var columnOverrides = new Dictionary<string, ColumnOverride>();
+    if (je.TryGetProperty("columnOverrides", out var ovElem) && ovElem.ValueKind == System.Text.Json.JsonValueKind.Object)
+    {
+        foreach (var prop in ovElem.EnumerateObject())
+        {
+            var ov = new ColumnOverride();
+            if (prop.Value.TryGetProperty("length", out var lenElem))
+                ov.Length = lenElem.GetInt32();
+            if (prop.Value.TryGetProperty("sourceTypeCode", out var stcElem))
+                ov.SourceTypeCode = stcElem.GetInt32();
+            columnOverrides[prop.Name] = ov;
+        }
+    }
+
+    var columnRenames = new Dictionary<string, string>();
+    if (je.TryGetProperty("columnRenames", out var rnElem) && rnElem.ValueKind == System.Text.Json.JsonValueKind.Object)
+    {
+        foreach (var prop in rnElem.EnumerateObject())
+            if (prop.Value.GetString() is string s)
+                columnRenames[prop.Name] = s;
+    }
+
+    return new EnvMergeMetadata
+    {
+        ColumnOrder = columnOrder,
+        ColumnOverrides = columnOverrides,
+        ColumnRenames = columnRenames
+    };
 }
