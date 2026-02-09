@@ -415,12 +415,12 @@ validateCommand.SetHandler(async (DirectoryInfo project) =>
     using var engine = sp.GetRequiredService<ISqlEngine>();
 
     var manifest = await projectService.LoadProjectAsync(project.FullName);
-    var constraints = await DefinitionResolver.LoadAsync(project.FullName);
+    var constraints = await LoadDefinitions(project.FullName, logger);
 
     if (constraints.Constraints.Count == 0)
     {
-        logger.LogWarning("No constraints file found or no rules defined. Create {File} to add constraints.",
-            DefinitionResolver.DefinitionsFileName);
+        logger.LogWarning("No constraints found. Create {File} or {Template} to add constraints.",
+            DefinitionResolver.DefinitionsFileName, TemplateResolver.TemplateFileName);
         return;
     }
 
@@ -570,7 +570,7 @@ shellCommand.SetHandler(async (DirectoryInfo project) =>
     using var engine = sp.GetRequiredService<ISqlEngine>();
 
     var manifest = await projectService.LoadProjectAsync(project.FullName);
-    var definitions = await DefinitionResolver.LoadAsync(project.FullName);
+    var definitions = await LoadDefinitions(project.FullName, logger);
 
     // Load all tables, preserving headers for write-back
     var tableHeaders = new Dictionary<string, TableHeader>();
@@ -823,15 +823,15 @@ async Task LoadTablesWithConstraints(
     ISqlEngine engine, IProjectService projectService, MimirProject manifest,
     string projectDir, ILogger logger)
 {
-    // Load and resolve constraints (if any)
-    var constraintFile = await DefinitionResolver.LoadAsync(projectDir);
-    var resolved = DefinitionResolver.Resolve(constraintFile, manifest);
+    // Load constraints from template (preferred) or definitions file (legacy)
+    var definitions = await LoadDefinitions(projectDir, logger);
+    var resolved = DefinitionResolver.Resolve(definitions, manifest);
 
-    if (resolved.Count > 0 || constraintFile.Tables?.Count > 0)
+    if (resolved.Count > 0 || definitions.Tables?.Count > 0)
     {
-        engine.SetConstraints(resolved, constraintFile.Tables);
-        logger.LogInformation("Registered {Count} FK constraints from {RuleCount} rules, {KeyCount} table keys",
-            resolved.Count, constraintFile.Constraints.Count, constraintFile.Tables?.Count ?? 0);
+        engine.SetConstraints(resolved, definitions.Tables);
+        logger.LogInformation("Registered {Count} FK constraints, {KeyCount} table keys",
+            resolved.Count, definitions.Tables?.Count ?? 0);
     }
 
     // Determine load order (referenced tables first)
@@ -856,10 +856,24 @@ async Task LoadTablesWithConstraints(
         engine.LoadTable(entry);
     }
 
-    if (resolved.Count > 0 || constraintFile.Tables?.Count > 0)
+    if (resolved.Count > 0 || definitions.Tables?.Count > 0)
         engine.EnableForeignKeys();
 
     logger.LogInformation("Loaded {Count} tables into SQLite", manifest.Tables.Count);
+}
+
+async Task<ProjectDefinitions> LoadDefinitions(string projectDir, ILogger logger)
+{
+    // Prefer template if it exists
+    var template = await TemplateResolver.LoadAsync(projectDir);
+    if (template.Actions.Count > 0)
+    {
+        logger.LogDebug("Using template for constraints/keys");
+        return TemplateDefinitionBridge.ToDefinitions(template);
+    }
+
+    // Fall back to legacy definitions file
+    return await DefinitionResolver.LoadAsync(projectDir);
 }
 
 async Task SaveAllTables(
