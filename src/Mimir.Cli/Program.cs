@@ -707,12 +707,67 @@ shellCommand.SetHandler(async (DirectoryInfo project) =>
 
 }, shellProjectArg);
 
+// --- init-template command ---
+var initTemplateCommand = new Command("init-template", "Auto-generate a mimir.template.json from environment scans");
+var initTemplateProjectArg = new Argument<DirectoryInfo>("project", "Path to Mimir project directory");
+initTemplateCommand.AddArgument(initTemplateProjectArg);
+
+initTemplateCommand.SetHandler(async (DirectoryInfo project) =>
+{
+    var logger = sp.GetRequiredService<ILogger<Program>>();
+    var projectService = sp.GetRequiredService<IProjectService>();
+    var providers = sp.GetServices<IDataProvider>().ToList();
+
+    var manifest = await projectService.LoadProjectAsync(project.FullName);
+
+    if (manifest.Environments is null || manifest.Environments.Count == 0)
+    {
+        logger.LogError("No environments defined in mimir.json. Add an 'environments' section first.");
+        return;
+    }
+
+    // Scan each environment
+    var envTables = new Dictionary<(string table, string env), TableFile>();
+    var envOrder = manifest.Environments.Keys.ToList();
+
+    foreach (var (envName, envConfig) in manifest.Environments)
+    {
+        var sourceDir = new DirectoryInfo(envConfig.ImportPath);
+        if (!sourceDir.Exists)
+        {
+            logger.LogWarning("Import path does not exist for environment {Env}: {Path}", envName, envConfig.ImportPath);
+            continue;
+        }
+
+        logger.LogInformation("Scanning {Env}: {Path}", envName, sourceDir.FullName);
+        var tables = await ReadAllTables(sourceDir, providers, logger);
+
+        foreach (var (tableName, tableFile) in tables)
+            envTables[(tableName, envName)] = tableFile;
+
+        logger.LogInformation("Found {Count} tables in {Env}", tables.Count, envName);
+    }
+
+    var template = TemplateGenerator.Generate(envTables, envOrder);
+    await TemplateResolver.SaveAsync(project.FullName, template);
+
+    var copyCount = template.Actions.Count(a => a.Action == "copy");
+    var mergeCount = template.Actions.Count(a => a.Action == "merge");
+    var pkCount = template.Actions.Count(a => a.Action == "setPrimaryKey");
+    var ukCount = template.Actions.Count(a => a.Action == "setUniqueKey");
+
+    logger.LogInformation("Generated {File} with {Actions} actions: {Copy} copy, {Merge} merge, {PK} setPK, {UK} setUK",
+        TemplateResolver.TemplateFileName, template.Actions.Count, copyCount, mergeCount, pkCount, ukCount);
+
+}, initTemplateProjectArg);
+
 rootCommand.AddCommand(importCommand);
 rootCommand.AddCommand(buildCommand);
 rootCommand.AddCommand(queryCommand);
 rootCommand.AddCommand(editCommand);
 rootCommand.AddCommand(shellCommand);
 rootCommand.AddCommand(validateCommand);
+rootCommand.AddCommand(initTemplateCommand);
 rootCommand.AddCommand(dumpCommand);
 rootCommand.AddCommand(analyzeCommand);
 
