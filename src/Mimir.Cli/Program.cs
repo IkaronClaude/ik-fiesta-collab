@@ -46,6 +46,7 @@ importCommand.SetHandler(async (DirectoryInfo project) =>
 
     // Phase 1: Read all tables from each environment into memory
     var rawTables = new Dictionary<(string tableName, string envName), TableFile>();
+    var rawRelDirs = new Dictionary<(string tableName, string envName), string>(); // track source-relative dirs
 
     foreach (var (envName, envConfig) in manifest.Environments)
     {
@@ -59,10 +60,11 @@ importCommand.SetHandler(async (DirectoryInfo project) =>
         logger.LogInformation("Scanning environment {Env}: {Path}", envName, sourceDir.FullName);
         var tables = await ReadAllTables(sourceDir, providers, logger);
 
-        foreach (var (tableName, tableFile) in tables)
+        foreach (var (tableName, (tableFile, relDir)) in tables)
         {
             rawTables[(tableName, envName)] = tableFile;
-            logger.LogDebug("Read {Table} from {Env} ({Rows} rows)", tableName, envName, tableFile.Data.Count);
+            rawRelDirs[(tableName, envName)] = relDir;
+            logger.LogDebug("Read {Table} from {Env} ({Rows} rows, relDir={Dir})", tableName, envName, tableFile.Data.Count, relDir);
         }
 
         logger.LogInformation("Read {Count} tables from {Env}", tables.Count, envName);
@@ -86,14 +88,15 @@ importCommand.SetHandler(async (DirectoryInfo project) =>
                 mergedTables[action.To] = raw;
                 tablesHandledByActions.Add(action.To);
 
-                // Store base env column order
+                // Store base env column order and source path
                 if (!allEnvMetadata.ContainsKey(action.To))
                     allEnvMetadata[action.To] = new();
                 allEnvMetadata[action.To][action.From.Env] = new EnvMergeMetadata
                 {
                     ColumnOrder = raw.Columns.Select(c => c.Name).ToList(),
                     ColumnOverrides = new(),
-                    ColumnRenames = new()
+                    ColumnRenames = new(),
+                    SourceRelDir = rawRelDirs.GetValueOrDefault(key, "")
                 };
 
                 logger.LogInformation("Copy: {From}@{Env} → {To}", action.From.Table, action.From.Env, action.To);
@@ -131,6 +134,13 @@ importCommand.SetHandler(async (DirectoryInfo project) =>
             foreach (var (eName, eMeta) in result.EnvMetadata)
                 allEnvMetadata[action.Into][eName] = eMeta;
 
+                // Set SourceRelDir on the env metadata from rawRelDirs
+            foreach (var (eName, eMeta) in result.EnvMetadata)
+            {
+                var relKey = (action.From.Table, eName);
+                eMeta.SourceRelDir = rawRelDirs.GetValueOrDefault(relKey, "");
+            }
+
             if (result.Conflicts.Count > 0)
             {
                 totalConflicts += result.Conflicts.Count;
@@ -158,6 +168,18 @@ importCommand.SetHandler(async (DirectoryInfo project) =>
         {
             var key = (tableName, envs[0]);
             mergedTables[tableName] = rawTables[key];
+
+            // Track env metadata for passthrough tables too (for build path reconstruction)
+            if (!allEnvMetadata.ContainsKey(tableName))
+                allEnvMetadata[tableName] = new();
+            allEnvMetadata[tableName][envs[0]] = new EnvMergeMetadata
+            {
+                ColumnOrder = rawTables[key].Columns.Select(c => c.Name).ToList(),
+                ColumnOverrides = new(),
+                ColumnRenames = new(),
+                SourceRelDir = rawRelDirs.GetValueOrDefault(key, "")
+            };
+
             logger.LogDebug("Passthrough: {Table} (only in {Env})", tableName, envs[0]);
         }
         else
@@ -179,6 +201,22 @@ importCommand.SetHandler(async (DirectoryInfo project) =>
             if (allIdentical)
             {
                 mergedTables[tableName] = first;
+
+                // Track env metadata for all envs (identical table, all envs have it)
+                if (!allEnvMetadata.ContainsKey(tableName))
+                    allEnvMetadata[tableName] = new();
+                foreach (var env in envs)
+                {
+                    var key = (tableName, env);
+                    allEnvMetadata[tableName][env] = new EnvMergeMetadata
+                    {
+                        ColumnOrder = first.Columns.Select(c => c.Name).ToList(),
+                        ColumnOverrides = new(),
+                        ColumnRenames = new(),
+                        SourceRelDir = rawRelDirs.GetValueOrDefault(key, "")
+                    };
+                }
+
                 logger.LogDebug("Passthrough: {Table} (identical across envs)", tableName);
             }
             else
@@ -198,20 +236,26 @@ importCommand.SetHandler(async (DirectoryInfo project) =>
         // Determine relative path from source format
         var relativePath = $"data/{tableFile.Header.SourceFormat}/{tableFile.Header.TableName}.json";
 
-        // Enrich metadata for merged tables
-        if (allEnvMetadata.TryGetValue(tableName, out var envMetas) && envMetas.Count > 1)
+        // Enrich metadata with env info
+        if (allEnvMetadata.TryGetValue(tableName, out var envMetas) && envMetas.Count > 0)
         {
             var metadata = tableFile.Header.Metadata ?? new Dictionary<string, object>();
-            metadata[SourceOrigin.MetadataKey] = EnvironmentInfo.MergedOrigin;
 
-            // Store per-env metadata
+            // Mark origin: "merged" for multi-env, env name for single-env
+            if (envMetas.Count > 1)
+                metadata[SourceOrigin.MetadataKey] = EnvironmentInfo.MergedOrigin;
+            else
+                metadata[SourceOrigin.MetadataKey] = envMetas.Keys.First();
+
+            // Store per-env metadata (including sourceRelDir)
             foreach (var (eName, eMeta) in envMetas)
             {
                 metadata[eName] = new Dictionary<string, object?>
                 {
                     ["columnOrder"] = eMeta.ColumnOrder,
                     ["columnOverrides"] = eMeta.ColumnOverrides.Count > 0 ? eMeta.ColumnOverrides : null,
-                    ["columnRenames"] = eMeta.ColumnRenames.Count > 0 ? eMeta.ColumnRenames : null
+                    ["columnRenames"] = eMeta.ColumnRenames.Count > 0 ? eMeta.ColumnRenames : null,
+                    ["sourceRelDir"] = eMeta.SourceRelDir
                 };
             }
 
@@ -229,7 +273,7 @@ importCommand.SetHandler(async (DirectoryInfo project) =>
             };
 
             await projectService.WriteTableFileAsync(project.FullName, relativePath, enrichedFile);
-            merged++;
+            if (envMetas.Count > 1) merged++;
         }
         else
         {
@@ -303,21 +347,35 @@ buildCommand.SetHandler(async (DirectoryInfo project, DirectoryInfo output, stri
         {
             var tableFile = await projectService.ReadTableFileAsync(project.FullName, entryPath);
 
-            // Check if this is a merged table and we need to split
+            // Check origin metadata to determine how to handle this table
             var origin = tableFile.Header.Metadata?.TryGetValue(SourceOrigin.MetadataKey, out var o) == true
                 ? o?.ToString() : null;
+
+            // Extract per-env metadata for this table
+            EnvMergeMetadata? envMeta = null;
+            if (eName != "" && tableFile.Header.Metadata != null
+                && tableFile.Header.Metadata.TryGetValue(eName, out var rawMeta)
+                && rawMeta is System.Text.Json.JsonElement je)
+            {
+                envMeta = EnvMergeMetadata.FromJsonElement(je);
+            }
 
             TableFile outputTable;
             if (origin == EnvironmentInfo.MergedOrigin && eName != "")
             {
-                // Extract per-env metadata from the table's metadata
-                var envMeta = ExtractEnvMetadata(tableFile, eName);
+                // Multi-env merged table — split for this env
                 if (envMeta == null)
                 {
                     logger.LogDebug("Skipping {Table} for env {Env} (no env metadata)", name, eName);
                     continue;
                 }
                 outputTable = TableSplitter.Split(tableFile, eName, envMeta);
+            }
+            else if (origin != null && origin != EnvironmentInfo.MergedOrigin && origin != eName && eName != "")
+            {
+                // Single-env table that belongs to a different env — skip
+                logger.LogDebug("Skipping {Table} for env {Env} (belongs to {Origin})", name, eName, origin);
+                continue;
             }
             else
             {
@@ -346,8 +404,12 @@ buildCommand.SetHandler(async (DirectoryInfo project, DirectoryInfo output, stri
             try
             {
                 var ext = provider.SupportedExtensions[0].TrimStart('.');
-                var dir = outputDir;
+
+                // Use sourceRelDir to reconstruct original directory structure
+                var relDir = envMeta?.SourceRelDir;
+                var dir = string.IsNullOrEmpty(relDir) ? outputDir : Path.Combine(outputDir, relDir);
                 Directory.CreateDirectory(dir);
+
                 await provider.WriteAsync(Path.Combine(dir, $"{name}.{ext}"), [entry]);
                 built++;
             }
@@ -742,7 +804,7 @@ initTemplateCommand.SetHandler(async (DirectoryInfo project) =>
         logger.LogInformation("Scanning {Env}: {Path}", envName, sourceDir.FullName);
         var tables = await ReadAllTables(sourceDir, providers, logger);
 
-        foreach (var (tableName, tableFile) in tables)
+        foreach (var (tableName, (tableFile, _)) in tables)
             envTables[(tableName, envName)] = tableFile;
 
         logger.LogInformation("Found {Count} tables in {Env}", tables.Count, envName);
@@ -775,10 +837,10 @@ return await rootCommand.InvokeAsync(args);
 
 // --- import helper ---
 
-async Task<Dictionary<string, TableFile>> ReadAllTables(
+async Task<Dictionary<string, (TableFile file, string relDir)>> ReadAllTables(
     DirectoryInfo sourceDir, List<IDataProvider> providers, ILogger logger)
 {
-    var tables = new Dictionary<string, TableFile>();
+    var tables = new Dictionary<string, (TableFile file, string relDir)>();
     var files = sourceDir.EnumerateFiles("*", SearchOption.AllDirectories);
 
     foreach (var file in files)
@@ -791,6 +853,8 @@ async Task<Dictionary<string, TableFile>> ReadAllTables(
         try
         {
             var entries = await provider.ReadAsync(file.FullName);
+            var relDir = Path.GetDirectoryName(
+                Path.GetRelativePath(sourceDir.FullName, file.FullName))?.Replace('\\', '/') ?? "";
 
             foreach (var entry in entries)
             {
@@ -806,7 +870,7 @@ async Task<Dictionary<string, TableFile>> ReadAllTables(
                     Data = entry.Rows
                 };
 
-                tables[entry.Schema.TableName] = tableFile;
+                tables[entry.Schema.TableName] = (tableFile, relDir);
             }
         }
         catch (Exception ex)
@@ -900,49 +964,3 @@ async Task SaveAllTables(
     Console.WriteLine($"Saved {saved} tables.");
 }
 
-EnvMergeMetadata? ExtractEnvMetadata(TableFile tableFile, string envName)
-{
-    if (tableFile.Header.Metadata == null) return null;
-    if (!tableFile.Header.Metadata.TryGetValue(envName, out var raw)) return null;
-
-    // The metadata is stored as a JsonElement from deserialization
-    if (raw is not System.Text.Json.JsonElement je || je.ValueKind != System.Text.Json.JsonValueKind.Object)
-        return null;
-
-    var columnOrder = new List<string>();
-    if (je.TryGetProperty("columnOrder", out var coElem) && coElem.ValueKind == System.Text.Json.JsonValueKind.Array)
-    {
-        foreach (var item in coElem.EnumerateArray())
-            if (item.GetString() is string s)
-                columnOrder.Add(s);
-    }
-
-    var columnOverrides = new Dictionary<string, ColumnOverride>();
-    if (je.TryGetProperty("columnOverrides", out var ovElem) && ovElem.ValueKind == System.Text.Json.JsonValueKind.Object)
-    {
-        foreach (var prop in ovElem.EnumerateObject())
-        {
-            var ov = new ColumnOverride();
-            if (prop.Value.TryGetProperty("length", out var lenElem))
-                ov.Length = lenElem.GetInt32();
-            if (prop.Value.TryGetProperty("sourceTypeCode", out var stcElem))
-                ov.SourceTypeCode = stcElem.GetInt32();
-            columnOverrides[prop.Name] = ov;
-        }
-    }
-
-    var columnRenames = new Dictionary<string, string>();
-    if (je.TryGetProperty("columnRenames", out var rnElem) && rnElem.ValueKind == System.Text.Json.JsonValueKind.Object)
-    {
-        foreach (var prop in rnElem.EnumerateObject())
-            if (prop.Value.GetString() is string s)
-                columnRenames[prop.Name] = s;
-    }
-
-    return new EnvMergeMetadata
-    {
-        ColumnOrder = columnOrder,
-        ColumnOverrides = columnOverrides,
-        ColumnRenames = columnRenames
-    };
-}

@@ -179,4 +179,102 @@ public class ModelTests
         EnvironmentInfo.MetadataKey.ShouldBe("environments");
         EnvironmentInfo.MergedOrigin.ShouldBe("merged");
     }
+
+    // --- EnvMergeMetadata.SourceRelDir ---
+
+    [Fact]
+    public void EnvMergeMetadata_SourceRelDir_DefaultsToNull()
+    {
+        var meta = new EnvMergeMetadata
+        {
+            ColumnOrder = ["ID"],
+            ColumnOverrides = new(),
+            ColumnRenames = new()
+        };
+        meta.SourceRelDir.ShouldBeNull();
+    }
+
+    [Fact]
+    public void EnvMergeMetadata_SourceRelDir_CanBeSet()
+    {
+        var meta = new EnvMergeMetadata
+        {
+            ColumnOrder = ["ID"],
+            ColumnOverrides = new(),
+            ColumnRenames = new(),
+            SourceRelDir = "Shine"
+        };
+        meta.SourceRelDir.ShouldBe("Shine");
+    }
+
+    [Fact]
+    public void EnvMergeMetadata_SourceRelDir_RoundTripsThroughJson()
+    {
+        // Simulate the import Phase 4 serialization → ExtractEnvMetadata deserialization
+        var original = new EnvMergeMetadata
+        {
+            ColumnOrder = ["ID", "Name"],
+            ColumnOverrides = new() { ["Name"] = new ColumnOverride { Length = 32 } },
+            ColumnRenames = new() { ["Value__client"] = "Value" },
+            SourceRelDir = "Shine"
+        };
+
+        // Serialize like import Phase 4 does
+        var metaDict = new Dictionary<string, object?>
+        {
+            ["columnOrder"] = original.ColumnOrder,
+            ["columnOverrides"] = original.ColumnOverrides.Count > 0 ? original.ColumnOverrides : null,
+            ["columnRenames"] = original.ColumnRenames.Count > 0 ? original.ColumnRenames : null,
+            ["sourceRelDir"] = original.SourceRelDir
+        };
+
+        var json = JsonSerializer.Serialize(metaDict, JsonOptions);
+        var je = JsonSerializer.Deserialize<JsonElement>(json, JsonOptions);
+
+        // Parse back using the static method
+        var parsed = EnvMergeMetadata.FromJsonElement(je);
+
+        parsed.ShouldNotBeNull();
+        parsed!.ColumnOrder.ShouldBe(["ID", "Name"]);
+        parsed.ColumnOverrides.ShouldContainKey("Name");
+        parsed.ColumnOverrides["Name"].Length.ShouldBe(32);
+        parsed.ColumnRenames.ShouldContainKey("Value__client");
+        parsed.ColumnRenames["Value__client"].ShouldBe("Value");
+        parsed.SourceRelDir.ShouldBe("Shine");
+    }
+
+    [Fact]
+    public void EnvMergeMetadata_FromJsonElement_EmptySourceRelDir_ReturnsEmptyString()
+    {
+        var metaDict = new Dictionary<string, object?>
+        {
+            ["columnOrder"] = new List<string> { "ID" },
+            ["sourceRelDir"] = ""
+        };
+
+        var json = JsonSerializer.Serialize(metaDict, JsonOptions);
+        var je = JsonSerializer.Deserialize<JsonElement>(json, JsonOptions);
+
+        var parsed = EnvMergeMetadata.FromJsonElement(je);
+
+        parsed.ShouldNotBeNull();
+        parsed!.SourceRelDir.ShouldBe("");
+    }
+
+    [Fact]
+    public void EnvMergeMetadata_FromJsonElement_MissingSourceRelDir_ReturnsNull()
+    {
+        var metaDict = new Dictionary<string, object?>
+        {
+            ["columnOrder"] = new List<string> { "ID" }
+        };
+
+        var json = JsonSerializer.Serialize(metaDict, JsonOptions);
+        var je = JsonSerializer.Deserialize<JsonElement>(json, JsonOptions);
+
+        var parsed = EnvMergeMetadata.FromJsonElement(je);
+
+        parsed.ShouldNotBeNull();
+        parsed!.SourceRelDir.ShouldBeNull();
+    }
 }

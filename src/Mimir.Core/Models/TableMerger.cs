@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Mimir.Core.Templates;
 
 namespace Mimir.Core.Models;
@@ -323,10 +324,70 @@ public sealed class EnvMergeMetadata
     public required List<string> ColumnOrder { get; init; }
     public required Dictionary<string, ColumnOverride> ColumnOverrides { get; init; }
     public required Dictionary<string, string> ColumnRenames { get; init; }
+
+    /// <summary>
+    /// Relative directory from the environment's import root where this table was found.
+    /// e.g. "Shine" for server tables in 9Data/Shine/, "" for client tables in ressystem/.
+    /// Used at build time to reconstruct the original file layout.
+    /// </summary>
+    public string? SourceRelDir { get; set; }
+
+    /// <summary>
+    /// Parses an EnvMergeMetadata from a JsonElement (as stored in table metadata).
+    /// </summary>
+    public static EnvMergeMetadata? FromJsonElement(JsonElement je)
+    {
+        if (je.ValueKind != JsonValueKind.Object) return null;
+
+        var columnOrder = new List<string>();
+        if (je.TryGetProperty("columnOrder", out var coElem) && coElem.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in coElem.EnumerateArray())
+                if (item.GetString() is string s)
+                    columnOrder.Add(s);
+        }
+
+        var columnOverrides = new Dictionary<string, ColumnOverride>();
+        if (je.TryGetProperty("columnOverrides", out var ovElem) && ovElem.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var prop in ovElem.EnumerateObject())
+            {
+                var ov = new ColumnOverride();
+                if (prop.Value.TryGetProperty("length", out var lenElem))
+                    ov.Length = lenElem.GetInt32();
+                if (prop.Value.TryGetProperty("sourceTypeCode", out var stcElem))
+                    ov.SourceTypeCode = stcElem.GetInt32();
+                columnOverrides[prop.Name] = ov;
+            }
+        }
+
+        var columnRenames = new Dictionary<string, string>();
+        if (je.TryGetProperty("columnRenames", out var rnElem) && rnElem.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var prop in rnElem.EnumerateObject())
+                if (prop.Value.GetString() is string s)
+                    columnRenames[prop.Name] = s;
+        }
+
+        string? sourceRelDir = null;
+        if (je.TryGetProperty("sourceRelDir", out var srdElem) && srdElem.ValueKind == JsonValueKind.String)
+            sourceRelDir = srdElem.GetString();
+
+        return new EnvMergeMetadata
+        {
+            ColumnOrder = columnOrder,
+            ColumnOverrides = columnOverrides,
+            ColumnRenames = columnRenames,
+            SourceRelDir = sourceRelDir
+        };
+    }
 }
 
 public sealed class ColumnOverride
 {
+    [JsonPropertyName("length")]
     public int? Length { get; set; }
+
+    [JsonPropertyName("sourceTypeCode")]
     public int? SourceTypeCode { get; set; }
 }
