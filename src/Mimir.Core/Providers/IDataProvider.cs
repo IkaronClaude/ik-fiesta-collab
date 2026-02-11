@@ -19,8 +19,16 @@ public interface IDataProvider
 
     /// <summary>
     /// File extensions this provider handles (e.g. [".shn"]).
+    /// Used to determine output extension during build.
     /// </summary>
     IReadOnlyList<string> SupportedExtensions { get; }
+
+    /// <summary>
+    /// Returns true if this provider can handle the given file.
+    /// Checks file extension and, for ambiguous extensions (e.g. .txt),
+    /// peeks at file content to determine the format.
+    /// </summary>
+    bool CanHandle(string filePath);
 
     /// <summary>
     /// Read a native file into one or more tables.

@@ -5,29 +5,30 @@ using Mimir.Core.Providers;
 namespace Mimir.ShineTable;
 
 /// <summary>
-/// Data provider for the #table/#columntype/#columnname/#record text format ("shinetable").
+/// Data provider for the #DEFINE/#ENDDEFINE text format ("configtable").
+/// Handles reading and writing config-style text tables (ServerInfo, DefaultCharacterData, etc.).
 /// </summary>
-public sealed class ShineTableDataProvider : IDataProvider
+public sealed class ConfigTableDataProvider : IDataProvider
 {
-    private readonly ILogger<ShineTableDataProvider> _logger;
+    private readonly ILogger<ConfigTableDataProvider> _logger;
 
-    public ShineTableDataProvider(ILogger<ShineTableDataProvider> logger)
+    public ConfigTableDataProvider(ILogger<ConfigTableDataProvider> logger)
     {
         _logger = logger;
     }
 
-    public string FormatId => "shinetable";
+    public string FormatId => "configtable";
     public IReadOnlyList<string> SupportedExtensions => [".txt"];
 
     public bool CanHandle(string filePath) =>
-        TextFormatDetector.Detect(filePath) == TextFormat.Table;
+        TextFormatDetector.Detect(filePath) == TextFormat.Define;
 
     public Task<IReadOnlyList<TableEntry>> ReadAsync(string filePath, CancellationToken ct = default)
     {
-        _logger.LogDebug("Reading shine table file {FilePath}", filePath);
+        _logger.LogDebug("Reading config table file {FilePath}", filePath);
 
         var lines = File.ReadAllLines(filePath);
-        var tables = ShineTableFormatParser.Parse(filePath, lines);
+        var tables = ConfigTableFormatParser.Parse(filePath, lines);
 
         if (tables.Count == 0)
             _logger.LogWarning("No tables found in {FilePath}", filePath);
@@ -40,9 +41,9 @@ public sealed class ShineTableDataProvider : IDataProvider
     {
         if (tables.Count == 0) return Task.CompletedTask;
 
-        _logger.LogDebug("Writing shine table file {FilePath}", filePath);
+        _logger.LogDebug("Writing config table file {FilePath}", filePath);
 
-        var lines = ShineTableFormatParser.Write(tables);
+        var lines = ConfigTableFormatParser.Write(tables);
         File.WriteAllLines(filePath, lines);
         return Task.CompletedTask;
     }

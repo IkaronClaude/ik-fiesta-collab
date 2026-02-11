@@ -31,8 +31,8 @@ public class SyntheticRoundtripTests : IAsyncLifetime
     private ProjectTemplate _template = null!;
     private MimirProject _manifest = null!;
 
-    // Original SHN bytes for bit-equality checks
-    private readonly Dictionary<string, byte[]> _originalShnBytes = new();
+    // Original file bytes for bit-equality checks (SHN + TXT)
+    private readonly Dictionary<string, byte[]> _originalFileBytes = new();
 
     public async Task InitializeAsync()
     {
@@ -126,11 +126,70 @@ public class SyntheticRoundtripTests : IAsyncLifetime
         await WriteShn(shnProvider, Path.Combine(_envBDir, "ConflictTable.shn"),
             "ConflictTable", conflictCols, conflictRowsB);
 
-        // Snapshot original SHN bytes for bit-equality checks
-        foreach (var file in Directory.EnumerateFiles(_envADir, "*.shn", SearchOption.AllDirectories))
-            _originalShnBytes[$"env-a/{Path.GetRelativePath(_envADir, file).Replace('\\', '/')}"] = await File.ReadAllBytesAsync(file);
-        foreach (var file in Directory.EnumerateFiles(_envBDir, "*.shn", SearchOption.AllDirectories))
-            _originalShnBytes[$"env-b/{Path.GetRelativePath(_envBDir, file).Replace('\\', '/')}"] = await File.ReadAllBytesAsync(file);
+        // --- Create synthetic text table files ---
+
+        var shineTableProvider = _sp.GetServices<IDataProvider>().First(p => p.FormatId == "shinetable");
+        var configTableProvider = _sp.GetServices<IDataProvider>().First(p => p.FormatId == "configtable");
+
+        // MobData.txt: #table format, env-a only
+        await WriteTxt(shineTableProvider, Path.Combine(_envADir, "Shine", "MobData.txt"),
+            "shinetable", "table",
+            new Dictionary<string, object> { ["sourceFile"] = "MobData.txt", ["tableName"] = "Spawn", ["format"] = "table" },
+            new ColumnDefinition[]
+            {
+                new() { Name = "ID", Type = ColumnType.UInt32, Length = 4 },
+                new() { Name = "Name", Type = ColumnType.String, Length = 32 },
+                new() { Name = "Level", Type = ColumnType.UInt16, Length = 2 }
+            },
+            [
+                Row(("ID", (uint)1), ("Name", "Fighter"), ("Level", (ushort)10)),
+                Row(("ID", (uint)2), ("Name", "Mage"), ("Level", (ushort)20))
+            ]);
+
+        // ServerConfig.txt: #DEFINE format, env-b only
+        await WriteTxt(configTableProvider, Path.Combine(_envBDir, "ServerConfig.txt"),
+            "configtable", "define",
+            new Dictionary<string, object> { ["sourceFile"] = "ServerConfig.txt", ["typeName"] = "CONFIG", ["format"] = "define" },
+            new ColumnDefinition[]
+            {
+                new() { Name = "Name", Type = ColumnType.String, Length = 256 },
+                new() { Name = "Value", Type = ColumnType.Int32, Length = 4 },
+                new() { Name = "Rate", Type = ColumnType.Float, Length = 4 }
+            },
+            [
+                Row(("Name", "MaxPlayers"), ("Value", 100), ("Rate", 1.5f)),
+                Row(("Name", "SpawnRate"), ("Value", 50), ("Rate", 0.8f))
+            ]);
+
+        // SharedText.txt: #table format, in both envs (identical)
+        var sharedTextCols = new ColumnDefinition[]
+        {
+            new() { Name = "ID", Type = ColumnType.UInt32, Length = 4 },
+            new() { Name = "Tag", Type = ColumnType.String, Length = 32 }
+        };
+        var sharedTextRows = new Dictionary<string, object?>[]
+        {
+            Row(("ID", (uint)1), ("Tag", "TagA")),
+            Row(("ID", (uint)2), ("Tag", "TagB"))
+        };
+        var sharedTextMeta = new Dictionary<string, object>
+        {
+            ["sourceFile"] = "SharedText.txt", ["tableName"] = "Data", ["format"] = "table"
+        };
+
+        await WriteTxt(shineTableProvider, Path.Combine(_envADir, "Shine", "SharedText.txt"),
+            "shinetable", "table", sharedTextMeta, sharedTextCols, sharedTextRows);
+        await WriteTxt(shineTableProvider, Path.Combine(_envBDir, "SharedText.txt"),
+            "shinetable", "table", sharedTextMeta, sharedTextCols, sharedTextRows);
+
+        // Snapshot original file bytes for bit-equality checks
+        foreach (var ext in new[] { "*.shn", "*.txt" })
+        {
+            foreach (var file in Directory.EnumerateFiles(_envADir, ext, SearchOption.AllDirectories))
+                _originalFileBytes[$"env-a/{Path.GetRelativePath(_envADir, file).Replace('\\', '/')}"] = await File.ReadAllBytesAsync(file);
+            foreach (var file in Directory.EnumerateFiles(_envBDir, ext, SearchOption.AllDirectories))
+                _originalFileBytes[$"env-b/{Path.GetRelativePath(_envBDir, file).Replace('\\', '/')}"] = await File.ReadAllBytesAsync(file);
+        }
 
         // --- Write mimir.json ---
         var projectService = _sp.GetRequiredService<IProjectService>();
@@ -169,6 +228,9 @@ public class SyntheticRoundtripTests : IAsyncLifetime
         copyTargets.ShouldContain("EnvAOnly");
         copyTargets.ShouldContain("EnvBOnly");
         copyTargets.ShouldContain("ConflictTable");
+        copyTargets.ShouldContain("MobData_Spawn");
+        copyTargets.ShouldContain("ServerConfig_CONFIG");
+        copyTargets.ShouldContain("SharedText_Data");
     }
 
     [Fact]
@@ -177,13 +239,16 @@ public class SyntheticRoundtripTests : IAsyncLifetime
         var mergeActions = _template.Actions.Where(a => a.Action == "merge").ToList();
         var mergeTargets = mergeActions.Select(a => a.Into).ToHashSet();
 
-        // SharedTable and ConflictTable exist in both envs → should have merge actions
+        // SharedTable, ConflictTable, and SharedText_Data exist in both envs → should have merge actions
         mergeTargets.ShouldContain("SharedTable");
         mergeTargets.ShouldContain("ConflictTable");
+        mergeTargets.ShouldContain("SharedText_Data");
 
         // Env-only tables should NOT have merge actions
         mergeTargets.ShouldNotContain("EnvAOnly");
         mergeTargets.ShouldNotContain("EnvBOnly");
+        mergeTargets.ShouldNotContain("MobData_Spawn");
+        mergeTargets.ShouldNotContain("ServerConfig_CONFIG");
     }
 
     // ==================== Import Tests ====================
@@ -191,11 +256,14 @@ public class SyntheticRoundtripTests : IAsyncLifetime
     [Fact]
     public void Import_AllTablesInManifest()
     {
-        _manifest.Tables.Count.ShouldBe(4);
+        _manifest.Tables.Count.ShouldBe(7);
         _manifest.Tables.Keys.ShouldContain("SharedTable");
         _manifest.Tables.Keys.ShouldContain("EnvAOnly");
         _manifest.Tables.Keys.ShouldContain("EnvBOnly");
         _manifest.Tables.Keys.ShouldContain("ConflictTable");
+        _manifest.Tables.Keys.ShouldContain("MobData_Spawn");
+        _manifest.Tables.Keys.ShouldContain("ServerConfig_CONFIG");
+        _manifest.Tables.Keys.ShouldContain("SharedText_Data");
     }
 
     [Fact]
@@ -305,7 +373,8 @@ public class SyntheticRoundtripTests : IAsyncLifetime
     public async Task Build_EnvA_ShnBitIdentical()
     {
         // For each original env-a SHN file, the built version should be bit-identical
-        foreach (var (relKey, originalBytes) in _originalShnBytes.Where(kv => kv.Key.StartsWith("env-a/")))
+        foreach (var (relKey, originalBytes) in _originalFileBytes
+            .Where(kv => kv.Key.StartsWith("env-a/") && kv.Key.EndsWith(".shn")))
         {
             var relPath = relKey["env-a/".Length..]; // e.g. "Shine/SharedTable.shn"
             var tableName = Path.GetFileNameWithoutExtension(relPath);
@@ -326,7 +395,8 @@ public class SyntheticRoundtripTests : IAsyncLifetime
     [Fact]
     public async Task Build_EnvB_ShnBitIdentical()
     {
-        foreach (var (relKey, originalBytes) in _originalShnBytes.Where(kv => kv.Key.StartsWith("env-b/")))
+        foreach (var (relKey, originalBytes) in _originalFileBytes
+            .Where(kv => kv.Key.StartsWith("env-b/") && kv.Key.EndsWith(".shn")))
         {
             var relPath = relKey["env-b/".Length..];
             var tableName = Path.GetFileNameWithoutExtension(relPath);
@@ -416,6 +486,74 @@ public class SyntheticRoundtripTests : IAsyncLifetime
                 }
             }
         }
+    }
+
+    // ==================== Text Table Tests ====================
+
+    [Fact]
+    public void Import_TextTables_InManifest()
+    {
+        _manifest.Tables.Keys.ShouldContain("MobData_Spawn");
+        _manifest.Tables.Keys.ShouldContain("ServerConfig_CONFIG");
+        _manifest.Tables.Keys.ShouldContain("SharedText_Data");
+    }
+
+    [Fact]
+    public async Task Import_TextTable_SourceFormatPreserved()
+    {
+        var projectService = _sp.GetRequiredService<IProjectService>();
+
+        var mobData = await projectService.ReadTableFileAsync(_projectDir, _manifest.Tables["MobData_Spawn"]);
+        mobData.Header.SourceFormat.ShouldBe("shinetable");
+
+        var serverConfig = await projectService.ReadTableFileAsync(_projectDir, _manifest.Tables["ServerConfig_CONFIG"]);
+        serverConfig.Header.SourceFormat.ShouldBe("configtable");
+    }
+
+    [Fact]
+    public void Build_TextTable_WrittenAsTxt()
+    {
+        // MobData_Spawn: env-a only, in Shine/ subdir
+        var mobDataPath = Path.Combine(_buildDir, "env-a", "Shine", "MobData_Spawn.txt");
+        File.Exists(mobDataPath).ShouldBeTrue($"Expected {mobDataPath} to exist");
+
+        // ServerConfig_CONFIG: env-b only, at root
+        var configPath = Path.Combine(_buildDir, "env-b", "ServerConfig_CONFIG.txt");
+        File.Exists(configPath).ShouldBeTrue($"Expected {configPath} to exist");
+
+        // SharedText_Data: merged, should be in both envs
+        var sharedA = Path.Combine(_buildDir, "env-a", "Shine", "SharedText_Data.txt");
+        File.Exists(sharedA).ShouldBeTrue($"Expected {sharedA} to exist");
+
+        var sharedB = Path.Combine(_buildDir, "env-b", "SharedText_Data.txt");
+        File.Exists(sharedB).ShouldBeTrue($"Expected {sharedB} to exist");
+
+        // MobData should NOT be in env-b, ServerConfig should NOT be in env-a
+        Directory.EnumerateFiles(Path.Combine(_buildDir, "env-b"), "MobData*", SearchOption.AllDirectories)
+            .ShouldBeEmpty();
+        Directory.EnumerateFiles(Path.Combine(_buildDir, "env-a"), "ServerConfig*", SearchOption.AllDirectories)
+            .ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Build_TextTable_ByteIdenticalRoundtrip()
+    {
+        // For non-merged, single-env text tables, built output should match original canonical bytes.
+        // MobData_Spawn (env-a only) and ServerConfig_CONFIG (env-b only).
+
+        // MobData_Spawn: original was env-a/Shine/MobData.txt, built is env-a/Shine/MobData_Spawn.txt
+        var mobOriginal = _originalFileBytes["env-a/Shine/MobData.txt"];
+        var mobBuilt = await File.ReadAllBytesAsync(
+            Path.Combine(_buildDir, "env-a", "Shine", "MobData_Spawn.txt"));
+        mobBuilt.ShouldBe(mobOriginal,
+            "ShineTable byte-equality failed for MobData_Spawn roundtrip");
+
+        // ServerConfig_CONFIG: original was env-b/ServerConfig.txt, built is env-b/ServerConfig_CONFIG.txt
+        var configOriginal = _originalFileBytes["env-b/ServerConfig.txt"];
+        var configBuilt = await File.ReadAllBytesAsync(
+            Path.Combine(_buildDir, "env-b", "ServerConfig_CONFIG.txt"));
+        configBuilt.ShouldBe(configOriginal,
+            "ConfigTable byte-equality failed for ServerConfig_CONFIG roundtrip");
     }
 
     // ==================== Pipeline helpers (mirror CLI logic) ====================
@@ -659,7 +797,7 @@ public class SyntheticRoundtripTests : IAsyncLifetime
         services.AddLogging(b => b.SetMinimumLevel(LogLevel.Warning));
         services.AddMimirCore();
         services.AddMimirShn();
-        services.AddMimirShineTable();
+        services.AddMimirTextTables();
         return services.BuildServiceProvider();
     }
 
@@ -692,6 +830,25 @@ public class SyntheticRoundtripTests : IAsyncLifetime
         await provider.WriteAsync(path, [entry]);
     }
 
+    private static async Task WriteTxt(IDataProvider provider, string path, string sourceFormat,
+        string format, Dictionary<string, object> metadata,
+        IReadOnlyList<ColumnDefinition> columns, IReadOnlyList<Dictionary<string, object?>> rows)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var entry = new TableEntry
+        {
+            Schema = new TableSchema
+            {
+                TableName = Path.GetFileNameWithoutExtension(path),
+                SourceFormat = sourceFormat,
+                Columns = columns,
+                Metadata = metadata
+            },
+            Rows = rows
+        };
+        await provider.WriteAsync(path, [entry]);
+    }
+
     private static uint CalculateRecordLength(IReadOnlyList<ColumnDefinition> columns)
     {
         uint length = 2; // row length prefix
@@ -706,8 +863,7 @@ public class SyntheticRoundtripTests : IAsyncLifetime
         var tables = new Dictionary<string, (TableFile file, string relDir)>();
         foreach (var file in sourceDir.EnumerateFiles("*", SearchOption.AllDirectories))
         {
-            var provider = providers.FirstOrDefault(p =>
-                p.SupportedExtensions.Contains(file.Extension.ToLowerInvariant()));
+            var provider = providers.FirstOrDefault(p => p.CanHandle(file.FullName));
             if (provider is null) continue;
 
             var entries = await provider.ReadAsync(file.FullName);

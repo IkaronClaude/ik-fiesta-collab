@@ -30,6 +30,9 @@ public sealed class ShnDataProvider : IDataProvider
     public string FormatId => "shn";
     public IReadOnlyList<string> SupportedExtensions => [".shn"];
 
+    public bool CanHandle(string filePath) =>
+        Path.GetExtension(filePath).Equals(".shn", StringComparison.OrdinalIgnoreCase);
+
     public Task<IReadOnlyList<TableEntry>> ReadAsync(string filePath, CancellationToken ct = default)
     {
         var tableName = Path.GetFileNameWithoutExtension(filePath);

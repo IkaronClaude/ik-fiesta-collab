@@ -223,6 +223,42 @@ public class RealWorldRoundtripTests
             "Expected at least one server-only SHN table to be bit-identical after roundtrip");
     }
 
+    [Fact]
+    public async Task Build_RealData_TextTablesReadable()
+    {
+        if (!_available) return;
+
+        var (_, buildDir, sp) = await RunFullPipeline();
+        using var _ = sp;
+
+        var shineTableProvider = sp.GetServices<IDataProvider>().First(p => p.FormatId == "shinetable");
+        var configTableProvider = sp.GetServices<IDataProvider>().First(p => p.FormatId == "configtable");
+
+        var serverBuildDir = Path.Combine(buildDir, "server");
+        if (!Directory.Exists(serverBuildDir)) return;
+
+        var txtFiles = Directory.EnumerateFiles(serverBuildDir, "*.txt", SearchOption.AllDirectories).ToList();
+        txtFiles.Count.ShouldBeGreaterThan(0, "Expected at least one .txt file in server build output");
+
+        int verified = 0;
+        foreach (var txtFile in txtFiles)
+        {
+            if (verified >= 5) break;
+
+            var provider = shineTableProvider.CanHandle(txtFile) ? shineTableProvider
+                : configTableProvider.CanHandle(txtFile) ? configTableProvider
+                : null;
+            if (provider is null) continue;
+
+            var entries = await provider.ReadAsync(txtFile);
+            entries.Count.ShouldBeGreaterThan(0, $"No tables parsed from {txtFile}");
+            entries[0].Rows.Count.ShouldBeGreaterThan(0, $"No rows in {txtFile}");
+            verified++;
+        }
+
+        verified.ShouldBeGreaterThan(0, "Expected at least one text table to verify");
+    }
+
     // ==================== Pipeline ====================
 
     private async Task<(MimirProject manifest, string buildDir, ServiceProvider sp)> RunFullPipeline()
@@ -501,7 +537,7 @@ public class RealWorldRoundtripTests
         services.AddLogging(b => b.SetMinimumLevel(LogLevel.Warning));
         services.AddMimirCore();
         services.AddMimirShn();
-        services.AddMimirShineTable();
+        services.AddMimirTextTables();
         return services.BuildServiceProvider();
     }
 
@@ -511,8 +547,7 @@ public class RealWorldRoundtripTests
         var tables = new Dictionary<string, (TableFile file, string relDir)>();
         foreach (var file in sourceDir.EnumerateFiles("*", SearchOption.AllDirectories))
         {
-            var provider = providers.FirstOrDefault(p =>
-                p.SupportedExtensions.Contains(file.Extension.ToLowerInvariant()));
+            var provider = providers.FirstOrDefault(p => p.CanHandle(file.FullName));
             if (provider is null) continue;
 
             try

@@ -15,7 +15,7 @@ var services = new ServiceCollection();
 services.AddLogging(b => b.AddConsole().SetMinimumLevel(LogLevel.Information));
 services.AddMimirCore();
 services.AddMimirShn();
-services.AddMimirShineTable();
+services.AddMimirTextTables();
 services.AddMimirSql();
 
 var sp = services.BuildServiceProvider();
@@ -845,8 +845,7 @@ async Task<Dictionary<string, (TableFile file, string relDir)>> ReadAllTables(
 
     foreach (var file in files)
     {
-        var provider = providers.FirstOrDefault(p =>
-            p.SupportedExtensions.Contains(file.Extension.ToLowerInvariant()));
+        var provider = providers.FirstOrDefault(p => p.CanHandle(file.FullName));
 
         if (provider is null) continue;
 
