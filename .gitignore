@@ -434,5 +434,6 @@ tests/**/TestData/*.shn
 # Mimir test projects and build artifacts (contain copyrighted game data)
 test-project/
 build-output/
+build/
 reimport-project/
 types.txt
