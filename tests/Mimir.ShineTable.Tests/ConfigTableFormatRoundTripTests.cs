@@ -26,7 +26,7 @@ public class ConfigTableFormatRoundTripTests
 
     private static readonly IReadOnlyList<ColumnDefinition> ServerColumns =
     [
-        new() { Name = "ServerName", Type = ColumnType.String, Length = 256 },
+        new() { Name = "ServerName", Type = ColumnType.String, Length = 0 },
         new() { Name = "Port", Type = ColumnType.Int32, Length = 4 },
         new() { Name = "MaxPlayers", Type = ColumnType.Int32, Length = 4 },
         new() { Name = "Rate", Type = ColumnType.Float, Length = 4 },
@@ -72,13 +72,13 @@ public class ConfigTableFormatRoundTripTests
     {
         var charColumns = new List<ColumnDefinition>
         {
-            new() { Name = "ClassName", Type = ColumnType.String, Length = 256 },
+            new() { Name = "ClassName", Type = ColumnType.String, Length = 0 },
             new() { Name = "StartLevel", Type = ColumnType.Int32, Length = 4 },
         };
 
         var itemColumns = new List<ColumnDefinition>
         {
-            new() { Name = "ItemIndex", Type = ColumnType.String, Length = 256 },
+            new() { Name = "ItemIndex", Type = ColumnType.String, Length = 0 },
             new() { Name = "Count", Type = ColumnType.Int32, Length = 4 },
         };
 
@@ -103,7 +103,7 @@ public class ConfigTableFormatRoundTripTests
     {
         var columns = new List<ColumnDefinition>
         {
-            new() { Name = "Value", Type = ColumnType.String, Length = 256 },
+            new() { Name = "Value", Type = ColumnType.String, Length = 0 },
             new() { Name = "Num", Type = ColumnType.Int32, Length = 4 },
         };
 
@@ -128,7 +128,7 @@ public class ConfigTableFormatRoundTripTests
     {
         var columns = new List<ColumnDefinition>
         {
-            new() { Name = "Name", Type = ColumnType.String, Length = 256 },
+            new() { Name = "Name", Type = ColumnType.String, Length = 0 },
             new() { Name = "ID", Type = ColumnType.Int32, Length = 4 },
         };
 
@@ -154,7 +154,7 @@ public class ConfigTableFormatRoundTripTests
     {
         var columns = new List<ColumnDefinition>
         {
-            new() { Name = "Desc", Type = ColumnType.String, Length = 256 },
+            new() { Name = "Desc", Type = ColumnType.String, Length = 0 },
             new() { Name = "Val", Type = ColumnType.Int32, Length = 4 },
         };
 
@@ -170,5 +170,45 @@ public class ConfigTableFormatRoundTripTests
 
         parsed[0].Rows[0]["Desc"].ShouldBe("Hello, World");
         parsed[0].Rows[0]["Val"].ShouldBe(7);
+    }
+
+    [Fact]
+    public void RoundTrip_LongString_NotTruncated()
+    {
+        var longValue = new string('A', 500);
+
+        var columns = new List<ColumnDefinition>
+        {
+            new() { Name = "Data", Type = ColumnType.String, Length = 0 },
+        };
+
+        var original = MakeDefineTable("TEST", columns,
+            new Dictionary<string, object?>
+            {
+                ["Data"] = longValue
+            });
+
+        var lines = ConfigTableFormatParser.Write([original]);
+        var parsed = ConfigTableFormatParser.Parse("Config.txt", lines.ToArray());
+
+        parsed[0].Rows[0]["Data"].ShouldBe(longValue);
+    }
+
+    [Fact]
+    public void Parse_StringColumn_HasVariableLength()
+    {
+        var lines = new[]
+        {
+            "#DEFINE TEST",
+            "<STRING>\t; Name",
+            "<INTEGER>\t; ID",
+            "#ENDDEFINE",
+            "",
+            "TEST \"Hello\", 1"
+        };
+
+        var parsed = ConfigTableFormatParser.Parse("Config.txt", lines);
+        var col = parsed[0].Schema.Columns.First(c => c.Name == "Name");
+        col.Length.ShouldBe(0);
     }
 }

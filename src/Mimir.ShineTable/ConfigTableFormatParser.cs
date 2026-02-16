@@ -246,13 +246,13 @@ internal static class ConfigTableFormatParser
 
     private static (ColumnType type, int length) MapDefineType(string typeTag) => typeTag switch
     {
-        "STRING" => (ColumnType.String, 256),
+        "STRING" => (ColumnType.String, 0),
         "INTEGER" => (ColumnType.Int32, 4),
         "FLOAT" => (ColumnType.Float, 4),
         "BYTE" => (ColumnType.Byte, 1),
         "WORD" => (ColumnType.UInt16, 2),
         "DWORD" or "DWRD" => (ColumnType.UInt32, 4),
-        _ => (ColumnType.String, 256)
+        _ => (ColumnType.String, 0)
     };
 
     private static List<string> ParseCsvValues(string input)
