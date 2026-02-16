@@ -10,6 +10,7 @@ public static class ServiceCollectionExtensions
     {
         services.AddSingleton<IShnCrypto, ShnCrypto>();
         services.AddSingleton<IDataProvider, ShnDataProvider>();
+        services.AddSingleton<IDataProvider, QuestDataProvider>();
         return services;
     }
 }

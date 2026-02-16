@@ -30,8 +30,23 @@ public sealed class ShnDataProvider : IDataProvider
     public string FormatId => "shn";
     public IReadOnlyList<string> SupportedExtensions => [".shn"];
 
-    public bool CanHandle(string filePath) =>
-        Path.GetExtension(filePath).Equals(".shn", StringComparison.OrdinalIgnoreCase);
+    public bool CanHandle(string filePath)
+    {
+        if (!Path.GetExtension(filePath).Equals(".shn", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        var fi = new FileInfo(filePath);
+        if (fi.Length < 36)
+            return false;
+
+        using var fs = File.OpenRead(filePath);
+        fs.Seek(32, SeekOrigin.Begin);
+        Span<byte> buf = stackalloc byte[4];
+        fs.ReadExactly(buf);
+        var dataLength = BitConverter.ToUInt32(buf);
+
+        return dataLength == (ulong)fi.Length;
+    }
 
     public Task<IReadOnlyList<TableEntry>> ReadAsync(string filePath, CancellationToken ct = default)
     {
