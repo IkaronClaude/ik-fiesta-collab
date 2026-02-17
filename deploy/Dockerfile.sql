@@ -1,4 +1,4 @@
-# SQL Server Express 2022 on Windows Server Core
+# SQL Server Express 2025 on Windows Server Core
 # Restores Fiesta game databases from .bak files on first run
 #
 # Database backups are copied from deploy/server-files/Databases/ at build time.
@@ -7,8 +7,8 @@ FROM mcr.microsoft.com/windows/servercore:ltsc2022
 
 SHELL ["powershell", "-Command", "$ErrorActionPreference = 'Stop';"]
 
-# Download and install SQL Server Express 2022 silently
-RUN Invoke-WebRequest -Uri 'https://download.microsoft.com/download/5/1/4/5145fe04-4d30-4b85-b0d1-39571571ef55/SQL2022-SSEI-Expr.exe' \
+# Download and install SQL Server Express 2025 silently
+RUN Invoke-WebRequest -Uri 'https://download.microsoft.com/download/7ab8f535-7eb8-4b16-82eb-eca0fa2d38f3/SQL2025-SSEI-Expr.exe' \
       -OutFile C:/sql-express-setup.exe ; \
     Start-Process -FilePath C:/sql-express-setup.exe \
       -ArgumentList '/ACTION=Download', '/MEDIAPATH=C:/sql-media', '/MEDIATYPE=Core', '/QUIET' \
