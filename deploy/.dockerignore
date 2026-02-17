@@ -1,6 +1,5 @@
-# Exclude everything from server-files except the process directories we COPY
+# Exclude large directories from server-files that aren't needed at build time
 server-files/9Data/
-server-files/Databases/
 server-files/*.txt
 server-files/*.ini
 server-files/*.log
