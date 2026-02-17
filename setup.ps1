@@ -1,6 +1,6 @@
-# setup.ps1 — First-time Mimir project setup
-# Creates mimir.json, runs init-template, import, and build.
-# After this, test-project/build/ will exist and Docker can mount it.
+# setup.ps1 — One-stop Mimir project setup
+# Prompts for paths, links server files for Docker, runs the full pipeline.
+# After this: `docker compose -f deploy/docker-compose.yml up -d` just works.
 
 param(
     [string]$ServerPath,
@@ -22,6 +22,7 @@ if (-not (Test-Path $ServerPath)) {
     Write-Host "ERROR: Server path does not exist: $ServerPath" -ForegroundColor Red
     exit 1
 }
+$ServerPath = (Resolve-Path $ServerPath).Path
 Write-Host "  Server: $ServerPath" -ForegroundColor Green
 
 if (-not $ClientPath) {
@@ -32,7 +33,34 @@ if ($ClientPath -and -not $hasClient) {
     Write-Host "  WARNING: Client path does not exist, skipping: $ClientPath" -ForegroundColor Yellow
 }
 if ($hasClient) {
+    $ClientPath = (Resolve-Path $ClientPath).Path
     Write-Host "  Client: $ClientPath" -ForegroundColor Green
+}
+
+Write-Host ""
+
+# --- Link server files for Docker ---
+
+$serverFilesLink = Join-Path "deploy" "server-files"
+if (-not (Test-Path $serverFilesLink)) {
+    Write-Host "Creating symlink: deploy/server-files -> $ServerPath"
+    Write-Host "  (Docker needs this for server executables and database backups)"
+    try {
+        New-Item -ItemType SymbolicLink -Path $serverFilesLink -Target $ServerPath | Out-Null
+        Write-Host "  Symlink created." -ForegroundColor Green
+    } catch {
+        Write-Host "  Symlink failed (may need admin rights). Creating junction instead..." -ForegroundColor Yellow
+        cmd /c "mklink /J `"$serverFilesLink`" `"$ServerPath`""
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "  ERROR: Could not create symlink or junction." -ForegroundColor Red
+            Write-Host "  Please run as Administrator, or manually create:"
+            Write-Host "    mklink /D deploy\server-files $ServerPath"
+            exit 1
+        }
+        Write-Host "  Junction created." -ForegroundColor Green
+    }
+} else {
+    Write-Host "deploy/server-files already exists, skipping link creation."
 }
 
 Write-Host ""
@@ -62,7 +90,7 @@ $jsonText = $mimirJson | ConvertTo-Json -Depth 4
 Set-Content -Path (Join-Path $ProjectDir "mimir.json") -Value $jsonText
 Write-Host "Wrote mimir.json" -ForegroundColor Green
 
-# --- Run pipeline ---
+# --- Run Mimir pipeline ---
 
 $cli = "dotnet run --project src/Mimir.Cli --"
 
@@ -88,6 +116,8 @@ Write-Host "=== Step 3/3: Build ===" -ForegroundColor Cyan
 Invoke-Expression "$cli build $ProjectDir $ProjectDir/build --all"
 if ($LASTEXITCODE -ne 0) { Write-Host "build failed" -ForegroundColor Red; exit 1 }
 
+# --- Done ---
+
 Write-Host ""
 Write-Host "=== Setup Complete ===" -ForegroundColor Green
 Write-Host ""
@@ -97,9 +127,11 @@ if ($hasClient) {
     Write-Host "Client build: $ProjectDir/build/client/"
 }
 Write-Host ""
-Write-Host "You can now start Docker:"
+Write-Host "Start Docker (first time):"
 Write-Host "  set DOCKER_BUILDKIT=0"
+Write-Host "  docker compose -f deploy/docker-compose.yml build"
 Write-Host "  docker compose -f deploy/docker-compose.yml up -d"
 Write-Host ""
-Write-Host "To rebuild after edits:"
+Write-Host "Rebuild after edits:"
 Write-Host "  dotnet run --project src/Mimir.Cli -- build $ProjectDir $ProjectDir/build --all"
+Write-Host "  docker compose -f deploy/docker-compose.yml restart"
