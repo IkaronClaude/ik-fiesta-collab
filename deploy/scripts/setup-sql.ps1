@@ -95,8 +95,9 @@ Write-Host "SQL Server setup complete. All databases ready."
 
 # Keep container alive by tailing the SQL error log
 # SQL Server 2025 = MSSQL17, 2022 = MSSQL16 — find whichever exists
-$errorLog = (Get-ChildItem "C:\Program Files\Microsoft SQL Server\MSSQL*.SQLEXPRESS\MSSQL\Log\ERRORLOG" -ErrorAction SilentlyContinue | Select-Object -First 1)?.FullName
-if (Test-Path $errorLog) {
+$logFile = Get-ChildItem "C:\Program Files\Microsoft SQL Server\MSSQL*.SQLEXPRESS\MSSQL\Log\ERRORLOG" -ErrorAction SilentlyContinue | Select-Object -First 1
+$errorLog = if ($logFile) { $logFile.FullName } else { $null }
+if ($errorLog -and (Test-Path $errorLog)) {
     Get-Content -Path $errorLog -Wait
 }
 else {
