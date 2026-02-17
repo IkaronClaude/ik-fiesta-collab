@@ -60,6 +60,10 @@ public sealed class TemplateAction
     [JsonPropertyName("description")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Description { get; init; }
+
+    [JsonPropertyName("conflictStrategy")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ConflictStrategy { get; init; }
 }
 
 public sealed class TableRef

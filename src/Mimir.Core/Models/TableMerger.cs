@@ -12,7 +12,8 @@ public static class TableMerger
 {
     public static MergeResult Merge(
         TableFile target, TableFile source,
-        JoinClause on, string envName, string columnStrategy)
+        JoinClause on, string envName, string columnStrategy,
+        string conflictStrategy = "report")
     {
         var conflicts = new List<MergeConflict>();
         var envMetadata = new Dictionary<string, EnvMergeMetadata>();
@@ -244,8 +245,56 @@ public static class TableMerger
             mergedRowEnvs.Add([envName]);
         }
 
+        // --- Conflict column splitting (only when conflictStrategy == "split") ---
+        var conflictColumns = conflicts.Select(c => c.Column).Distinct().ToHashSet();
+        if (conflictStrategy == "split" && conflictColumns.Count > 0)
+        {
+            foreach (var colName in conflictColumns)
+            {
+                var splitName = $"{colName}__{envName}";
+                var sCol = sourceColMap[colName];
+
+                // Add split column definition
+                mergedColumns.Add(new ColumnDefinition
+                {
+                    Name = splitName,
+                    Type = sCol.Type,
+                    Length = sCol.Length,
+                    SourceTypeCode = sCol.SourceTypeCode,
+                    Environments = [envName]
+                });
+                splitRenames[splitName] = colName;
+
+                // Populate split column for all rows
+                for (int i = 0; i < mergedRows.Count; i++)
+                {
+                    var rowEnv = mergedRowEnvs[i];
+                    if (rowEnv == null)
+                    {
+                        // Matched (shared) row — look up source value via join key
+                        var jk = Stringify(mergedRows[i].GetValueOrDefault(on.Target));
+                        mergedRows[i][splitName] = sourceIndex.TryGetValue(jk, out var si)
+                            ? source.Data[si].GetValueOrDefault(colName) : null;
+                    }
+                    else if (rowEnv.Contains(envName))
+                    {
+                        // Source-only row — use same value as shared column
+                        mergedRows[i][splitName] = mergedRows[i].GetValueOrDefault(colName);
+                    }
+                    else
+                    {
+                        // Target-only row — null for source env's split column
+                        mergedRows[i][splitName] = null;
+                    }
+                }
+            }
+        }
+
         // --- Build env metadata ---
-        var sourceColumnOrder = source.Columns.Select(c => c.Name).ToList();
+        var sourceColumnOrder = source.Columns.Select(c =>
+            conflictStrategy == "split" && conflictColumns.Contains(c.Name)
+                ? $"{c.Name}__{envName}" : c.Name
+        ).ToList();
         envMetadata[envName] = new EnvMergeMetadata
         {
             ColumnOrder = sourceColumnOrder,

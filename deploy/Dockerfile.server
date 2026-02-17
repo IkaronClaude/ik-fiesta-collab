@@ -1,0 +1,58 @@
+# Fiesta Online game server image
+# Single image used by all 11 game process containers.
+# Each container runs one process, specified by PROCESS_NAME and PROCESS_EXE env vars.
+#
+# Before building, create a symlink or copy your server files into deploy/server-files/:
+#   mklink /D deploy\server-files Z:\Server
+#   - OR -
+#   Copy your Server folder to deploy/server-files/
+#
+# Expected layout:
+#   deploy/server-files/Account/Account.exe
+#   deploy/server-files/Login/Login.exe
+#   deploy/server-files/Zone00/Zone.exe
+#   ... etc
+
+FROM mcr.microsoft.com/windows/servercore:ltsc2022
+
+SHELL ["powershell", "-Command", "$ErrorActionPreference = 'Stop';"]
+
+# Install VC++ 2015-2022 Redistributable x86 (required by 32-bit game .exe files)
+RUN Invoke-WebRequest -Uri 'https://aka.ms/vs/17/release/vc_redist.x86.exe' \
+      -OutFile C:/vc_redist_x86.exe ; \
+    Start-Process -FilePath C:/vc_redist_x86.exe \
+      -ArgumentList '/install', '/quiet', '/norestart' -Wait ; \
+    Remove-Item C:/vc_redist_x86.exe
+
+# Install ODBC Driver 17 for SQL Server
+RUN Invoke-WebRequest -Uri 'https://go.microsoft.com/fwlink/?linkid=2266337' \
+      -OutFile C:/msodbcsql.msi ; \
+    Start-Process msiexec.exe \
+      -ArgumentList '/i', 'C:/msodbcsql.msi', '/quiet', '/norestart', 'IACCEPTMSODBCSQLLICENSETERMS=YES' \
+      -Wait ; \
+    Remove-Item C:/msodbcsql.msi
+
+# Copy all server process directories (binaries + DLLs)
+COPY server-files/Account/      C:/server/Account/
+COPY server-files/AccountLog/   C:/server/AccountLog/
+COPY server-files/Character/    C:/server/Character/
+COPY server-files/GameLog/      C:/server/GameLog/
+COPY server-files/Login/        C:/server/Login/
+COPY server-files/WorldManager/ C:/server/WorldManager/
+COPY server-files/Zone00/       C:/server/Zone00/
+COPY server-files/Zone01/       C:/server/Zone01/
+COPY server-files/Zone02/       C:/server/Zone02/
+COPY server-files/Zone03/       C:/server/Zone03/
+COPY server-files/Zone04/       C:/server/Zone04/
+
+# Docker-specific ServerInfo.txt (IPs point to container static IPs)
+COPY config/ServerInfo.txt C:/docker-config/ServerInfo.txt
+
+COPY scripts/start-process.ps1 C:/start-process.ps1
+
+# PROCESS_NAME = directory name (e.g. "Login", "Zone00")
+# PROCESS_EXE  = exe filename (e.g. "Login.exe", "Zone.exe")
+ENV PROCESS_NAME=""
+ENV PROCESS_EXE=""
+
+CMD ["powershell", "-File", "C:/start-process.ps1"]

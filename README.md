@@ -67,6 +67,21 @@ my-project/
     configtable/          # #DEFINE config tables
 ```
 
+### Value Conflict Resolution
+
+When merged tables have different values for the same row and column (e.g. different RGB values in ColorInfo), you can choose how to handle it:
+
+- **`"report"`** (default): Keep the target (server) value, log conflicts
+- **`"split"`**: Create split columns (`ColorR__client`) preserving both values — each environment builds with its own correct data
+
+```bash
+# After generating the template, set split strategy on tables with known conflicts
+dotnet run --project src/Mimir.Cli -- edit-template my-project --table ColorInfo --conflict-strategy split
+
+# Or apply to all merge actions at once
+dotnet run --project src/Mimir.Cli -- edit-template my-project --conflict-strategy split
+```
+
 ## CLI Commands
 
 | Command | Description |
@@ -77,6 +92,7 @@ my-project/
 | `edit <project> "<sql>"` | Execute SQL modifications and save back to JSON |
 | `shell <project>` | Interactive SQL shell with `.tables`, `.schema`, `.save` |
 | `init-template <project>` | Auto-generate merge/copy template from environment scan |
+| `edit-template <project>` | Modify merge actions in template (e.g. set conflict strategy) |
 | `validate <project>` | Check foreign key constraints and data integrity |
 
 ## Import Coverage

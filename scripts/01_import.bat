@@ -1,28 +1,25 @@
 @echo off
 REM ============================================================
-REM  Import 9Data server + client files into a Mimir project
-REM  Server: Z:\Odin Server Files\Server\9Data
-REM  Client: Z:\Client\Fiesta Online\ressystem  (optional)
-REM  Output: .\test-project
+REM  Import from configured environments into a Mimir project.
+REM  Reads environment paths from test-project/mimir.json.
+REM  Run init-template first if mimir.template.json doesn't exist.
 REM ============================================================
 
 set MIMIR=dotnet run --project ..\src\Mimir.Cli --
-set SERVER=Z:\Odin Server Files\Server\9Data
-set CLIENT=Z:\Client\Fiesta Online\ressystem
 set PROJECT=..\test-project
 
 echo === Mimir Import ===
-echo Server: %SERVER%
+echo Project: %PROJECT%
+echo.
 
-if exist "%CLIENT%" (
-    echo Client: %CLIENT%
+REM Generate template if it doesn't exist
+if not exist "%PROJECT%\mimir.template.json" (
+    echo Generating template...
+    %MIMIR% init-template "%PROJECT%"
     echo.
-    %MIMIR% import "%SERVER%" "%PROJECT%" --client "%CLIENT%"
-) else (
-    echo Client: not found, importing server only
-    echo.
-    %MIMIR% import "%SERVER%" "%PROJECT%"
 )
+
+%MIMIR% import "%PROJECT%"
 
 echo.
 echo Done. Check %PROJECT%\mimir.json for the manifest.

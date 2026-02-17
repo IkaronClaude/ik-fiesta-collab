@@ -1,0 +1,165 @@
+# Fiesta Online server — one container per process
+# All services communicate via Docker Compose DNS hostnames.
+#
+# Setup: symlink or copy server files into deploy/server-files/
+#   mklink /D deploy\server-files Z:\Server
+
+x-gameserver: &gameserver
+  build:
+    context: .
+    dockerfile: Dockerfile.server
+  volumes:
+    - ../test-project/build/server/9Data:C:/server/9Data:ro
+
+services:
+  sqlserver:
+    build:
+      context: .
+      dockerfile: Dockerfile.sql
+    container_name: fiesta-sql
+    ports:
+      - "1433:1433"
+    volumes:
+      - sql-data:C:/sql-data
+    environment:
+      - SA_PASSWORD=V63WsdafLJT9NDAn
+      - ACCEPT_EULA=Y
+    healthcheck:
+      test: ["CMD", "sqlcmd", "-S", "localhost", "-U", "sa", "-P", "V63WsdafLJT9NDAn", "-Q", "SELECT 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # --- DB bridge processes (depend on SQL) ---
+
+  account:
+    <<: *gameserver
+    container_name: fiesta-account
+    environment:
+      - PROCESS_NAME=Account
+      - PROCESS_EXE=Account.exe
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+
+  accountlog:
+    <<: *gameserver
+    container_name: fiesta-accountlog
+    environment:
+      - PROCESS_NAME=AccountLog
+      - PROCESS_EXE=AccountLog.exe
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+
+  character:
+    <<: *gameserver
+    container_name: fiesta-character
+    environment:
+      - PROCESS_NAME=Character
+      - PROCESS_EXE=Character.exe
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+
+  gamelog:
+    <<: *gameserver
+    container_name: fiesta-gamelog
+    environment:
+      - PROCESS_NAME=GameLog
+      - PROCESS_EXE=GameLog.exe
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+
+  # --- Game processes (depend on DB bridges) ---
+
+  login:
+    <<: *gameserver
+    container_name: fiesta-login
+    ports:
+      - "9010:9010"    # Client connects here
+    environment:
+      - PROCESS_NAME=Login
+      - PROCESS_EXE=Login.exe
+    depends_on:
+      account:
+        condition: service_started
+      accountlog:
+        condition: service_started
+      character:
+        condition: service_started
+      gamelog:
+        condition: service_started
+
+  worldmanager:
+    <<: *gameserver
+    container_name: fiesta-worldmanager
+    environment:
+      - PROCESS_NAME=WorldManager
+      - PROCESS_EXE=WorldManager.exe
+    depends_on:
+      account:
+        condition: service_started
+      accountlog:
+        condition: service_started
+      character:
+        condition: service_started
+      gamelog:
+        condition: service_started
+
+  # --- Zone processes (depend on WorldManager) ---
+
+  zone00:
+    <<: *gameserver
+    container_name: fiesta-zone00
+    environment:
+      - PROCESS_NAME=Zone00
+      - PROCESS_EXE=Zone.exe
+    depends_on:
+      worldmanager:
+        condition: service_started
+
+  zone01:
+    <<: *gameserver
+    container_name: fiesta-zone01
+    environment:
+      - PROCESS_NAME=Zone01
+      - PROCESS_EXE=Zone.exe
+    depends_on:
+      worldmanager:
+        condition: service_started
+
+  zone02:
+    <<: *gameserver
+    container_name: fiesta-zone02
+    environment:
+      - PROCESS_NAME=Zone02
+      - PROCESS_EXE=Zone.exe
+    depends_on:
+      worldmanager:
+        condition: service_started
+
+  zone03:
+    <<: *gameserver
+    container_name: fiesta-zone03
+    environment:
+      - PROCESS_NAME=Zone03
+      - PROCESS_EXE=Zone.exe
+    depends_on:
+      worldmanager:
+        condition: service_started
+
+  zone04:
+    <<: *gameserver
+    container_name: fiesta-zone04
+    environment:
+      - PROCESS_NAME=Zone04
+      - PROCESS_EXE=Zone.exe
+    depends_on:
+      worldmanager:
+        condition: service_started
+
+volumes:
+  sql-data:

@@ -437,3 +437,6 @@ build-output/
 build/
 reimport-project/
 types.txt
+
+# Docker deploy — server binaries (copyrighted, not in repo)
+deploy/server-files/

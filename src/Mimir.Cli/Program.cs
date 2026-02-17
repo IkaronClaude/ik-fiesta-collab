@@ -125,7 +125,8 @@ importCommand.SetHandler(async (DirectoryInfo project) =>
             }
 
             var strategy = action.ColumnStrategy ?? "auto";
-            var result = TableMerger.Merge(target, source, action.On, action.From.Env, strategy);
+            var conflictStrategy = action.ConflictStrategy ?? "report";
+            var result = TableMerger.Merge(target, source, action.On, action.From.Env, strategy, conflictStrategy);
             mergedTables[action.Into] = result.Table;
 
             // Accumulate env metadata
@@ -144,12 +145,20 @@ importCommand.SetHandler(async (DirectoryInfo project) =>
             if (result.Conflicts.Count > 0)
             {
                 totalConflicts += result.Conflicts.Count;
-                foreach (var c in result.Conflicts.Take(5))
-                    logger.LogError("CONFLICT in {Table}: key={Key} col={Col} target={TVal} source={SVal}",
-                        action.Into, c.JoinKey, c.Column, c.TargetValue, c.SourceValue);
-                if (result.Conflicts.Count > 5)
-                    logger.LogError("  ... and {More} more conflicts in {Table}",
-                        result.Conflicts.Count - 5, action.Into);
+                if (conflictStrategy == "split")
+                {
+                    logger.LogInformation("Resolved {Count} value conflict(s) in {Table} via column splitting",
+                        result.Conflicts.Count, action.Into);
+                }
+                else
+                {
+                    foreach (var c in result.Conflicts.Take(5))
+                        logger.LogError("CONFLICT in {Table}: key={Key} col={Col} target={TVal} source={SVal}",
+                            action.Into, c.JoinKey, c.Column, c.TargetValue, c.SourceValue);
+                    if (result.Conflicts.Count > 5)
+                        logger.LogError("  ... and {More} more conflicts in {Table}",
+                            result.Conflicts.Count - 5, action.Into);
+                }
             }
 
             logger.LogInformation("Merge: {From}@{Env} → {Into} ({Conflicts} conflicts)",
@@ -823,6 +832,57 @@ initTemplateCommand.SetHandler(async (DirectoryInfo project) =>
 
 }, initTemplateProjectArg);
 
+// --- edit-template command ---
+var editTemplateCommand = new Command("edit-template", "Modify merge actions in mimir.template.json");
+var editTemplateProjectArg = new Argument<DirectoryInfo>("project", "Path to Mimir project directory");
+var editTemplateTableOption = new Option<string?>("--table", "Target a specific table (applies to all merge actions if omitted)");
+editTemplateTableOption.AddAlias("-t");
+var conflictStrategyOption = new Option<string?>("--conflict-strategy", "Set conflict strategy on merge actions (report or split)");
+editTemplateCommand.AddArgument(editTemplateProjectArg);
+editTemplateCommand.AddOption(editTemplateTableOption);
+editTemplateCommand.AddOption(conflictStrategyOption);
+
+editTemplateCommand.SetHandler(async (DirectoryInfo project, string? table, string? conflictStrategyVal) =>
+{
+    var logger = sp.GetRequiredService<ILogger<Program>>();
+
+    var templatePath = Path.Combine(project.FullName, TemplateResolver.TemplateFileName);
+    if (!File.Exists(templatePath))
+    {
+        logger.LogError("No {File} found in {Dir}. Run init-template first.", TemplateResolver.TemplateFileName, project.FullName);
+        return;
+    }
+
+    var json = await File.ReadAllTextAsync(templatePath);
+    var doc = System.Text.Json.Nodes.JsonNode.Parse(json)!.AsObject();
+    var actions = doc["actions"]!.AsArray();
+
+    int modified = 0;
+    foreach (var action in actions)
+    {
+        var obj = action!.AsObject();
+        if (obj["action"]?.GetValue<string>() != "merge") continue;
+        if (table != null && obj["into"]?.GetValue<string>() != table) continue;
+
+        if (conflictStrategyVal != null)
+        {
+            obj["conflictStrategy"] = conflictStrategyVal;
+            modified++;
+        }
+    }
+
+    if (modified == 0)
+    {
+        logger.LogWarning("No merge actions matched{Table}.", table != null ? $" for table {table}" : "");
+        return;
+    }
+
+    var writeOptions = new System.Text.Json.JsonSerializerOptions { WriteIndented = true };
+    await File.WriteAllTextAsync(templatePath, doc.ToJsonString(writeOptions));
+    logger.LogInformation("Updated {Count} merge action(s) in {File}", modified, TemplateResolver.TemplateFileName);
+
+}, editTemplateProjectArg, editTemplateTableOption, conflictStrategyOption);
+
 rootCommand.AddCommand(importCommand);
 rootCommand.AddCommand(buildCommand);
 rootCommand.AddCommand(queryCommand);
@@ -830,6 +890,7 @@ rootCommand.AddCommand(editCommand);
 rootCommand.AddCommand(shellCommand);
 rootCommand.AddCommand(validateCommand);
 rootCommand.AddCommand(initTemplateCommand);
+rootCommand.AddCommand(editTemplateCommand);
 rootCommand.AddCommand(dumpCommand);
 rootCommand.AddCommand(analyzeCommand);
 

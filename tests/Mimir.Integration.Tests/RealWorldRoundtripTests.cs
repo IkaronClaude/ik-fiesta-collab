@@ -353,7 +353,8 @@ public class RealWorldRoundtripTests
                 if (!rawTables.TryGetValue(key, out var source)) continue;
                 if (!mergedTables.TryGetValue(action.Into, out var target)) continue;
 
-                var result = TableMerger.Merge(target, source, action.On, action.From.Env, action.ColumnStrategy ?? "auto");
+                var result = TableMerger.Merge(target, source, action.On, action.From.Env,
+                    action.ColumnStrategy ?? "auto", action.ConflictStrategy ?? "report");
                 mergedTables[action.Into] = result.Table;
 
                 if (!allEnvMetadata.ContainsKey(action.Into))
