@@ -2,6 +2,7 @@
 # Restores Fiesta game databases from .bak files on first run
 #
 # Database backups are copied from deploy/server-files/Databases/ at build time.
+# Run setup.ps1 first to copy server files into deploy/server-files/.
 
 FROM mcr.microsoft.com/windows/servercore:ltsc2022
 

@@ -1,5 +1,5 @@
 # setup.ps1 — One-stop Mimir project setup
-# Prompts for paths, links server files for Docker, runs the full pipeline.
+# Prompts for paths, copies server files for Docker, runs the full pipeline.
 # After this: `docker compose -f deploy/docker-compose.yml up -d` just works.
 
 param(
@@ -39,28 +39,41 @@ if ($hasClient) {
 
 Write-Host ""
 
-# --- Link server files for Docker ---
+# --- Copy server files for Docker ---
 
-$serverFilesLink = Join-Path "deploy" "server-files"
-if (-not (Test-Path $serverFilesLink)) {
-    Write-Host "Creating symlink: deploy/server-files -> $ServerPath"
-    Write-Host "  (Docker needs this for server executables and database backups)"
-    try {
-        New-Item -ItemType SymbolicLink -Path $serverFilesLink -Target $ServerPath | Out-Null
-        Write-Host "  Symlink created." -ForegroundColor Green
-    } catch {
-        Write-Host "  Symlink failed (may need admin rights). Creating junction instead..." -ForegroundColor Yellow
-        cmd /c "mklink /J `"$serverFilesLink`" `"$ServerPath`""
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "  ERROR: Could not create symlink or junction." -ForegroundColor Red
-            Write-Host "  Please run as Administrator, or manually create:"
-            Write-Host "    mklink /D deploy\server-files $ServerPath"
-            exit 1
+$serverFilesDir = Join-Path "deploy" "server-files"
+$processDirs = @("Account", "AccountLog", "Character", "GameLog", "Login", "WorldManager", "Zone00", "Zone01", "Zone02", "Zone03", "Zone04")
+
+if (-not (Test-Path $serverFilesDir)) {
+    Write-Host "Copying server files to deploy/server-files/ ..."
+    Write-Host "  (Docker needs these for server executables and database backups)"
+    New-Item -ItemType Directory -Path $serverFilesDir -Force | Out-Null
+
+    # Copy process directories (executables + DLLs)
+    foreach ($dir in $processDirs) {
+        $src = Join-Path $ServerPath $dir
+        $dst = Join-Path $serverFilesDir $dir
+        if (Test-Path $src) {
+            Write-Host "  Copying $dir/ ..."
+            Copy-Item -Path $src -Destination $dst -Recurse -Force
+        } else {
+            Write-Host "  WARNING: $dir/ not found in server path, skipping" -ForegroundColor Yellow
         }
-        Write-Host "  Junction created." -ForegroundColor Green
     }
+
+    # Copy database backups
+    $dbSrc = Join-Path $ServerPath "Databases"
+    $dbDst = Join-Path $serverFilesDir "Databases"
+    if (Test-Path $dbSrc) {
+        Write-Host "  Copying Databases/ ..."
+        Copy-Item -Path $dbSrc -Destination $dbDst -Recurse -Force
+    } else {
+        Write-Host "  WARNING: Databases/ not found in server path" -ForegroundColor Yellow
+    }
+
+    Write-Host "  Server files copied." -ForegroundColor Green
 } else {
-    Write-Host "deploy/server-files already exists, skipping link creation."
+    Write-Host "deploy/server-files/ already exists, skipping copy."
 }
 
 Write-Host ""

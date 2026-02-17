@@ -2,10 +2,9 @@
 # All services communicate via Docker Compose DNS hostnames.
 #
 # Setup:
-#   1. Symlink server binaries: mklink /D deploy\server-files Z:\Server
-#   2. Run Mimir setup: powershell -File setup.ps1
-#      (creates test-project/build/server/9Data/ for volume mount)
-#   3. docker compose -f deploy/docker-compose.yml up -d
+#   1. Run setup: powershell -File setup.ps1
+#      (copies server files to deploy/server-files/, creates test-project/build/)
+#   2. docker compose -f deploy/docker-compose.yml up -d
 
 x-gameserver: &gameserver
   build:
