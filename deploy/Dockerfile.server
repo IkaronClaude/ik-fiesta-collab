@@ -2,16 +2,18 @@
 # Single image used by all 11 game process containers.
 # Each container runs one process, specified by PROCESS_NAME and PROCESS_EXE env vars.
 #
-# Before building, create a symlink or copy your server files into deploy/server-files/:
-#   mklink /D deploy\server-files Z:\Server
-#   - OR -
-#   Copy your Server folder to deploy/server-files/
+# This image contains only the server EXECUTABLES (Account.exe, Login.exe, Zone.exe, etc.).
+# Game DATA (9Data/Shine/*.shn) is volume-mounted at runtime from Mimir build output.
 #
-# Expected layout:
+# Setup: symlink or copy your server files into deploy/server-files/:
+#   mklink /D deploy\server-files Z:\Server
+#
+# Only the process directories are needed:
 #   deploy/server-files/Account/Account.exe
 #   deploy/server-files/Login/Login.exe
 #   deploy/server-files/Zone00/Zone.exe
 #   ... etc
+# 9Data/ is NOT needed here — it comes from `mimir build` output via volume mount.
 
 FROM mcr.microsoft.com/windows/servercore:ltsc2022
 

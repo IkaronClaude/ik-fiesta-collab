@@ -5,6 +5,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\Mimir.Cli\Mimir.Cli.csproj" />
     <ProjectReference Include="..\..\src\Mimir.Core\Mimir.Core.csproj" />
     <ProjectReference Include="..\..\src\Mimir.Shn\Mimir.Shn.csproj" />
     <ProjectReference Include="..\..\src\Mimir.ShineTable\Mimir.ShineTable.csproj" />

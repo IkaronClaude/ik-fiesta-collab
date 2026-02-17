@@ -883,6 +883,54 @@ editTemplateCommand.SetHandler(async (DirectoryInfo project, string? table, stri
 
 }, editTemplateProjectArg, editTemplateTableOption, conflictStrategyOption);
 
+// --- pack command ---
+var packCommand = new Command("pack", "Package client build output into incremental patch zips");
+var packProjectArg = new Argument<DirectoryInfo>("project", "Path to Mimir project directory");
+var packOutputArg = new Argument<DirectoryInfo>("output-dir", "Path to output directory for patches and patch-index.json");
+var packEnvOption = new Option<string>("--env", () => "client", "Environment to pack (default: client)");
+packEnvOption.AddAlias("-e");
+var packBaseUrlOption = new Option<string?>("--base-url", "URL prefix for patch URLs in the index (e.g. https://patches.example.com/)");
+packCommand.AddArgument(packProjectArg);
+packCommand.AddArgument(packOutputArg);
+packCommand.AddOption(packEnvOption);
+packCommand.AddOption(packBaseUrlOption);
+
+packCommand.SetHandler(async (DirectoryInfo project, DirectoryInfo outputDir, string envName, string? baseUrl) =>
+{
+    var logger = sp.GetRequiredService<ILogger<Program>>();
+    var projectService = sp.GetRequiredService<IProjectService>();
+
+    var manifest = await projectService.LoadProjectAsync(project.FullName);
+    if (manifest.Environments is null || !manifest.Environments.ContainsKey(envName))
+    {
+        logger.LogError("Environment '{Env}' not found in mimir.json.", envName);
+        return;
+    }
+
+    // Determine build directory: use configured buildPath or default build/<env>
+    var envConfig = manifest.Environments[envName];
+    var buildPath = envConfig.BuildPath ?? Path.Combine("build", envName);
+    var buildDir = Path.IsPathRooted(buildPath) ? buildPath : Path.Combine(project.FullName, buildPath);
+
+    if (!Directory.Exists(buildDir))
+    {
+        logger.LogError("Build directory does not exist: {Path}. Run 'mimir build --all' first.", buildDir);
+        return;
+    }
+
+    // Use the parent of the env build dir as the build root (pack expects build/<env>/ structure)
+    var buildRoot = Path.GetDirectoryName(buildDir)!;
+
+    var (message, version) = await Mimir.Cli.PackCommand.ExecuteAsync(
+        project.FullName, buildRoot, outputDir.FullName, envName, baseUrl);
+
+    if (version > 0)
+        logger.LogInformation("{Message}", message);
+    else
+        Console.WriteLine(message);
+
+}, packProjectArg, packOutputArg, packEnvOption, packBaseUrlOption);
+
 rootCommand.AddCommand(importCommand);
 rootCommand.AddCommand(buildCommand);
 rootCommand.AddCommand(queryCommand);
@@ -891,6 +939,7 @@ rootCommand.AddCommand(shellCommand);
 rootCommand.AddCommand(validateCommand);
 rootCommand.AddCommand(initTemplateCommand);
 rootCommand.AddCommand(editTemplateCommand);
+rootCommand.AddCommand(packCommand);
 rootCommand.AddCommand(dumpCommand);
 rootCommand.AddCommand(analyzeCommand);
 

@@ -438,5 +438,8 @@ build/
 reimport-project/
 types.txt
 
+# Pack manifest (project-specific state, tracks file hashes between packs)
+.mimir-pack-manifest.json
+
 # Docker deploy — server binaries (copyrighted, not in repo)
 deploy/server-files/

@@ -1,9 +1,9 @@
 using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Mimir.Cli;
 using Mimir.Core;
 using Mimir.Core.Models;
 using Mimir.Core.Project;
@@ -235,6 +235,110 @@ public class PackCommandTests : IAsyncLifetime
         var index = JsonSerializer.Deserialize<PatchIndex>(
             await File.ReadAllTextAsync(Path.Combine(_packOutputDir, "patch-index.json")))!;
         index.Patches[0].Url.ShouldBe("https://patches.example.com/patches/patch-v1.zip");
+    }
+
+    // ==================== Override Tests ====================
+
+    [Fact]
+    public async Task Pack_IncludesOverrideFiles()
+    {
+        await RunBuildClient();
+
+        // Add an override file (e.g., a texture)
+        var overrideDir = Path.Combine(_projectDir, "overrides", "client", "ressystem");
+        Directory.CreateDirectory(overrideDir);
+        await File.WriteAllBytesAsync(Path.Combine(overrideDir, "custom_texture.nif"), [0xDE, 0xAD, 0xBE, 0xEF]);
+
+        await RunPack();
+
+        var zipPath = Path.Combine(_packOutputDir, "patches", "patch-v1.zip");
+        using var zip = ZipFile.OpenRead(zipPath);
+        var entries = zip.Entries.Select(e => e.FullName.Replace('\\', '/')).ToHashSet();
+        entries.ShouldContain("ressystem/custom_texture.nif");
+        entries.Count.ShouldBe(4); // 3 SHN + 1 override
+    }
+
+    [Fact]
+    public async Task Pack_OverrideFileOverwritesBuildFile()
+    {
+        await RunBuildClient();
+
+        // Override a built SHN file with custom content
+        var overrideDir = Path.Combine(_projectDir, "overrides", "client", "ressystem");
+        Directory.CreateDirectory(overrideDir);
+        var overrideContent = new byte[] { 0x01, 0x02, 0x03 };
+        await File.WriteAllBytesAsync(Path.Combine(overrideDir, "ColorInfo.shn"), overrideContent);
+
+        await RunPack();
+
+        // Extract the zip and verify the override content won
+        var zipPath = Path.Combine(_packOutputDir, "patches", "patch-v1.zip");
+        using var zip = ZipFile.OpenRead(zipPath);
+        var colorEntry = zip.GetEntry("ressystem/ColorInfo.shn");
+        colorEntry.ShouldNotBeNull();
+        using var stream = colorEntry!.Open();
+        using var ms = new MemoryStream();
+        await stream.CopyToAsync(ms);
+        ms.ToArray().ShouldBe(overrideContent);
+    }
+
+    [Fact]
+    public async Task Pack_OverrideManifestTracksOverrideFiles()
+    {
+        await RunBuildClient();
+
+        var overrideDir = Path.Combine(_projectDir, "overrides", "client", "ressystem");
+        Directory.CreateDirectory(overrideDir);
+        await File.WriteAllBytesAsync(Path.Combine(overrideDir, "icon.png"), [0xFF, 0xD8]);
+
+        await RunPack();
+
+        var manifest = JsonSerializer.Deserialize<PackManifest>(
+            await File.ReadAllTextAsync(Path.Combine(_projectDir, ".mimir-pack-manifest.json")))!;
+        manifest.Files.Keys.ShouldContain("ressystem/icon.png");
+        manifest.Files.Count.ShouldBe(4); // 3 SHN + 1 override
+    }
+
+    [Fact]
+    public async Task Pack_ChangedOverride_CreatesIncrementalPatch()
+    {
+        await RunBuildClient();
+
+        // First pack with an override
+        var overrideDir = Path.Combine(_projectDir, "overrides", "client", "ressystem");
+        Directory.CreateDirectory(overrideDir);
+        await File.WriteAllBytesAsync(Path.Combine(overrideDir, "splash.png"), [0x01]);
+        await RunPack();
+
+        // Modify the override
+        await File.WriteAllBytesAsync(Path.Combine(overrideDir, "splash.png"), [0x02]);
+        await RunPack();
+
+        // v2 should contain only the changed override
+        var zipPath = Path.Combine(_packOutputDir, "patches", "patch-v2.zip");
+        File.Exists(zipPath).ShouldBeTrue();
+        using var zip = ZipFile.OpenRead(zipPath);
+        var entries = zip.Entries.Select(e => e.FullName.Replace('\\', '/')).ToHashSet();
+        entries.ShouldContain("ressystem/splash.png");
+        entries.Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Pack_OverrideInSubdir_PreservesPath()
+    {
+        await RunBuildClient();
+
+        // Override in a nested subdirectory
+        var overrideDir = Path.Combine(_projectDir, "overrides", "client", "ressystem", "textures", "ui");
+        Directory.CreateDirectory(overrideDir);
+        await File.WriteAllBytesAsync(Path.Combine(overrideDir, "button.dds"), [0xAA, 0xBB]);
+
+        await RunPack();
+
+        var zipPath = Path.Combine(_packOutputDir, "patches", "patch-v1.zip");
+        using var zip = ZipFile.OpenRead(zipPath);
+        var entries = zip.Entries.Select(e => e.FullName.Replace('\\', '/')).ToHashSet();
+        entries.ShouldContain("ressystem/textures/ui/button.dds");
     }
 
     // ==================== Pipeline Helpers ====================
@@ -567,179 +671,5 @@ public class PackCommandTests : IAsyncLifetime
             }
         }
         return tables;
-    }
-}
-
-// ==================== Pack Models (will move to Mimir.Core later if needed) ====================
-
-/// <summary>
-/// Tracks file hashes from the last pack, stored as .mimir-pack-manifest.json in the project dir.
-/// </summary>
-public sealed class PackManifest
-{
-    [JsonPropertyName("version")]
-    public int Version { get; set; }
-
-    [JsonPropertyName("files")]
-    public Dictionary<string, string> Files { get; set; } = new();
-}
-
-/// <summary>
-/// Hosted patch index listing all available patches.
-/// </summary>
-public sealed class PatchIndex
-{
-    [JsonPropertyName("latestVersion")]
-    public int LatestVersion { get; set; }
-
-    [JsonPropertyName("patches")]
-    public List<PatchEntry> Patches { get; set; } = new();
-}
-
-public sealed class PatchEntry
-{
-    [JsonPropertyName("version")]
-    public int Version { get; set; }
-
-    [JsonPropertyName("url")]
-    public string Url { get; set; } = "";
-
-    [JsonPropertyName("sha256")]
-    public string Sha256 { get; set; } = "";
-
-    [JsonPropertyName("fileCount")]
-    public int FileCount { get; set; }
-
-    [JsonPropertyName("sizeBytes")]
-    public long SizeBytes { get; set; }
-}
-
-/// <summary>
-/// The pack command logic, extracted for testability.
-/// </summary>
-public static class PackCommand
-{
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        WriteIndented = true,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-    };
-
-    public static async Task<(string message, int version)> ExecuteAsync(
-        string projectDir, string buildDir, string outputDir, string envName, string? baseUrl = null)
-    {
-        // Step 1: Find build output for the environment
-        var clientBuildDir = Path.Combine(buildDir, envName);
-        if (!Directory.Exists(clientBuildDir))
-            return ("Build directory does not exist. Run 'mimir build --all' first.", 0);
-
-        // Step 2: Hash all files in the build output
-        var currentFiles = new Dictionary<string, string>();
-        foreach (var file in Directory.EnumerateFiles(clientBuildDir, "*", SearchOption.AllDirectories))
-        {
-            var relPath = Path.GetRelativePath(clientBuildDir, file).Replace('\\', '/');
-            var hash = await HashFileAsync(file);
-            currentFiles[relPath] = hash;
-        }
-
-        if (currentFiles.Count == 0)
-            return ("No files found in build output.", 0);
-
-        // Step 3: Load previous manifest
-        var manifestPath = Path.Combine(projectDir, ".mimir-pack-manifest.json");
-        PackManifest? previousManifest = null;
-        if (File.Exists(manifestPath))
-        {
-            previousManifest = JsonSerializer.Deserialize<PackManifest>(
-                await File.ReadAllTextAsync(manifestPath), JsonOptions);
-        }
-
-        // Step 4: Find changed files
-        var changedFiles = new List<string>();
-        foreach (var (relPath, hash) in currentFiles)
-        {
-            if (previousManifest == null
-                || !previousManifest.Files.TryGetValue(relPath, out var prevHash)
-                || prevHash != hash)
-            {
-                changedFiles.Add(relPath);
-            }
-        }
-
-        if (changedFiles.Count == 0)
-            return ("No changes to pack.", previousManifest?.Version ?? 0);
-
-        // Step 5: Determine version
-        var nextVersion = (previousManifest?.Version ?? 0) + 1;
-
-        // Step 6: Create zip with only changed files
-        var patchesDir = Path.Combine(outputDir, "patches");
-        Directory.CreateDirectory(patchesDir);
-        var zipFileName = $"patch-v{nextVersion}.zip";
-        var zipPath = Path.Combine(patchesDir, zipFileName);
-
-        // Delete if exists (re-packing same version)
-        if (File.Exists(zipPath)) File.Delete(zipPath);
-
-        using (var zip = ZipFile.Open(zipPath, ZipArchiveMode.Create))
-        {
-            foreach (var relPath in changedFiles.OrderBy(f => f))
-            {
-                var sourcePath = Path.Combine(clientBuildDir, relPath.Replace('/', Path.DirectorySeparatorChar));
-                zip.CreateEntryFromFile(sourcePath, relPath);
-            }
-        }
-
-        // Step 7: Hash the zip
-        var zipHash = await HashFileAsync(zipPath);
-        var zipSize = new FileInfo(zipPath).Length;
-
-        // Step 8: Update patch-index.json
-        var indexPath = Path.Combine(outputDir, "patch-index.json");
-        PatchIndex index;
-        if (File.Exists(indexPath))
-        {
-            index = JsonSerializer.Deserialize<PatchIndex>(
-                await File.ReadAllTextAsync(indexPath), JsonOptions) ?? new PatchIndex();
-        }
-        else
-        {
-            index = new PatchIndex();
-        }
-
-        var patchUrl = $"patches/{zipFileName}";
-        if (!string.IsNullOrEmpty(baseUrl))
-        {
-            var prefix = baseUrl.EndsWith('/') ? baseUrl : baseUrl + "/";
-            patchUrl = prefix + patchUrl;
-        }
-
-        index.Patches.Add(new PatchEntry
-        {
-            Version = nextVersion,
-            Url = patchUrl,
-            Sha256 = zipHash,
-            FileCount = changedFiles.Count,
-            SizeBytes = zipSize
-        });
-        index.LatestVersion = nextVersion;
-
-        await File.WriteAllTextAsync(indexPath, JsonSerializer.Serialize(index, JsonOptions));
-
-        // Step 9: Update pack manifest
-        var newManifest = new PackManifest
-        {
-            Version = nextVersion,
-            Files = currentFiles
-        };
-        await File.WriteAllTextAsync(manifestPath, JsonSerializer.Serialize(newManifest, JsonOptions));
-
-        return ($"Packed version {nextVersion}: {changedFiles.Count} files, {zipSize} bytes", nextVersion);
-    }
-
-    private static async Task<string> HashFileAsync(string path)
-    {
-        var bytes = await File.ReadAllBytesAsync(path);
-        return Convert.ToHexStringLower(SHA256.HashData(bytes));
     }
 }

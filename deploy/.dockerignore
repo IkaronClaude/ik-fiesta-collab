@@ -1,0 +1,8 @@
+# Exclude everything from server-files except the process directories we COPY
+server-files/9Data/
+server-files/Databases/
+server-files/*.txt
+server-files/*.ini
+server-files/*.log
+server-files/*.bat
+server-files/*.cfg
