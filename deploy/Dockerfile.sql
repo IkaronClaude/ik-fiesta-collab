@@ -28,7 +28,7 @@ RUN Invoke-WebRequest -Uri 'https://download.microsoft.com/download/7ab8f535-7eb
 RUN $base = 'HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server'; \
     $instance = (Get-ChildItem $base | Where-Object { $_.PSChildName -match 'MSSQL\d+\.SQLEXPRESS' }).PSChildName; \
     if (-not $instance) { throw 'Could not find SQLEXPRESS registry key' }; \
-    $regPath = "$base\$instance\MSSQLServer\SuperSocketNetLib\Tcp\IPAll"; \
+    $regPath = ('{0}\{1}\MSSQLServer\SuperSocketNetLib\Tcp\IPAll' -f $base, $instance); \
     Write-Host "Setting TCP port 1433 at: $regPath"; \
     Set-ItemProperty -Path $regPath -Name TcpPort -Value '1433'; \
     Set-ItemProperty -Path $regPath -Name TcpDynamicPorts -Value ''
