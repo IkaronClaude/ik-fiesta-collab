@@ -81,9 +81,18 @@ $serverInfoPath = "$serverInfoDir\ServerInfo.txt"
 $hostnames = @('login', 'worldmanager', 'zone00', 'zone01', 'zone02', 'zone03', 'zone04',
                'account', 'accountlog', 'character', 'gamelog', 'sqlserver')
 
-Write-Host "Resolving Docker hostnames to IPs..."
-$content = Get-Content $serverInfoTemplate -Raw
+Write-Host "Reading template: $serverInfoTemplate"
+if (-not (Test-Path $serverInfoTemplate)) {
+    Write-Error "ServerInfo template not found at $serverInfoTemplate"
+    Write-Host "Contents of C:\docker-config:"
+    Get-ChildItem C:\docker-config -Recurse | ForEach-Object { Write-Host $_.FullName }
+    exit 1
+}
 
+$content = Get-Content $serverInfoTemplate -Raw -ErrorAction Stop
+Write-Host ('Template loaded: {0} chars' -f $content.Length)
+
+Write-Host "Resolving Docker hostnames to IPs..."
 foreach ($hostname in $hostnames) {
     try {
         $ip = [System.Net.Dns]::GetHostAddresses($hostname) |
@@ -103,8 +112,16 @@ foreach ($hostname in $hostnames) {
     }
 }
 
-Set-Content -Path $serverInfoPath -Value $content -NoNewline
-Write-Host "ServerInfo.txt written to $serverInfoPath with resolved IPs."
+Set-Content -Path $serverInfoPath -Value $content -NoNewline -ErrorAction Stop
+
+if (Test-Path $serverInfoPath) {
+    $written = (Get-Item $serverInfoPath).Length
+    Write-Host ('ServerInfo.txt written to {0} ({1} bytes)' -f $serverInfoPath, $written)
+}
+else {
+    Write-Error "FAILED: ServerInfo.txt was not written to $serverInfoPath"
+    exit 1
+}
 
 # --- Step 3: Registry keys (from Fantasy.reg and GBO.reg) ---
 
