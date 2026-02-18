@@ -352,6 +352,9 @@ buildCommand.SetHandler(async (DirectoryInfo project, DirectoryInfo output, stri
 
         logger.LogInformation("Building {Env} to {Output}", eName == "" ? "all" : eName, outputDir);
 
+        // Buffer for multi-section files that share a sourceFile (e.g. ServerInfo.txt with multiple #DEFINE sections)
+        var groupedEntries = new Dictionary<(IDataProvider provider, string dir, string sourceFile), List<TableEntry>>();
+
         foreach (var (name, entryPath) in manifest.Tables)
         {
             var tableFile = await projectService.ReadTableFileAsync(project.FullName, entryPath);
@@ -417,14 +420,55 @@ buildCommand.SetHandler(async (DirectoryInfo project, DirectoryInfo output, stri
                 // Use sourceRelDir to reconstruct original directory structure
                 var relDir = envMeta?.SourceRelDir;
                 var dir = string.IsNullOrEmpty(relDir) ? outputDir : Path.Combine(outputDir, relDir);
-                Directory.CreateDirectory(dir);
 
-                await provider.WriteAsync(Path.Combine(dir, $"{name}.{ext}"), [entry]);
-                built++;
+                // Check if this table has a sourceFile (multi-section txt files)
+                var sourceFile = entry.Schema.Metadata?.TryGetValue("sourceFile", out var sf) == true
+                    ? sf?.ToString() : null;
+
+                if (!string.IsNullOrEmpty(sourceFile))
+                {
+                    // Buffer for grouped write — multiple sections → one file
+                    var key = (provider, dir, sourceFile);
+                    if (!groupedEntries.TryGetValue(key, out var group))
+                    {
+                        group = [];
+                        groupedEntries[key] = group;
+                    }
+                    group.Add(entry);
+                    built++;
+                }
+                else
+                {
+                    // Single-table file (SHN, etc.) — write immediately
+                    Directory.CreateDirectory(dir);
+                    await provider.WriteAsync(Path.Combine(dir, $"{name}.{ext}"), [entry]);
+                    built++;
+                }
             }
             catch (Exception ex)
             {
                 logger.LogError(ex, "Failed to build {Table}", name);
+            }
+        }
+
+        // Write grouped multi-section files (configtable/shinetable with shared sourceFile)
+        foreach (var ((gProvider, gDir, gSourceFile), entries) in groupedEntries)
+        {
+            try
+            {
+                // Sort by sectionIndex to preserve original file order
+                entries.Sort((a, b) =>
+                {
+                    int idxA = GetSectionIndex(a.Schema.Metadata);
+                    int idxB = GetSectionIndex(b.Schema.Metadata);
+                    return idxA.CompareTo(idxB);
+                });
+                Directory.CreateDirectory(gDir);
+                await gProvider.WriteAsync(Path.Combine(gDir, gSourceFile), entries);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Failed to build grouped file {File}", gSourceFile);
             }
         }
 
@@ -1071,5 +1115,17 @@ async Task SaveAllTables(
         saved++;
     }
     Console.WriteLine($"Saved {saved} tables.");
+}
+
+static int GetSectionIndex(IDictionary<string, object>? metadata)
+{
+    if (metadata?.TryGetValue("sectionIndex", out var val) != true) return int.MaxValue;
+    return val switch
+    {
+        int i => i,
+        long l => (int)l,
+        System.Text.Json.JsonElement je when je.ValueKind == System.Text.Json.JsonValueKind.Number => je.GetInt32(),
+        _ => int.TryParse(val?.ToString(), out int parsed) ? parsed : int.MaxValue
+    };
 }
 

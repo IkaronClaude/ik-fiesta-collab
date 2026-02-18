@@ -74,6 +74,7 @@ internal static class ShineTableFormatParser
         var tables = new List<TableEntry>();
         string fileName = Path.GetFileNameWithoutExtension(filePath);
         var preprocessor = new Preprocessor();
+        int sectionIndex = 0;
 
         int i = 0;
         while (i < lines.Length)
@@ -107,7 +108,10 @@ internal static class ShineTableFormatParser
             {
                 var (table, nextLine) = ParseTable(filePath, fileName, lines, i, preprocessor);
                 if (table != null)
+                {
+                    table.Schema.Metadata!["sectionIndex"] = sectionIndex++;
                     tables.Add(table);
+                }
                 i = nextLine;
                 continue;
             }

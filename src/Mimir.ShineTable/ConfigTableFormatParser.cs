@@ -128,8 +128,9 @@ internal static class ConfigTableFormatParser
             rows.Add(row);
         }
 
-        // Build TableEntry per type
+        // Build TableEntry per type (preserving order from file)
         var tables = new List<TableEntry>();
+        int sectionIndex = 0;
         foreach (var (typeName, rows) in tableRows)
         {
             if (!defines.TryGetValue(typeName, out var cols)) continue;
@@ -143,7 +144,8 @@ internal static class ConfigTableFormatParser
                 {
                     ["sourceFile"] = Path.GetFileName(filePath),
                     ["typeName"] = typeName,
-                    ["format"] = "define"
+                    ["format"] = "define",
+                    ["sectionIndex"] = sectionIndex++
                 }
             };
 

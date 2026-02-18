@@ -161,6 +161,126 @@ public class SyntheticRoundtripTests : IAsyncLifetime
                 Row(("Name", "SpawnRate"), ("Value", 50), ("Rate", 0.8f))
             ]);
 
+        // MultiConfig.txt: #DEFINE format with TWO sections, env-a only
+        // Written as a single file containing both SECTION_A and SECTION_B defines
+        {
+            var sectionACols = new ColumnDefinition[]
+            {
+                new() { Name = "Host", Type = ColumnType.String, Length = 0 },
+                new() { Name = "Port", Type = ColumnType.Int32, Length = 4 }
+            };
+            var sectionARows = new Dictionary<string, object?>[]
+            {
+                Row(("Host", "127.0.0.1"), ("Port", 8080))
+            };
+            var sectionBCols = new ColumnDefinition[]
+            {
+                new() { Name = "Driver", Type = ColumnType.String, Length = 0 },
+                new() { Name = "Server", Type = ColumnType.String, Length = 0 }
+            };
+            var sectionBRows = new Dictionary<string, object?>[]
+            {
+                Row(("Driver", "ODBC17"), ("Server", "localhost"))
+            };
+            // Write both sections into one file
+            var multiConfigPath = Path.Combine(_envADir, "Shine", "MultiConfig.txt");
+            Directory.CreateDirectory(Path.GetDirectoryName(multiConfigPath)!);
+            await configTableProvider.WriteAsync(multiConfigPath, [
+                new TableEntry
+                {
+                    Schema = new TableSchema
+                    {
+                        TableName = "MultiConfig_SECTION_A",
+                        SourceFormat = "configtable",
+                        Columns = sectionACols,
+                        Metadata = new Dictionary<string, object>
+                        {
+                            ["sourceFile"] = "MultiConfig.txt",
+                            ["typeName"] = "SECTION_A",
+                            ["format"] = "define"
+                        }
+                    },
+                    Rows = sectionARows
+                },
+                new TableEntry
+                {
+                    Schema = new TableSchema
+                    {
+                        TableName = "MultiConfig_SECTION_B",
+                        SourceFormat = "configtable",
+                        Columns = sectionBCols,
+                        Metadata = new Dictionary<string, object>
+                        {
+                            ["sourceFile"] = "MultiConfig.txt",
+                            ["typeName"] = "SECTION_B",
+                            ["format"] = "define"
+                        }
+                    },
+                    Rows = sectionBRows
+                }
+            ]);
+        }
+
+        // MultiTable.txt: #table format with TWO tables, env-a only
+        {
+            var tableACols = new ColumnDefinition[]
+            {
+                new() { Name = "GroupIndex", Type = ColumnType.String, Length = 32 },
+                new() { Name = "Count", Type = ColumnType.UInt16, Length = 2 }
+            };
+            var tableARows = new Dictionary<string, object?>[]
+            {
+                Row(("GroupIndex", "Alpha"), ("Count", (ushort)5)),
+                Row(("GroupIndex", "Beta"), ("Count", (ushort)3))
+            };
+            var tableBCols = new ColumnDefinition[]
+            {
+                new() { Name = "RegenIndex", Type = ColumnType.String, Length = 32 },
+                new() { Name = "MobIndex", Type = ColumnType.UInt32, Length = 4 }
+            };
+            var tableBRows = new Dictionary<string, object?>[]
+            {
+                Row(("RegenIndex", "Alpha"), ("MobIndex", (uint)100)),
+                Row(("RegenIndex", "Alpha"), ("MobIndex", (uint)200))
+            };
+            var multiTablePath = Path.Combine(_envADir, "Shine", "MultiTable.txt");
+            Directory.CreateDirectory(Path.GetDirectoryName(multiTablePath)!);
+            await shineTableProvider.WriteAsync(multiTablePath, [
+                new TableEntry
+                {
+                    Schema = new TableSchema
+                    {
+                        TableName = "MultiTable_MobRegenGroup",
+                        SourceFormat = "shinetable",
+                        Columns = tableACols,
+                        Metadata = new Dictionary<string, object>
+                        {
+                            ["sourceFile"] = "MultiTable.txt",
+                            ["tableName"] = "MobRegenGroup",
+                            ["format"] = "table"
+                        }
+                    },
+                    Rows = tableARows
+                },
+                new TableEntry
+                {
+                    Schema = new TableSchema
+                    {
+                        TableName = "MultiTable_MobRegen",
+                        SourceFormat = "shinetable",
+                        Columns = tableBCols,
+                        Metadata = new Dictionary<string, object>
+                        {
+                            ["sourceFile"] = "MultiTable.txt",
+                            ["tableName"] = "MobRegen",
+                            ["format"] = "table"
+                        }
+                    },
+                    Rows = tableBRows
+                }
+            ]);
+        }
+
         // SharedText.txt: #table format, in both envs (identical)
         var sharedTextCols = new ColumnDefinition[]
         {
@@ -231,6 +351,10 @@ public class SyntheticRoundtripTests : IAsyncLifetime
         copyTargets.ShouldContain("MobData_Spawn");
         copyTargets.ShouldContain("ServerConfig_CONFIG");
         copyTargets.ShouldContain("SharedText_Data");
+        copyTargets.ShouldContain("MultiConfig_SECTION_A");
+        copyTargets.ShouldContain("MultiConfig_SECTION_B");
+        copyTargets.ShouldContain("MultiTable_MobRegenGroup");
+        copyTargets.ShouldContain("MultiTable_MobRegen");
     }
 
     [Fact]
@@ -256,7 +380,7 @@ public class SyntheticRoundtripTests : IAsyncLifetime
     [Fact]
     public void Import_AllTablesInManifest()
     {
-        _manifest.Tables.Count.ShouldBe(7);
+        _manifest.Tables.Count.ShouldBe(11);
         _manifest.Tables.Keys.ShouldContain("SharedTable");
         _manifest.Tables.Keys.ShouldContain("EnvAOnly");
         _manifest.Tables.Keys.ShouldContain("EnvBOnly");
@@ -264,6 +388,10 @@ public class SyntheticRoundtripTests : IAsyncLifetime
         _manifest.Tables.Keys.ShouldContain("MobData_Spawn");
         _manifest.Tables.Keys.ShouldContain("ServerConfig_CONFIG");
         _manifest.Tables.Keys.ShouldContain("SharedText_Data");
+        _manifest.Tables.Keys.ShouldContain("MultiConfig_SECTION_A");
+        _manifest.Tables.Keys.ShouldContain("MultiConfig_SECTION_B");
+        _manifest.Tables.Keys.ShouldContain("MultiTable_MobRegenGroup");
+        _manifest.Tables.Keys.ShouldContain("MultiTable_MobRegen");
     }
 
     [Fact]
@@ -513,19 +641,19 @@ public class SyntheticRoundtripTests : IAsyncLifetime
     [Fact]
     public void Build_TextTable_WrittenAsTxt()
     {
-        // MobData_Spawn: env-a only, in Shine/ subdir
-        var mobDataPath = Path.Combine(_buildDir, "env-a", "Shine", "MobData_Spawn.txt");
+        // MobData_Spawn: env-a only, in Shine/ subdir — written using sourceFile "MobData.txt"
+        var mobDataPath = Path.Combine(_buildDir, "env-a", "Shine", "MobData.txt");
         File.Exists(mobDataPath).ShouldBeTrue($"Expected {mobDataPath} to exist");
 
-        // ServerConfig_CONFIG: env-b only, at root
-        var configPath = Path.Combine(_buildDir, "env-b", "ServerConfig_CONFIG.txt");
+        // ServerConfig_CONFIG: env-b only, at root — written using sourceFile "ServerConfig.txt"
+        var configPath = Path.Combine(_buildDir, "env-b", "ServerConfig.txt");
         File.Exists(configPath).ShouldBeTrue($"Expected {configPath} to exist");
 
-        // SharedText_Data: merged, should be in both envs
-        var sharedA = Path.Combine(_buildDir, "env-a", "Shine", "SharedText_Data.txt");
+        // SharedText_Data: merged, should be in both envs — written using sourceFile "SharedText.txt"
+        var sharedA = Path.Combine(_buildDir, "env-a", "Shine", "SharedText.txt");
         File.Exists(sharedA).ShouldBeTrue($"Expected {sharedA} to exist");
 
-        var sharedB = Path.Combine(_buildDir, "env-b", "SharedText_Data.txt");
+        var sharedB = Path.Combine(_buildDir, "env-b", "SharedText.txt");
         File.Exists(sharedB).ShouldBeTrue($"Expected {sharedB} to exist");
 
         // MobData should NOT be in env-b, ServerConfig should NOT be in env-a
@@ -541,19 +669,127 @@ public class SyntheticRoundtripTests : IAsyncLifetime
         // For non-merged, single-env text tables, built output should match original canonical bytes.
         // MobData_Spawn (env-a only) and ServerConfig_CONFIG (env-b only).
 
-        // MobData_Spawn: original was env-a/Shine/MobData.txt, built is env-a/Shine/MobData_Spawn.txt
+        // MobData_Spawn: original was env-a/Shine/MobData.txt, built is env-a/Shine/MobData.txt (using sourceFile)
         var mobOriginal = _originalFileBytes["env-a/Shine/MobData.txt"];
         var mobBuilt = await File.ReadAllBytesAsync(
-            Path.Combine(_buildDir, "env-a", "Shine", "MobData_Spawn.txt"));
+            Path.Combine(_buildDir, "env-a", "Shine", "MobData.txt"));
         mobBuilt.ShouldBe(mobOriginal,
-            "ShineTable byte-equality failed for MobData_Spawn roundtrip");
+            "ShineTable byte-equality failed for MobData roundtrip");
 
-        // ServerConfig_CONFIG: original was env-b/ServerConfig.txt, built is env-b/ServerConfig_CONFIG.txt
+        // ServerConfig_CONFIG: original was env-b/ServerConfig.txt, built is env-b/ServerConfig.txt (using sourceFile)
         var configOriginal = _originalFileBytes["env-b/ServerConfig.txt"];
         var configBuilt = await File.ReadAllBytesAsync(
-            Path.Combine(_buildDir, "env-b", "ServerConfig_CONFIG.txt"));
+            Path.Combine(_buildDir, "env-b", "ServerConfig.txt"));
         configBuilt.ShouldBe(configOriginal,
-            "ConfigTable byte-equality failed for ServerConfig_CONFIG roundtrip");
+            "ConfigTable byte-equality failed for ServerConfig roundtrip");
+    }
+
+    // ==================== Multi-Section Recombination Tests ====================
+
+    [Fact]
+    public void Build_MultiConfigTable_RecombinedToSingleFile()
+    {
+        // MultiConfig.txt had SECTION_A and SECTION_B → build should produce ONE MultiConfig.txt
+        var multiConfigPath = Path.Combine(_buildDir, "env-a", "Shine", "MultiConfig.txt");
+        File.Exists(multiConfigPath).ShouldBeTrue($"Expected recombined {multiConfigPath} to exist");
+
+        // Should NOT produce separate fragment files
+        var fragmentA = Path.Combine(_buildDir, "env-a", "Shine", "MultiConfig_SECTION_A.txt");
+        var fragmentB = Path.Combine(_buildDir, "env-a", "Shine", "MultiConfig_SECTION_B.txt");
+        File.Exists(fragmentA).ShouldBeFalse($"Fragment file should not exist: {fragmentA}");
+        File.Exists(fragmentB).ShouldBeFalse($"Fragment file should not exist: {fragmentB}");
+    }
+
+    [Fact]
+    public async Task Build_MultiConfigTable_ContainsBothSections()
+    {
+        var multiConfigPath = Path.Combine(_buildDir, "env-a", "Shine", "MultiConfig.txt");
+        var content = await File.ReadAllTextAsync(multiConfigPath);
+
+        content.ShouldContain("#DEFINE SECTION_A");
+        content.ShouldContain("#DEFINE SECTION_B");
+        content.ShouldContain("127.0.0.1");
+        content.ShouldContain("ODBC17");
+    }
+
+    [Fact]
+    public async Task Build_MultiConfigTable_PreservesOriginalOrder()
+    {
+        var multiConfigPath = Path.Combine(_buildDir, "env-a", "Shine", "MultiConfig.txt");
+        var content = await File.ReadAllTextAsync(multiConfigPath);
+
+        // SECTION_A should appear before SECTION_B (matching manifest iteration order)
+        var posA = content.IndexOf("#DEFINE SECTION_A");
+        var posB = content.IndexOf("#DEFINE SECTION_B");
+        posA.ShouldBeLessThan(posB, "SECTION_A should appear before SECTION_B");
+    }
+
+    [Fact]
+    public async Task Build_MultiConfigTable_ByteIdenticalRoundtrip()
+    {
+        var originalBytes = _originalFileBytes["env-a/Shine/MultiConfig.txt"];
+        var builtBytes = await File.ReadAllBytesAsync(
+            Path.Combine(_buildDir, "env-a", "Shine", "MultiConfig.txt"));
+        builtBytes.ShouldBe(originalBytes,
+            "ConfigTable byte-equality failed for MultiConfig roundtrip");
+    }
+
+    [Fact]
+    public void Build_MultiShineTable_RecombinedToSingleFile()
+    {
+        // MultiTable.txt had MobRegenGroup and MobRegen → build should produce ONE MultiTable.txt
+        var multiTablePath = Path.Combine(_buildDir, "env-a", "Shine", "MultiTable.txt");
+        File.Exists(multiTablePath).ShouldBeTrue($"Expected recombined {multiTablePath} to exist");
+
+        // Should NOT produce separate fragment files
+        var fragmentA = Path.Combine(_buildDir, "env-a", "Shine", "MultiTable_MobRegenGroup.txt");
+        var fragmentB = Path.Combine(_buildDir, "env-a", "Shine", "MultiTable_MobRegen.txt");
+        File.Exists(fragmentA).ShouldBeFalse($"Fragment file should not exist: {fragmentA}");
+        File.Exists(fragmentB).ShouldBeFalse($"Fragment file should not exist: {fragmentB}");
+    }
+
+    [Fact]
+    public async Task Build_MultiShineTable_ContainsBothTables()
+    {
+        var multiTablePath = Path.Combine(_buildDir, "env-a", "Shine", "MultiTable.txt");
+        var content = await File.ReadAllTextAsync(multiTablePath);
+
+        content.ShouldContain("#table\tMobRegenGroup");
+        content.ShouldContain("#table\tMobRegen");
+        content.ShouldContain("Alpha");
+        content.ShouldContain("100");
+    }
+
+    [Fact]
+    public async Task Build_MultiShineTable_PreservesOriginalOrder()
+    {
+        var multiTablePath = Path.Combine(_buildDir, "env-a", "Shine", "MultiTable.txt");
+        var content = await File.ReadAllTextAsync(multiTablePath);
+
+        var posA = content.IndexOf("#table\tMobRegenGroup");
+        // Use \r\n or \n boundary to match exactly "#table\tMobRegen\r\n" (not MobRegenGroup)
+        var posB = content.IndexOf("#table\tMobRegen\r\n");
+        if (posB < 0) posB = content.IndexOf("#table\tMobRegen\n");
+        posA.ShouldBeLessThan(posB, "MobRegenGroup should appear before MobRegen");
+    }
+
+    [Fact]
+    public async Task Build_MultiShineTable_ByteIdenticalRoundtrip()
+    {
+        var originalBytes = _originalFileBytes["env-a/Shine/MultiTable.txt"];
+        var builtBytes = await File.ReadAllBytesAsync(
+            Path.Combine(_buildDir, "env-a", "Shine", "MultiTable.txt"));
+        builtBytes.ShouldBe(originalBytes,
+            "ShineTable byte-equality failed for MultiTable roundtrip");
+    }
+
+    [Fact]
+    public void Build_SingleSectionTxt_StillWritesCorrectly()
+    {
+        // MobData.txt has only one #table section — should still write correctly
+        // (could be written as sourceFile "MobData.txt" or as "MobData_Spawn.txt")
+        var mobDataPath = Path.Combine(_buildDir, "env-a", "Shine", "MobData.txt");
+        File.Exists(mobDataPath).ShouldBeTrue($"Expected {mobDataPath} to exist");
     }
 
     // ==================== Pipeline helpers (mirror CLI logic) ====================
@@ -736,6 +972,8 @@ public class SyntheticRoundtripTests : IAsyncLifetime
             var outputDir = Path.Combine(_buildDir, envName);
             Directory.CreateDirectory(outputDir);
 
+            var groupedEntries = new Dictionary<(IDataProvider provider, string dir, string sourceFile), List<TableEntry>>();
+
             foreach (var (name, entryPath) in manifest.Tables)
             {
                 var tableFile = await projectService.ReadTableFileAsync(_projectDir, entryPath);
@@ -783,8 +1021,33 @@ public class SyntheticRoundtripTests : IAsyncLifetime
                 var ext = provider.SupportedExtensions[0].TrimStart('.');
                 var relDir = envMeta?.SourceRelDir;
                 var dir = string.IsNullOrEmpty(relDir) ? outputDir : Path.Combine(outputDir, relDir);
-                Directory.CreateDirectory(dir);
-                await provider.WriteAsync(Path.Combine(dir, $"{name}.{ext}"), [entry]);
+
+                var sourceFile = entry.Schema.Metadata?.TryGetValue("sourceFile", out var sf) == true
+                    ? sf?.ToString() : null;
+
+                if (!string.IsNullOrEmpty(sourceFile))
+                {
+                    var key = (provider, dir, sourceFile);
+                    if (!groupedEntries.TryGetValue(key, out var group))
+                    {
+                        group = [];
+                        groupedEntries[key] = group;
+                    }
+                    group.Add(entry);
+                }
+                else
+                {
+                    Directory.CreateDirectory(dir);
+                    await provider.WriteAsync(Path.Combine(dir, $"{name}.{ext}"), [entry]);
+                }
+            }
+
+            // Write grouped multi-section files
+            foreach (var ((gProvider, gDir, gSourceFile), entries) in groupedEntries)
+            {
+                entries.Sort((a, b) => GetSectionIdx(a.Schema.Metadata).CompareTo(GetSectionIdx(b.Schema.Metadata)));
+                Directory.CreateDirectory(gDir);
+                await gProvider.WriteAsync(Path.Combine(gDir, gSourceFile), entries);
             }
         }
     }
@@ -887,6 +1150,18 @@ public class SyntheticRoundtripTests : IAsyncLifetime
             }
         }
         return tables;
+    }
+
+    private static int GetSectionIdx(IDictionary<string, object>? metadata)
+    {
+        if (metadata?.TryGetValue("sectionIndex", out var val) != true) return int.MaxValue;
+        return val switch
+        {
+            int i => i,
+            long l => (int)l,
+            JsonElement je when je.ValueKind == JsonValueKind.Number => je.GetInt32(),
+            _ => int.TryParse(val?.ToString(), out int parsed) ? parsed : int.MaxValue
+        };
     }
 
     private static EnvMergeMetadata? GetEnvMetadata(TableFile tableFile, string envName)
