@@ -28,10 +28,10 @@ services:
       - ACCEPT_EULA=Y
     healthcheck:
       test: ["CMD", "sqlcmd", "-S", ".\\SQLEXPRESS", "-U", "sa", "-P", "V63WsdafLJT9NDAn", "-C", "-Q", "SELECT 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 40
-      start_period: 120s
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
   # --- DB bridge processes (depend on SQL) ---
 
