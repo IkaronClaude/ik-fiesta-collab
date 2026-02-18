@@ -112,14 +112,14 @@ foreach ($hostname in $hostnames) {
     }
 }
 
-# Also fix ODBC connection strings: replace SERVER=sqlserver with tcp:IP,1433
-# (SQL Express named instance needs SQL Browser for discovery; tcp direct bypasses that)
+# Also fix ODBC connection strings: replace SERVER=sqlserver with SERVER=IP,1433
+# (SQL Express named instance needs SQL Browser for discovery; direct IP+port bypasses that)
 $sqlIp = [System.Net.Dns]::GetHostAddresses('sqlserver') |
          Where-Object { $_.AddressFamily -eq 'InterNetwork' } |
          Select-Object -ExpandProperty IPAddressToString -First 1
 if ($sqlIp) {
-    $content = $content -replace 'SERVER=sqlserver;', ('SERVER=tcp:{0},1433;' -f $sqlIp)
-    Write-Host ('  ODBC: SERVER=sqlserver -> SERVER=tcp:{0},1433' -f $sqlIp)
+    $content = $content -replace 'SERVER=sqlserver;', ('SERVER={0},1433;' -f $sqlIp)
+    Write-Host ('  ODBC: SERVER=sqlserver -> SERVER={0},1433' -f $sqlIp)
 }
 
 [System.IO.File]::WriteAllText($serverInfoPath, $content)
@@ -173,27 +173,21 @@ for ($i = 0; $i -lt $maxWait; $i++) {
 }
 
 if (-not $service) {
-    Write-Error "Service '$serviceName' not found after registration."
-    Write-Host "=== All services ==="
+    Write-Warning "Service '$serviceName' not found after registration."
     Get-Service | Format-Table ServiceName, DisplayName, Status -AutoSize | Out-String | Write-Host
-    Write-Host "Keeping container alive for debugging..."
-    while ($true) { Start-Sleep -Seconds 60 }
+}
+else {
+    Write-Host "Starting service: $($service.ServiceName) (status: $($service.Status))"
+    try {
+        Start-Service -Name $serviceName -ErrorAction Stop
+        Write-Host "$serviceName started successfully."
+    }
+    catch {
+        Write-Warning ('Failed to start {0}: {1}' -f $serviceName, $_)
+    }
 }
 
-Write-Host "Starting service: $($service.ServiceName) (status: $($service.Status))"
-try {
-    Start-Service -Name $serviceName -ErrorAction Stop
-    Write-Host "$serviceName started successfully."
-}
-catch {
-    Write-Error "Failed to start $serviceName : $_"
-    # Check Windows event log for service failure details
-    Get-EventLog -LogName System -Newest 20 -ErrorAction SilentlyContinue |
-        Where-Object { $_.Source -like '*Service*' } |
-        Format-Table TimeGenerated, Source, Message -AutoSize -Wrap | Out-String | Write-Host
-    Write-Host "Keeping container alive for debugging..."
-    while ($true) { Start-Sleep -Seconds 60 }
-}
+# Always fall through to log tailing — even on failure, logs show what went wrong.
 
 # --- Step 7: Tail all DebugMessage logs ---
 
