@@ -7,7 +7,7 @@ namespace Mimir.Shn;
 
 public sealed class QuestDataProvider : IDataProvider
 {
-    private const int FixedDataSize = 666;
+    private const int DefaultFixedDataSize = 678;
     private const int QuestIdOffset = 2;
 
     private static readonly Encoding EucKr;
@@ -33,6 +33,10 @@ public sealed class QuestDataProvider : IDataProvider
         if (!Path.GetExtension(filePath).Equals(".shn", StringComparison.OrdinalIgnoreCase))
             return false;
 
+        if (!Path.GetFileNameWithoutExtension(filePath)
+                 .Equals("QuestData", StringComparison.OrdinalIgnoreCase))
+            return false;
+
         var fi = new FileInfo(filePath);
         if (fi.Length < 8)
             return false;
@@ -48,12 +52,9 @@ public sealed class QuestDataProvider : IDataProvider
         if (questCount == 0)
             return false;
 
-        // First record's length field must be >= 668 (2 length + 666 fixed)
-        if (fi.Length < 6)
-            return false;
-
+        // First record must have a reasonable length (fixed region + at least 3 null terminators)
         ushort firstRecordLength = reader.ReadUInt16();
-        return firstRecordLength >= 668;
+        return firstRecordLength >= 100;
     }
 
     public Task<IReadOnlyList<TableEntry>> ReadAsync(string filePath, CancellationToken ct = default)
@@ -67,10 +68,45 @@ public sealed class QuestDataProvider : IDataProvider
         ushort version = reader.ReadUInt16();
         ushort questCount = reader.ReadUInt16();
 
+        // First pass: read all records as raw byte arrays
+        var recordData = new List<byte[]>(questCount);
+        for (int i = 0; i < questCount; i++)
+        {
+            ushort recordLength = reader.ReadUInt16();
+            byte[] data = reader.ReadBytes(recordLength - 2);
+            recordData.Add(data);
+        }
+
+        // Auto-detect fixed data size by finding script boundaries.
+        // Scripts are 3 null-terminated text strings at the end of each record.
+        // Since script text has no embedded nulls, we find the 3rd null from the
+        // end of each record — that's the end of script1, at position fixedDataSize + len(s1).
+        // The minimum such position across all records gives fixedDataSize (when s1 is empty).
+        int fixedDataSize = int.MaxValue;
+        foreach (var d in recordData)
+        {
+            int nullCount = 0;
+            for (int i = d.Length - 1; i >= 0; i--)
+            {
+                if (d[i] == 0)
+                {
+                    nullCount++;
+                    if (nullCount == 3)
+                    {
+                        fixedDataSize = Math.Min(fixedDataSize, i);
+                        break;
+                    }
+                }
+            }
+        }
+
+        _logger.LogDebug("Detected fixedDataSize={Size} for {File}",
+            fixedDataSize, tableName);
+
         var columns = new List<ColumnDefinition>
         {
             new() { Name = "QuestID", Type = ColumnType.UInt16, Length = 2 },
-            new() { Name = "FixedData", Type = ColumnType.String, Length = FixedDataSize * 2 },
+            new() { Name = "FixedData", Type = ColumnType.String, Length = fixedDataSize * 2 },
             new() { Name = "StartScript", Type = ColumnType.String, Length = 0 },
             new() { Name = "InProgressScript", Type = ColumnType.String, Length = 0 },
             new() { Name = "FinishScript", Type = ColumnType.String, Length = 0 }
@@ -78,16 +114,13 @@ public sealed class QuestDataProvider : IDataProvider
 
         var rows = new List<Dictionary<string, object?>>(questCount);
 
-        for (int i = 0; i < questCount; i++)
+        foreach (var data in recordData)
         {
-            ushort recordLength = reader.ReadUInt16();
-            byte[] fixedData = reader.ReadBytes(FixedDataSize);
-
+            byte[] fixedData = data[..fixedDataSize];
             ushort questId = BitConverter.ToUInt16(fixedData, QuestIdOffset);
             string hexData = Convert.ToHexString(fixedData);
 
-            int scriptBytesLength = recordLength - 2 - FixedDataSize;
-            byte[] scriptBytes = reader.ReadBytes(scriptBytesLength);
+            byte[] scriptBytes = data[fixedDataSize..];
             var scripts = SplitNullTerminatedStrings(scriptBytes, 3);
 
             rows.Add(new Dictionary<string, object?>
@@ -107,7 +140,8 @@ public sealed class QuestDataProvider : IDataProvider
             Columns = columns,
             Metadata = new Dictionary<string, object>
             {
-                ["version"] = version
+                ["version"] = version,
+                ["fixedDataSize"] = fixedDataSize
             }
         };
 
@@ -128,6 +162,10 @@ public sealed class QuestDataProvider : IDataProvider
         using var fs = File.Create(filePath);
         using var writer = new BinaryWriter(fs);
 
+        int fixedDataSize = metadata.TryGetValue("fixedDataSize", out var fds)
+            ? GetMetadataInt(fds)
+            : DefaultFixedDataSize;
+
         writer.Write(version);
         writer.Write((ushort)data.Rows.Count);
 
@@ -145,7 +183,7 @@ public sealed class QuestDataProvider : IDataProvider
             var s2 = EucKr.GetBytes(row["InProgressScript"]?.ToString() ?? "");
             var s3 = EucKr.GetBytes(row["FinishScript"]?.ToString() ?? "");
 
-            ushort recordLength = (ushort)(2 + FixedDataSize + s1.Length + 1 + s2.Length + 1 + s3.Length + 1);
+            ushort recordLength = (ushort)(2 + fixedDataSize + s1.Length + 1 + s2.Length + 1 + s3.Length + 1);
 
             writer.Write(recordLength);
             writer.Write(fixedData);
@@ -187,6 +225,12 @@ public sealed class QuestDataProvider : IDataProvider
             return Convert.ToUInt16(val);
         }
         throw new InvalidOperationException($"Missing quest metadata key: {key}");
+    }
+
+    private static int GetMetadataInt(object val)
+    {
+        if (val is System.Text.Json.JsonElement je) return je.GetInt32();
+        return Convert.ToInt32(val);
     }
 
     private static ushort ConvertToUInt16(object? v)

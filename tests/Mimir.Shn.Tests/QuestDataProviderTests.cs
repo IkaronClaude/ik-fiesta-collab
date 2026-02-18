@@ -110,7 +110,8 @@ public class QuestDataProviderTests : IDisposable
             MakeQuest(questId: 1,
                 startScript: "SAY Hello\nEND",
                 inProgressScript: "SAY Working\nEND",
-                finishScript: "SAY Done\nEND")
+                finishScript: "SAY Done\nEND"),
+            MakeQuest(questId: 2) // empty scripts — needed for fixedDataSize auto-detection
         ]);
 
         var tables = await _provider.ReadAsync(path);
@@ -125,13 +126,13 @@ public class QuestDataProviderTests : IDisposable
     public async Task ReadAsync_FixedDataIsHexEncoded()
     {
         // Create quest with known bytes in fixed data region
-        var fixedData = new byte[666];
+        var fixedData = new byte[678];
         fixedData[0] = 0xAB;
         fixedData[1] = 0xCD;
         // QuestID at offset 2-3
         fixedData[2] = 0x05;
         fixedData[3] = 0x00;
-        fixedData[665] = 0xFF;
+        fixedData[677] = 0xFF;
 
         var path = WriteTempQuestFile("QuestData.shn", version: 6, quests: [
             MakeQuestRaw(fixedData, "", "", "")
@@ -141,7 +142,7 @@ public class QuestDataProviderTests : IDisposable
         var row = tables[0].Rows[0];
 
         var hexStr = row["FixedData"]!.ToString()!;
-        hexStr.Length.ShouldBe(1332); // 666 * 2
+        hexStr.Length.ShouldBe(1356); // 678 * 2
 
         // Verify specific bytes
         hexStr[..4].ShouldBe("ABCD", StringCompareShould.IgnoreCase);
@@ -189,7 +190,8 @@ public class QuestDataProviderTests : IDisposable
         var koreanScript = "SAY \uD55C\uAD6D\uC5B4\nEND"; // "SAY 한국어\nEND"
 
         var path = WriteTempQuestFile("QuestData.shn", version: 6, quests: [
-            MakeQuest(questId: 1, startScript: koreanScript, inProgressScript: "", finishScript: "")
+            MakeQuest(questId: 1, startScript: koreanScript, inProgressScript: "", finishScript: ""),
+            MakeQuest(questId: 2) // empty scripts — needed for fixedDataSize auto-detection
         ]);
 
         var tables = await _provider.ReadAsync(path);
@@ -211,15 +213,15 @@ public class QuestDataProviderTests : IDisposable
     private static QuestRecord MakeQuest(ushort questId = 0,
         string startScript = "", string inProgressScript = "", string finishScript = "")
     {
-        var fixedData = new byte[666];
+        var fixedData = new byte[678];
         BitConverter.GetBytes(questId).CopyTo(fixedData, 2); // QuestID at offset 2
         return new QuestRecord(fixedData, startScript, inProgressScript, finishScript);
     }
 
     private static QuestRecord MakeQuestRaw(byte[] fixedData, string startScript, string inProgressScript, string finishScript)
     {
-        if (fixedData.Length != 666)
-            throw new ArgumentException("Fixed data must be exactly 666 bytes");
+        if (fixedData.Length != 678)
+            throw new ArgumentException("Fixed data must be exactly 678 bytes");
         return new QuestRecord(fixedData, startScript, inProgressScript, finishScript);
     }
 
@@ -238,7 +240,7 @@ public class QuestDataProviderTests : IDisposable
             var s3 = EucKr.GetBytes(quest.FinishScript);
 
             // length includes the 2-byte length field itself
-            ushort recordLength = (ushort)(2 + 666 + s1.Length + 1 + s2.Length + 1 + s3.Length + 1);
+            ushort recordLength = (ushort)(2 + quest.FixedData.Length + s1.Length + 1 + s2.Length + 1 + s3.Length + 1);
             bw.Write(recordLength);
             bw.Write(quest.FixedData);
             bw.Write(s1);
