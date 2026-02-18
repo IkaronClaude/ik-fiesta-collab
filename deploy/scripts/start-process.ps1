@@ -162,7 +162,7 @@ $jobs = @()
 foreach ($lf in $logFiles) {
     $jobs += Start-Job -ScriptBlock {
         param($path, $tag)
-        Get-Content -Path $path -Wait | ForEach-Object { "[$tag] $_" }
+        Get-Content -Path $path -Wait | ForEach-Object { '[{0}] {1}' -f $tag, $_ }
     } -ArgumentList $lf.FullName, $lf.BaseName
 }
 
@@ -171,11 +171,11 @@ $watcherJob = Start-Job -ScriptBlock {
     param($dir)
     $known = @{}
     while ($true) {
-        $files = Get-ChildItem "$dir\*.txt" -ErrorAction SilentlyContinue
+        $files = Get-ChildItem ($dir + '\*.txt') -ErrorAction SilentlyContinue
         foreach ($f in $files) {
             if (-not $known.ContainsKey($f.Name)) {
                 $known[$f.Name] = $true
-                Write-Output "NEW_LOG:$($f.FullName):$($f.BaseName)"
+                Write-Output ('NEW_LOG:{0}:{1}' -f $f.FullName, $f.BaseName)
             }
         }
         Start-Sleep -Seconds 5
@@ -190,10 +190,10 @@ while ($true) {
         if ($line -match '^NEW_LOG:(.+):(.+)$') {
             $newPath = $Matches[1]
             $newTag = $Matches[2]
-            Write-Host "New log file detected: $newTag"
+            Write-Host ('New log file detected: {0}' -f $newTag)
             $jobs += Start-Job -ScriptBlock {
                 param($path, $tag)
-                Get-Content -Path $path -Wait | ForEach-Object { "[$tag] $_" }
+                Get-Content -Path $path -Wait | ForEach-Object { '[{0}] {1}' -f $tag, $_ }
             } -ArgumentList $newPath, $newTag
         }
     }
