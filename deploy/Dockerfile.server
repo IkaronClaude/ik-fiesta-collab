@@ -46,8 +46,8 @@ COPY server-files/Zone02/       C:/server/Zone02/
 COPY server-files/Zone03/       C:/server/Zone03/
 COPY server-files/Zone04/       C:/server/Zone04/
 
-# Docker-specific ServerInfo.txt (IPs point to container static IPs)
-COPY config/ServerInfo.txt C:/docker-config/ServerInfo.txt
+# Docker-specific ServerInfo configs (per-process + main ServerInfo.txt)
+COPY config/ C:/docker-config/
 
 COPY scripts/start-process.ps1 C:/start-process.ps1
 

@@ -12,6 +12,7 @@ x-gameserver: &gameserver
     dockerfile: Dockerfile.server
   volumes:
     - ../test-project/build/server/9Data:C:/server/9Data:ro
+    - ./config/ServerInfo.txt:C:/server/9Data/ServerInfo/ServerInfo.txt
 
 services:
   sqlserver:
@@ -119,6 +120,7 @@ services:
     environment:
       - PROCESS_NAME=Zone00
       - PROCESS_EXE=Zone.exe
+      - ZONE_NUMBER=0
     depends_on:
       worldmanager:
         condition: service_started
@@ -129,6 +131,7 @@ services:
     environment:
       - PROCESS_NAME=Zone01
       - PROCESS_EXE=Zone.exe
+      - ZONE_NUMBER=1
     depends_on:
       worldmanager:
         condition: service_started
@@ -139,6 +142,7 @@ services:
     environment:
       - PROCESS_NAME=Zone02
       - PROCESS_EXE=Zone.exe
+      - ZONE_NUMBER=2
     depends_on:
       worldmanager:
         condition: service_started
@@ -149,6 +153,7 @@ services:
     environment:
       - PROCESS_NAME=Zone03
       - PROCESS_EXE=Zone.exe
+      - ZONE_NUMBER=3
     depends_on:
       worldmanager:
         condition: service_started
@@ -159,6 +164,7 @@ services:
     environment:
       - PROCESS_NAME=Zone04
       - PROCESS_EXE=Zone.exe
+      - ZONE_NUMBER=4
     depends_on:
       worldmanager:
         condition: service_started
