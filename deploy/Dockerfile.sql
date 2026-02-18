@@ -22,6 +22,17 @@ RUN Invoke-WebRequest -Uri 'https://download.microsoft.com/download/7ab8f535-7eb
       -Wait ; \
     Remove-Item -Recurse -Force C:/sql-express-setup.exe, C:/sql-media
 
+# Pin SQL Express to port 1433 (default instance port)
+# Express uses a dynamic port by default, which requires SQL Browser for discovery.
+# Find the instance registry path dynamically (version number varies: MSSQL16, MSSQL17, etc.)
+RUN $base = 'HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server'; \
+    $instance = (Get-ChildItem $base | Where-Object { $_.PSChildName -match 'MSSQL\d+\.SQLEXPRESS' }).PSChildName; \
+    if (-not $instance) { throw 'Could not find SQLEXPRESS registry key' }; \
+    $regPath = "$base\$instance\MSSQLServer\SuperSocketNetLib\Tcp\IPAll"; \
+    Write-Host "Setting TCP port 1433 at: $regPath"; \
+    Set-ItemProperty -Path $regPath -Name TcpPort -Value '1433'; \
+    Set-ItemProperty -Path $regPath -Name TcpDynamicPorts -Value ''
+
 # Install sqlcmd for healthcheck
 RUN Invoke-WebRequest -Uri 'https://go.microsoft.com/fwlink/?linkid=2230791' \
       -OutFile C:/sqlcmd.msi ; \
