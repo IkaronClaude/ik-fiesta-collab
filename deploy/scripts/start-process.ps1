@@ -112,6 +112,16 @@ foreach ($hostname in $hostnames) {
     }
 }
 
+# Also fix ODBC connection strings: replace SERVER=sqlserver with tcp:IP,1433
+# (SQL Express named instance needs SQL Browser for discovery; tcp direct bypasses that)
+$sqlIp = [System.Net.Dns]::GetHostAddresses('sqlserver') |
+         Where-Object { $_.AddressFamily -eq 'InterNetwork' } |
+         Select-Object -ExpandProperty IPAddressToString -First 1
+if ($sqlIp) {
+    $content = $content -replace 'SERVER=sqlserver;', ('SERVER=tcp:{0},1433;' -f $sqlIp)
+    Write-Host ('  ODBC: SERVER=sqlserver -> SERVER=tcp:{0},1433' -f $sqlIp)
+}
+
 [System.IO.File]::WriteAllText($serverInfoPath, $content)
 
 if (Test-Path $serverInfoPath) {
@@ -134,28 +144,9 @@ reg add "HKLM\SOFTWARE\Wow6432Node\GBO" /v Natural /d 126810443 /f | Out-Null
 reg add "HKLM\SOFTWARE\Wow6432Node\GBO" /v Ocean /d 7241589632 /f | Out-Null
 reg add "HKLM\SOFTWARE\Wow6432Node\GBO" /v Sabana /d 2554545953 /f | Out-Null
 
-# --- Step 4: Wait for SQL Server ---
+# SQL wait removed — docker-compose depends_on: service_healthy handles this.
 
-Write-Host "Waiting for SQL Server..."
-$maxRetries = 30
-for ($i = 0; $i -lt $maxRetries; $i++) {
-    try {
-        $conn = New-Object System.Data.Odbc.OdbcConnection(
-            "DRIVER={ODBC Driver 17 for SQL Server};SERVER=sqlserver\SQLEXPRESS;UID=sa;PWD=V63WsdafLJT9NDAn")
-        $conn.Open()
-        $conn.Close()
-        Write-Host "SQL Server connection verified."
-        break
-    }
-    catch {
-        if ($i -eq $maxRetries - 1) {
-            Write-Host "WARNING: Could not verify SQL Server connection after $maxRetries attempts."
-        }
-        Start-Sleep -Seconds 2
-    }
-}
-
-# --- Step 5: Register as Windows service ---
+# --- Step 4: Register as Windows service ---
 
 Write-Host "Registering $processName as a Windows service..."
 Write-Host "Running: $exePath (working dir: $processDir)"
