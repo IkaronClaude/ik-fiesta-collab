@@ -27,7 +27,7 @@ services:
       - SA_PASSWORD=V63WsdafLJT9NDAn
       - ACCEPT_EULA=Y
     healthcheck:
-      test: ["CMD", "sqlcmd", "-S", ".\\SQLEXPRESS", "-U", "sa", "-P", "V63WsdafLJT9NDAn", "-Q", "SELECT 1"]
+      test: ["CMD", "sqlcmd", "-S", ".\\SQLEXPRESS", "-U", "sa", "-P", "V63WsdafLJT9NDAn", "-C", "-Q", "SELECT 1"]
       interval: 30s
       timeout: 10s
       retries: 40

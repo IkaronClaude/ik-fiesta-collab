@@ -21,7 +21,7 @@ Start-Sleep -Seconds 5
 Write-Host "Waiting for SQL Server to accept connections..."
 $maxRetries = 30
 for ($i = 0; $i -lt $maxRetries; $i++) {
-    $result = sqlcmd -S $sqlInstance -U sa -P $saPassword -Q "SELECT 1" 2>&1
+    $result = sqlcmd -S $sqlInstance -U sa -P $saPassword -C -Q "SELECT 1" 2>&1
     if ($LASTEXITCODE -eq 0) {
         Write-Host "SQL Server is ready."
         break
@@ -31,7 +31,7 @@ for ($i = 0; $i -lt $maxRetries; $i++) {
 
 # Enable remote access
 Write-Host "Enabling remote access..."
-sqlcmd -S $sqlInstance -U sa -P $saPassword -Q @"
+sqlcmd -S $sqlInstance -U sa -P $saPassword -C -Q @"
 EXEC sp_configure 'remote access', 1;
 RECONFIGURE;
 "@
@@ -47,7 +47,7 @@ foreach ($db in $databases) {
     }
 
     # Check if database already exists (persisted via volume)
-    $exists = sqlcmd -S $sqlInstance -U sa -P $saPassword -Q "SELECT name FROM sys.databases WHERE name = '$db'" -h -1 -W 2>&1
+    $exists = sqlcmd -S $sqlInstance -U sa -P $saPassword -C -Q "SELECT name FROM sys.databases WHERE name = '$db'" -h -1 -W 2>&1
     if ($exists -match $db) {
         Write-Host "Database '$db' already exists, skipping restore."
         continue
@@ -56,7 +56,7 @@ foreach ($db in $databases) {
     Write-Host "Restoring database '$db'..."
 
     # Get logical file names from backup
-    $fileList = sqlcmd -S $sqlInstance -U sa -P $saPassword -Q "RESTORE FILELISTONLY FROM DISK = '$bakFile'" -s "|" -W -h -1 2>&1
+    $fileList = sqlcmd -S $sqlInstance -U sa -P $saPassword -C -Q "RESTORE FILELISTONLY FROM DISK = '$bakFile'" -s "|" -W -h -1 2>&1
 
     $moveClause = ""
     foreach ($line in $fileList) {
@@ -75,12 +75,12 @@ foreach ($db in $databases) {
 
     if ($moveClause -eq "") {
         Write-Host "WARNING: Could not parse file list for $db, attempting restore without MOVE..."
-        sqlcmd -S $sqlInstance -U sa -P $saPassword -Q "RESTORE DATABASE [$db] FROM DISK = '$bakFile' WITH REPLACE"
+        sqlcmd -S $sqlInstance -U sa -P $saPassword -C -Q "RESTORE DATABASE [$db] FROM DISK = '$bakFile' WITH REPLACE"
     }
     else {
         $moveClause = $moveClause.TrimEnd(", ")
         $sql = "RESTORE DATABASE [$db] FROM DISK = '$bakFile' WITH REPLACE, $moveClause"
-        sqlcmd -S $sqlInstance -U sa -P $saPassword -Q $sql
+        sqlcmd -S $sqlInstance -U sa -P $saPassword -C -Q $sql
     }
 
     if ($LASTEXITCODE -eq 0) {
