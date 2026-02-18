@@ -146,31 +146,9 @@ reg add "HKLM\SOFTWARE\Wow6432Node\GBO" /v Sabana /d 2554545953 /f | Out-Null
 
 # SQL wait removed — docker-compose depends_on: service_healthy handles this.
 
-# --- Step 4: Register as Windows service ---
-
-Write-Host "Registering $processName as a Windows service..."
-Write-Host "Running: $exePath (working dir: $processDir)"
-
-# Capture stdout/stderr from registration
-$regProc = Start-Process -FilePath $exePath -WorkingDirectory $processDir `
-    -RedirectStandardOutput "$processDir\reg-stdout.txt" `
-    -RedirectStandardError "$processDir\reg-stderr.txt" `
-    -PassThru
-$regProc.WaitForExit()
-Write-Host "$processName registration exited with code $($regProc.ExitCode)."
-
-$regStdout = Get-Content "$processDir\reg-stdout.txt" -ErrorAction SilentlyContinue
-$regStderr = Get-Content "$processDir\reg-stderr.txt" -ErrorAction SilentlyContinue
-if ($regStdout) { Write-Host "Registration stdout: $regStdout" }
-if ($regStderr) { Write-Host "Registration stderr: $regStderr" }
-
-# Dump all services starting with underscore (the game server convention)
-Write-Host "=== Registered services ==="
-sc.exe query type= service state= all | Select-String -Pattern "SERVICE_NAME|DISPLAY_NAME|STATE" | ForEach-Object { Write-Host $_.Line.Trim() }
-Write-Host "=== Game services (underscore prefix) ==="
-Get-Service | Where-Object { $_.ServiceName -like '_*' } | Format-Table ServiceName, DisplayName, Status -AutoSize | Out-String | Write-Host
-
-# --- Step 6: Start the registered service by known name ---
+# --- Step 4: Register and start Windows service ---
+# Don't run the exe directly — it calls StartServiceCtrlDispatcher() which blocks forever.
+# Register the service with sc.exe create, then Start-Service starts it properly via SCM.
 
 if ($processName -match '^Zone(\d+)$') {
     $serviceName = ('_Zone{0}' -f $env:ZONE_NUMBER)
@@ -178,6 +156,11 @@ if ($processName -match '^Zone(\d+)$') {
 else {
     $serviceName = ('_{0}' -f $processName)
 }
+
+Write-Host ('Registering service: {0} -> {1}' -f $serviceName, $exePath)
+sc.exe create $serviceName binPath= $exePath start= demand | Write-Host
+
+# --- Step 5: Start the registered service ---
 
 Write-Host "Looking for service: $serviceName"
 
