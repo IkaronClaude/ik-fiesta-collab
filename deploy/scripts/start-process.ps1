@@ -112,16 +112,6 @@ foreach ($hostname in $hostnames) {
     }
 }
 
-# Also fix ODBC connection strings: replace SERVER=sqlserver with SERVER=IP,1433
-# (SQL Express named instance needs SQL Browser for discovery; direct IP+port bypasses that)
-$sqlIp = [System.Net.Dns]::GetHostAddresses('sqlserver') |
-         Where-Object { $_.AddressFamily -eq 'InterNetwork' } |
-         Select-Object -ExpandProperty IPAddressToString -First 1
-if ($sqlIp) {
-    $content = $content -replace 'SERVER=sqlserver;', ('SERVER={0},1433;' -f $sqlIp)
-    Write-Host ('  ODBC: SERVER=sqlserver -> SERVER={0},1433' -f $sqlIp)
-}
-
 [System.IO.File]::WriteAllText($serverInfoPath, $content)
 
 if (Test-Path $serverInfoPath) {
