@@ -64,7 +64,41 @@ if ($configSource -and $configDest) {
     Write-Host "Copied $configSource -> $configDest"
 }
 
-# --- Step 2: Registry keys (from Fantasy.reg and GBO.reg) ---
+# --- Step 2: Resolve Docker hostnames to IPs in ServerInfo.txt ---
+# Game exes use inet_addr() which only accepts IP addresses, not hostnames.
+# Resolve each Docker service hostname and replace in the bind-mounted ServerInfo.txt.
+
+$serverInfoPath = "C:\server\9Data\ServerInfo\ServerInfo.txt"
+$hostnames = @('login', 'worldmanager', 'zone00', 'zone01', 'zone02', 'zone03', 'zone04',
+               'account', 'accountlog', 'character', 'gamelog', 'sqlserver')
+
+Write-Host "Resolving Docker hostnames to IPs..."
+$content = Get-Content $serverInfoPath -Raw
+
+foreach ($hostname in $hostnames) {
+    try {
+        $ip = [System.Net.Dns]::GetHostAddresses($hostname) |
+              Where-Object { $_.AddressFamily -eq 'InterNetwork' } |
+              Select-Object -First 1
+        if ($ip) {
+            $ipStr = $ip.IPAddressToString
+            Write-Host ('  {0} -> {1}' -f $hostname, $ipStr)
+            # Replace "hostname" (quoted in ServerInfo) with "ip"
+            $content = $content -replace ('"{0}"' -f [regex]::Escape($hostname)), ('"{0}"' -f $ipStr)
+        }
+        else {
+            Write-Warning "  $hostname - no IPv4 address found"
+        }
+    }
+    catch {
+        Write-Warning "  $hostname - DNS resolution failed: $_"
+    }
+}
+
+Set-Content -Path $serverInfoPath -Value $content -NoNewline
+Write-Host "ServerInfo.txt patched with resolved IPs."
+
+# --- Step 3: Registry keys (from Fantasy.reg and GBO.reg) ---
 
 Write-Host "Setting up registry keys..."
 reg add "HKLM\SOFTWARE\Wow6432Node\Fantasy\Fighter" /v Bird /d Eagle /f | Out-Null
