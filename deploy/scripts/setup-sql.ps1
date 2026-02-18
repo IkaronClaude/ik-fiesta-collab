@@ -59,35 +59,44 @@ foreach ($db in $databases) {
     $fileList = sqlcmd -S $sqlInstance -U sa -P $saPassword -C -Q "RESTORE FILELISTONLY FROM DISK = '$bakFile'" -s "|" -W -h -1 2>&1
 
     $moveClause = ""
+    $dataFileIdx = 0
+    $logFileIdx = 0
     foreach ($line in $fileList) {
         $parts = $line -split '\|'
         if ($parts.Count -ge 3) {
             $logicalName = $parts[0].Trim()
             $type = $parts[2].Trim()
             if ($type -eq 'D') {
-                $moveClause += "MOVE '$logicalName' TO '$dataDir\${db}.mdf', "
+                $suffix = if ($dataFileIdx -eq 0) { '' } else { "_$dataFileIdx" }
+                $moveClause += "MOVE '$logicalName' TO '$dataDir\${db}${suffix}.mdf', "
+                $dataFileIdx++
             }
             elseif ($type -eq 'L') {
-                $moveClause += "MOVE '$logicalName' TO '$dataDir\${db}_log.ldf', "
+                $suffix = if ($logFileIdx -eq 0) { '' } else { "_$logFileIdx" }
+                $moveClause += "MOVE '$logicalName' TO '$dataDir\${db}${suffix}_log.ldf', "
+                $logFileIdx++
             }
         }
     }
 
     if ($moveClause -eq "") {
         Write-Host "WARNING: Could not parse file list for $db, attempting restore without MOVE..."
-        sqlcmd -S $sqlInstance -U sa -P $saPassword -C -Q "RESTORE DATABASE [$db] FROM DISK = '$bakFile' WITH REPLACE"
+        $restoreResult = sqlcmd -S $sqlInstance -U sa -P $saPassword -C -Q "RESTORE DATABASE [$db] FROM DISK = '$bakFile' WITH REPLACE" 2>&1
     }
     else {
         $moveClause = $moveClause.TrimEnd(", ")
         $sql = "RESTORE DATABASE [$db] FROM DISK = '$bakFile' WITH REPLACE, $moveClause"
-        sqlcmd -S $sqlInstance -U sa -P $saPassword -C -Q $sql
+        Write-Host "SQL: $sql"
+        $restoreResult = sqlcmd -S $sqlInstance -U sa -P $saPassword -C -Q $sql 2>&1
     }
 
-    if ($LASTEXITCODE -eq 0) {
-        Write-Host "Database '$db' restored successfully."
+    $restoreStr = $restoreResult | Out-String
+    if ($restoreStr -match 'Msg \d+, Level 1[6-9]') {
+        Write-Host "ERROR: Failed to restore '$db':"
+        Write-Host $restoreStr
     }
     else {
-        Write-Host "ERROR: Failed to restore '$db'."
+        Write-Host "Database '$db' restored successfully."
     }
 }
 
