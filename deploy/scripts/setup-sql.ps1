@@ -29,8 +29,8 @@ for ($i = 0; $i -lt $maxRetries; $i++) {
     Start-Sleep -Seconds 2
 }
 
-# Enable TCP/IP protocol for remote connections
-Write-Host "Enabling TCP/IP..."
+# Enable remote access
+Write-Host "Enabling remote access..."
 sqlcmd -S $sqlInstance -U sa -P $saPassword -Q @"
 EXEC sp_configure 'remote access', 1;
 RECONFIGURE;
