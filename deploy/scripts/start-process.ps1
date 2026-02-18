@@ -18,9 +18,12 @@ if (-not (Test-Path $exePath)) {
     exit 1
 }
 
+Write-Host "=== Starting $processName ($processExe) ==="
+Write-Host "Process dir: $processDir"
+Write-Host "Running as: $(whoami)"
+
 # --- Step 1: Copy per-process ServerInfo config ---
 
-# Determine which config file to copy and where
 $configSource = $null
 $configDest = $null
 
@@ -32,7 +35,6 @@ switch ($processName) {
     "Login"        { $configSource = "C:\docker-config\LoginServerInfo.txt";            $configDest = "$processDir\LoginServerInfo.txt" }
     "WorldManager" { $configSource = "C:\docker-config\WMServerInfo.txt";               $configDest = "$processDir\WMServerInfo.txt" }
     default {
-        # Zone processes: Zone00, Zone01, etc.
         if ($processName -match '^Zone(\d+)$') {
             $zoneNumber = $env:ZONE_NUMBER
             if (-not $zoneNumber) {
@@ -40,11 +42,9 @@ switch ($processName) {
                 exit 1
             }
 
-            # Read template and substitute zone number
             $template = Get-Content "C:\docker-config\ZoneServerInfo.txt" -Raw
             $zoneConfig = $template -replace '\{\{ZONE_NUMBER\}\}', $zoneNumber
 
-            # Zones expect config in a ZoneServerInfo subdirectory
             $zoneConfigDir = "$processDir\ZoneServerInfo"
             if (-not (Test-Path $zoneConfigDir)) {
                 New-Item -ItemType Directory -Path $zoneConfigDir -Force | Out-Null
@@ -54,7 +54,7 @@ switch ($processName) {
             Write-Host "Zone $zoneNumber config written to $configDest"
         }
         else {
-            Write-Warning "Unknown process: $processName — no per-process ServerInfo to copy."
+            Write-Warning "Unknown process: $processName"
         }
     }
 }
@@ -75,7 +75,7 @@ reg add "HKLM\SOFTWARE\Wow6432Node\GBO" /v Natural /d 126810443 /f | Out-Null
 reg add "HKLM\SOFTWARE\Wow6432Node\GBO" /v Ocean /d 7241589632 /f | Out-Null
 reg add "HKLM\SOFTWARE\Wow6432Node\GBO" /v Sabana /d 2554545953 /f | Out-Null
 
-# --- Step 3: Wait for SQL Server ---
+# --- Step 4: Wait for SQL Server ---
 
 Write-Host "Waiting for SQL Server..."
 $maxRetries = 30
@@ -96,55 +96,82 @@ for ($i = 0; $i -lt $maxRetries; $i++) {
     }
 }
 
-# --- Step 4: Register as Windows service (first run installs the service, then exits) ---
+# --- Step 5: Register as Windows service ---
 
 Write-Host "Registering $processName as a Windows service..."
-$regProc = Start-Process -FilePath $exePath -WorkingDirectory $processDir -PassThru
+Write-Host "Running: $exePath (working dir: $processDir)"
+
+# Capture stdout/stderr from registration
+$regProc = Start-Process -FilePath $exePath -WorkingDirectory $processDir `
+    -RedirectStandardOutput "$processDir\reg-stdout.txt" `
+    -RedirectStandardError "$processDir\reg-stderr.txt" `
+    -PassThru
 $regProc.WaitForExit()
 Write-Host "$processName registration exited with code $($regProc.ExitCode)."
 
-# --- Step 5: Start the registered service by known name ---
+$regStdout = Get-Content "$processDir\reg-stdout.txt" -ErrorAction SilentlyContinue
+$regStderr = Get-Content "$processDir\reg-stderr.txt" -ErrorAction SilentlyContinue
+if ($regStdout) { Write-Host "Registration stdout: $regStdout" }
+if ($regStderr) { Write-Host "Registration stderr: $regStderr" }
 
-# Derive service name from process name
+# Dump all services starting with underscore (the game server convention)
+Write-Host "=== Registered services ==="
+sc.exe query type= service state= all | Select-String -Pattern "SERVICE_NAME|DISPLAY_NAME|STATE" | ForEach-Object { Write-Host $_.Line.Trim() }
+Write-Host "=== Game services (underscore prefix) ==="
+Get-Service | Where-Object { $_.ServiceName -like '_*' } | Format-Table ServiceName, DisplayName, Status -AutoSize | Out-String | Write-Host
+
+# --- Step 6: Start the registered service by known name ---
+
 if ($processName -match '^Zone(\d+)$') {
-    $serviceName = "_Zone$($env:ZONE_NUMBER)"
+    $serviceName = ('_Zone{0}' -f $env:ZONE_NUMBER)
 }
 else {
-    $serviceName = "_$processName"
+    $serviceName = ('_{0}' -f $processName)
 }
 
-Write-Host "Starting service: $serviceName"
+Write-Host "Looking for service: $serviceName"
 
-# Wait for the service to appear (registration may take a moment)
 $maxWait = 15
 for ($i = 0; $i -lt $maxWait; $i++) {
     $service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
     if ($service) { break }
+    Write-Host "  Waiting for service to appear... ($i/$maxWait)"
     Start-Sleep -Seconds 1
 }
 
 if (-not $service) {
-    Write-Error "Service '$serviceName' not found after registration. Available services:"
-    Get-Service | Where-Object { $_.ServiceName -like "_*" } | Format-Table -Property ServiceName, DisplayName, Status
-    exit 1
+    Write-Error "Service '$serviceName' not found after registration."
+    Write-Host "=== All services ==="
+    Get-Service | Format-Table ServiceName, DisplayName, Status -AutoSize | Out-String | Write-Host
+    Write-Host "Keeping container alive for debugging..."
+    while ($true) { Start-Sleep -Seconds 60 }
 }
 
-Start-Service -Name $serviceName
-Write-Host "$serviceName service started successfully."
+Write-Host "Starting service: $($service.ServiceName) (status: $($service.Status))"
+try {
+    Start-Service -Name $serviceName -ErrorAction Stop
+    Write-Host "$serviceName started successfully."
+}
+catch {
+    Write-Error "Failed to start $serviceName : $_"
+    # Check Windows event log for service failure details
+    Get-EventLog -LogName System -Newest 20 -ErrorAction SilentlyContinue |
+        Where-Object { $_.Source -like '*Service*' } |
+        Format-Table TimeGenerated, Source, Message -AutoSize -Wrap | Out-String | Write-Host
+    Write-Host "Keeping container alive for debugging..."
+    while ($true) { Start-Sleep -Seconds 60 }
+}
 
-# --- Step 6: Tail all DebugMessage logs for container output ---
-# Each process can produce multiple log files (Msg_*.txt) for different event types.
-# We tail ALL of them concurrently, prefixed with the filename for identification.
+# --- Step 7: Tail all DebugMessage logs ---
 
 $logDir = "$processDir\DebugMessage"
 Write-Host "Watching for logs in $logDir..."
 
-# Wait for the log directory and at least one log file to appear
 $timeout = 60
 $logFiles = @()
 for ($i = 0; $i -lt $timeout; $i++) {
     if (Test-Path $logDir) {
-        $logFiles = @(Get-ChildItem "$logDir\*.txt" -ErrorAction SilentlyContinue)
+        $logFiles = @(Get-ChildItem ($logDir + '\*.txt') -ErrorAction SilentlyContinue)
         if ($logFiles.Count -gt 0) { break }
     }
     Start-Sleep -Seconds 1
@@ -155,9 +182,8 @@ if ($logFiles.Count -eq 0) {
     while ($true) { Start-Sleep -Seconds 60 }
 }
 
-Write-Host "Tailing $($logFiles.Count) log file(s): $($logFiles.Name -join ', ')"
+Write-Host ('Tailing {0} log file(s): {1}' -f $logFiles.Count, ($logFiles.Name -join ', '))
 
-# Start a background job per log file, each tailing with a filename prefix
 $jobs = @()
 foreach ($lf in $logFiles) {
     $jobs += Start-Job -ScriptBlock {
@@ -166,7 +192,6 @@ foreach ($lf in $logFiles) {
     } -ArgumentList $lf.FullName, $lf.BaseName
 }
 
-# Also watch for NEW log files that appear after startup
 $watcherJob = Start-Job -ScriptBlock {
     param($dir)
     $known = @{}
@@ -182,9 +207,7 @@ $watcherJob = Start-Job -ScriptBlock {
     }
 } -ArgumentList $logDir
 
-# Main loop: receive output from all tail jobs and the watcher
 while ($true) {
-    # Check for new log files from the watcher
     $watcherOutput = Receive-Job -Job $watcherJob -ErrorAction SilentlyContinue
     foreach ($line in $watcherOutput) {
         if ($line -match '^NEW_LOG:(.+):(.+)$') {
@@ -198,7 +221,6 @@ while ($true) {
         }
     }
 
-    # Receive and print output from all tail jobs
     foreach ($job in $jobs) {
         $output = Receive-Job -Job $job -ErrorAction SilentlyContinue
         foreach ($line in $output) {

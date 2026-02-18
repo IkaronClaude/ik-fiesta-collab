@@ -56,4 +56,5 @@ COPY scripts/start-process.ps1 C:/start-process.ps1
 ENV PROCESS_NAME=""
 ENV PROCESS_EXE=""
 
+USER ContainerAdministrator
 CMD ["powershell", "-File", "C:/start-process.ps1"]
