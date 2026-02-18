@@ -66,14 +66,23 @@ if ($configSource -and $configDest) {
 
 # --- Step 2: Resolve Docker hostnames to IPs in ServerInfo.txt ---
 # Game exes use inet_addr() which only accepts IP addresses, not hostnames.
-# Resolve each Docker service hostname and replace in the bind-mounted ServerInfo.txt.
+# Read from the baked-in docker-config copy (no contention from other containers),
+# resolve hostnames, and write to a local per-container path.
 
-$serverInfoPath = "C:\server\9Data\ServerInfo\ServerInfo.txt"
+# Write resolved ServerInfo to C:\server\ServerInfo\ (writable, outside the :ro 9Data mount).
+# Per-process configs #include this path instead of ../9Data/ServerInfo/ServerInfo.txt.
+$serverInfoDir = "C:\server\ServerInfo"
+if (-not (Test-Path $serverInfoDir)) {
+    New-Item -ItemType Directory -Path $serverInfoDir -Force | Out-Null
+}
+
+$serverInfoTemplate = "C:\docker-config\ServerInfo\ServerInfo.txt"
+$serverInfoPath = "$serverInfoDir\ServerInfo.txt"
 $hostnames = @('login', 'worldmanager', 'zone00', 'zone01', 'zone02', 'zone03', 'zone04',
                'account', 'accountlog', 'character', 'gamelog', 'sqlserver')
 
 Write-Host "Resolving Docker hostnames to IPs..."
-$content = Get-Content $serverInfoPath -Raw
+$content = Get-Content $serverInfoTemplate -Raw
 
 foreach ($hostname in $hostnames) {
     try {
@@ -83,7 +92,6 @@ foreach ($hostname in $hostnames) {
         if ($ip) {
             $ipStr = $ip.IPAddressToString
             Write-Host ('  {0} -> {1}' -f $hostname, $ipStr)
-            # Replace "hostname" (quoted in ServerInfo) with "ip"
             $content = $content -replace ('"{0}"' -f [regex]::Escape($hostname)), ('"{0}"' -f $ipStr)
         }
         else {
@@ -96,7 +104,7 @@ foreach ($hostname in $hostnames) {
 }
 
 Set-Content -Path $serverInfoPath -Value $content -NoNewline
-Write-Host "ServerInfo.txt patched with resolved IPs."
+Write-Host "ServerInfo.txt written to $serverInfoPath with resolved IPs."
 
 # --- Step 3: Registry keys (from Fantasy.reg and GBO.reg) ---
 

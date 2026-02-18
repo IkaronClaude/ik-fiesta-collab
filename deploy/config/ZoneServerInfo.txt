@@ -8,5 +8,5 @@
 
 MY_SERVER	"_Zone{{ZONE_NUMBER}}",	"_Zone{{ZONE_NUMBER}}",	6,	0,	{{ZONE_NUMBER}}
 
-#include	"../../9Data/ServerInfo/ServerInfo.txt"
+#include	"../../ServerInfo/ServerInfo.txt"
 #END

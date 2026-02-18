@@ -12,7 +12,6 @@ x-gameserver: &gameserver
     dockerfile: Dockerfile.server
   volumes:
     - ../test-project/build/server/9Data:C:/server/9Data:ro
-    - ./config/ServerInfo:C:/server/9Data/ServerInfo
 
 services:
   sqlserver:
