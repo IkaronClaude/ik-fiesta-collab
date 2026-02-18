@@ -89,7 +89,7 @@ if (-not (Test-Path $serverInfoTemplate)) {
     exit 1
 }
 
-$content = Get-Content $serverInfoTemplate -Raw -ErrorAction Stop
+$content = [System.IO.File]::ReadAllText($serverInfoTemplate)
 Write-Host ('Template loaded: {0} chars' -f $content.Length)
 
 Write-Host "Resolving Docker hostnames to IPs..."
@@ -112,7 +112,7 @@ foreach ($hostname in $hostnames) {
     }
 }
 
-Set-Content -Path $serverInfoPath -Value $content -NoNewline -ErrorAction Stop
+[System.IO.File]::WriteAllText($serverInfoPath, $content)
 
 if (Test-Path $serverInfoPath) {
     $written = (Get-Item $serverInfoPath).Length
@@ -141,7 +141,7 @@ $maxRetries = 30
 for ($i = 0; $i -lt $maxRetries; $i++) {
     try {
         $conn = New-Object System.Data.Odbc.OdbcConnection(
-            "DRIVER={ODBC Driver 17 for SQL Server};SERVER=sqlserver;UID=sa;PWD=V63WsdafLJT9NDAn")
+            "DRIVER={ODBC Driver 17 for SQL Server};SERVER=sqlserver\SQLEXPRESS;UID=sa;PWD=V63WsdafLJT9NDAn")
         $conn.Open()
         $conn.Close()
         Write-Host "SQL Server connection verified."
