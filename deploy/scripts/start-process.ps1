@@ -56,12 +56,58 @@ for ($i = 0; $i -lt $maxRetries; $i++) {
     }
 }
 
-Write-Host "Starting $processName ($processExe)..."
-$proc = Start-Process -FilePath $exePath -WorkingDirectory $processDir -PassThru
+# Step 1: Register as Windows service (first run installs the service, then exits)
+Write-Host "Registering $processName as a Windows service..."
+$regProc = Start-Process -FilePath $exePath -WorkingDirectory $processDir -PassThru
+$regProc.WaitForExit()
+Write-Host "$processName registration exited with code $($regProc.ExitCode)."
 
-# Keep container alive — exit when the process exits
-Write-Host "$processName started (PID $($proc.Id)). Waiting for exit..."
-$proc.WaitForExit()
-$exitCode = $proc.ExitCode
-Write-Host "$processName exited with code $exitCode."
-exit $exitCode
+# Step 2: Find and start the registered service
+# The service name typically matches the exe name without extension
+$serviceName = [System.IO.Path]::GetFileNameWithoutExtension($processExe)
+
+# Try common service name patterns: exact exe name, or process directory name
+$service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
+if (-not $service) {
+    $service = Get-Service -Name $processName -ErrorAction SilentlyContinue
+}
+if (-not $service) {
+    # Search for any newly registered service containing the process name
+    $service = Get-Service | Where-Object { $_.DisplayName -like "*$processName*" -or $_.ServiceName -like "*$processName*" } | Select-Object -First 1
+}
+
+if (-not $service) {
+    Write-Error "Could not find registered service for $processName. Available services:"
+    Get-Service | Where-Object { $_.ServiceName -notlike ".*" } | Format-Table -Property ServiceName, DisplayName, Status
+    exit 1
+}
+
+Write-Host "Found service: $($service.ServiceName) ($($service.DisplayName)). Starting..."
+Start-Service -Name $service.ServiceName
+Write-Host "$processName service started."
+
+# Step 3: Tail the log file to keep container alive and provide live output
+$logFile = Get-ChildItem "$processDir\*.log", "$processDir\Log\*" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+
+if ($logFile) {
+    Write-Host "Tailing log: $($logFile.FullName)"
+    Get-Content -Path $logFile.FullName -Wait
+}
+else {
+    # Log file may not exist yet — wait for it to appear
+    Write-Host "Waiting for log file in $processDir..."
+    $timeout = 30
+    for ($i = 0; $i -lt $timeout; $i++) {
+        $logFile = Get-ChildItem "$processDir\*.log", "$processDir\Log\*" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        if ($logFile) {
+            Write-Host "Tailing log: $($logFile.FullName)"
+            Get-Content -Path $logFile.FullName -Wait
+            break
+        }
+        Start-Sleep -Seconds 1
+    }
+    if (-not $logFile) {
+        Write-Host "No log file found. Keeping container alive..."
+        while ($true) { Start-Sleep -Seconds 60 }
+    }
+}
