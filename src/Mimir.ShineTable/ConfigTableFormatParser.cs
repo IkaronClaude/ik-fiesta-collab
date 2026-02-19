@@ -54,6 +54,7 @@ internal static class ConfigTableFormatParser
                 lines.Add("");
         }
 
+        lines.Add("#END");
         return lines;
     }
 

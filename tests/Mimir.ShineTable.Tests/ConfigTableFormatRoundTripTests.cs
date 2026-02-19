@@ -211,4 +211,43 @@ public class ConfigTableFormatRoundTripTests
         var col = parsed[0].Schema.Columns.First(c => c.Name == "Name");
         col.Length.ShouldBe(0);
     }
+
+    [Fact]
+    public void Write_EndsWithEndTag()
+    {
+        var columns = new List<ColumnDefinition>
+        {
+            new() { Name = "Name", Type = ColumnType.String, Length = 0 },
+        };
+
+        var table = MakeDefineTable("TEST", columns,
+            new Dictionary<string, object?> { ["Name"] = "Hello" });
+
+        var lines = ConfigTableFormatParser.Write([table]);
+
+        lines[^1].ShouldBe("#END");
+    }
+
+    [Fact]
+    public void Parse_HandlesEndTag_InWrittenOutput()
+    {
+        // Write produces #END; re-parsing that output must not lose any tables
+        var columns = new List<ColumnDefinition>
+        {
+            new() { Name = "Name", Type = ColumnType.String, Length = 0 },
+            new() { Name = "Port", Type = ColumnType.Int32, Length = 4 },
+        };
+
+        var table = MakeDefineTable("SERVER", columns,
+            new Dictionary<string, object?> { ["Name"] = "Login", ["Port"] = 9010 });
+
+        var lines = ConfigTableFormatParser.Write([table]);
+        lines.ShouldContain("#END");
+
+        var parsed = ConfigTableFormatParser.Parse("Config.txt", lines.ToArray());
+        parsed.Count.ShouldBe(1);
+        parsed[0].Rows.Count.ShouldBe(1);
+        parsed[0].Rows[0]["Name"].ShouldBe("Login");
+        parsed[0].Rows[0]["Port"].ShouldBe(9010);
+    }
 }

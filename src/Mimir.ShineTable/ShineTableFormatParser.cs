@@ -36,6 +36,7 @@ internal static class ShineTableFormatParser
             lines.Add(""); // blank line between tables
         }
 
+        lines.Add("#End");
         return lines;
     }
 

@@ -194,4 +194,43 @@ public class ShineTableFormatRoundTripTests
         lines[2].ShouldBe("#columnname\tID\tName");
         lines[3].ShouldBe("#record\t42\tTestItem");
     }
+
+    [Fact]
+    public void Write_EndsWithEndTag()
+    {
+        var columns = new List<ColumnDefinition>
+        {
+            new() { Name = "ID", Type = ColumnType.UInt32, Length = 4 },
+        };
+
+        var table = MakeTable("Test", columns,
+            new Dictionary<string, object?> { ["ID"] = (uint)1 });
+
+        var lines = ShineTableFormatParser.Write([table]);
+
+        lines[^1].ShouldBe("#End");
+    }
+
+    [Fact]
+    public void Parse_HandlesEndTag_InWrittenOutput()
+    {
+        // Write produces #End; re-parsing that output must not lose any tables
+        var columns = new List<ColumnDefinition>
+        {
+            new() { Name = "ID", Type = ColumnType.UInt32, Length = 4 },
+            new() { Name = "Name", Type = ColumnType.String, Length = 32 },
+        };
+
+        var table = MakeTable("Items", columns,
+            new Dictionary<string, object?> { ["ID"] = (uint)5, ["Name"] = "Sword" });
+
+        var lines = ShineTableFormatParser.Write([table]);
+        // Confirm #End is present
+        lines.ShouldContain("#End");
+
+        var parsed = ShineTableFormatParser.Parse("Test.txt", lines.ToArray());
+        parsed.Count.ShouldBe(1);
+        parsed[0].Rows.Count.ShouldBe(1);
+        parsed[0].Rows[0]["ID"].ShouldBe((uint)5);
+    }
 }
