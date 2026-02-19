@@ -25,15 +25,35 @@ var rootCommand = new RootCommand("Mimir - Fiesta Online server data toolkit");
 // --- import command ---
 var importCommand = new Command("import", "Import data files into a Mimir project using environments from mimir.json");
 var importProjectArg = new Argument<DirectoryInfo>("project", "Path to Mimir project directory (must have mimir.json with environments)");
+var importReimportOption = new Option<bool>("--reimport", "Wipe data/ and build/ directories before importing for a clean re-import");
 importCommand.AddArgument(importProjectArg);
+importCommand.AddOption(importReimportOption);
 
-importCommand.SetHandler(async (DirectoryInfo project) =>
+importCommand.SetHandler(async (DirectoryInfo project, bool reimport) =>
 {
     var logger = sp.GetRequiredService<ILogger<Program>>();
     var projectService = sp.GetRequiredService<IProjectService>();
     var providers = sp.GetServices<IDataProvider>().ToList();
 
     var manifest = await projectService.LoadProjectAsync(project.FullName);
+
+    if (reimport)
+    {
+        var dataDir = Path.Combine(project.FullName, "data");
+        var buildDir = Path.Combine(project.FullName, "build");
+        if (Directory.Exists(dataDir))
+        {
+            logger.LogInformation("--reimport: deleting {Dir}", dataDir);
+            Directory.Delete(dataDir, recursive: true);
+        }
+        if (Directory.Exists(buildDir))
+        {
+            logger.LogInformation("--reimport: deleting {Dir}", buildDir);
+            Directory.Delete(buildDir, recursive: true);
+        }
+        manifest.Tables.Clear();
+        logger.LogInformation("--reimport: cleared tables index — starting fresh import");
+    }
 
     if (manifest.Environments is null || manifest.Environments.Count == 0)
     {
@@ -297,7 +317,7 @@ importCommand.SetHandler(async (DirectoryInfo project) =>
     logger.LogInformation("Import complete: {Total} tables ({Merged} merged, {Conflicts} conflicts)",
         manifest.Tables.Count, merged, totalConflicts);
 
-}, importProjectArg);
+}, importProjectArg, importReimportOption);
 
 // --- build command ---
 var buildCommand = new Command("build", "Build data files from a Mimir project for a specific environment");
