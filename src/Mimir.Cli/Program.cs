@@ -22,6 +22,30 @@ var sp = services.BuildServiceProvider();
 
 var rootCommand = new RootCommand("Mimir - Fiesta Online server data toolkit");
 
+// Shared --project/-p option used by commands that also have other positional args
+Option<DirectoryInfo?> MakeProjectOption()
+{
+    var opt = new Option<DirectoryInfo?>("--project",
+        "Path to Mimir project directory (defaults to current directory)")
+    {
+        Arity = ArgumentArity.ZeroOrOne
+    };
+    opt.AddAlias("-p");
+    return opt;
+}
+
+// Shared project argument used by commands that have no other positional args
+Argument<DirectoryInfo?> MakeProjectArg()
+{
+    var arg = new Argument<DirectoryInfo?>("project",
+        "Path to Mimir project directory (defaults to current directory)")
+    {
+        Arity = ArgumentArity.ZeroOrOne
+    };
+    arg.SetDefaultValue(null);
+    return arg;
+}
+
 // --- init command ---
 var initCommand = new Command("init", "Create a new Mimir project directory with a skeleton mimir.json");
 var initProjectArg = new Argument<DirectoryInfo>("project", "Path to new Mimir project directory to create");
@@ -67,26 +91,51 @@ initCommand.SetHandler((DirectoryInfo project, string[] envs) =>
     var manifest = new MimirProject { Environments = environments };
     return projectService.SaveProjectAsync(project.FullName, manifest).ContinueWith(_ =>
     {
+        // Generate .gitignore
+        var gitignorePath = Path.Combine(project.FullName, ".gitignore");
+        if (!File.Exists(gitignorePath))
+        {
+            File.WriteAllText(gitignorePath,
+                "# Mimir generated outputs — keep data/ in git, exclude build/\n" +
+                "build/\n");
+            logger.LogInformation("Created .gitignore");
+        }
+
+        // Generate reimport.bat
+        var reimportBatPath = Path.Combine(project.FullName, "reimport.bat");
+        if (!File.Exists(reimportBatPath))
+        {
+            File.WriteAllText(reimportBatPath,
+                "@echo off\r\n" +
+                ":: Re-import all data and rebuild. Wipes data/ and build/ first.\r\n" +
+                ":: NOTE: mimir.template.json is preserved (edit manually, don't regenerate unless you mean to).\r\n" +
+                "cd /d \"%~dp0\"\r\n" +
+                "mimir reimport\r\n");
+            logger.LogInformation("Created reimport.bat");
+        }
+
         logger.LogInformation("Created {Dir}/mimir.json with {Count} environment(s): {Envs}",
             project.FullName, environments.Count, string.Join(", ", environments.Keys));
         logger.LogInformation("Next steps:");
-        logger.LogInformation("  mimir init-template {Dir}", project.FullName);
-        logger.LogInformation("  mimir import {Dir}", project.FullName);
-        logger.LogInformation("  mimir build {Dir} ./build --all", project.FullName);
+        logger.LogInformation("  cd {Dir}", project.FullName);
+        logger.LogInformation("  mimir init-template");
+        logger.LogInformation("  mimir import");
+        logger.LogInformation("  mimir build --all");
     });
 
 }, initProjectArg, initEnvOption);
 
 // --- import command ---
 var importCommand = new Command("import", "Import data files into a Mimir project using environments from mimir.json");
-var importProjectArg = new Argument<DirectoryInfo>("project", "Path to Mimir project directory (must have mimir.json with environments)");
+var importProjectArg = MakeProjectArg();
 var importReimportOption = new Option<bool>("--reimport", "Wipe data/ and build/ directories before importing for a clean re-import");
 importCommand.AddArgument(importProjectArg);
 importCommand.AddOption(importReimportOption);
 
-importCommand.SetHandler(async (DirectoryInfo project, bool reimport) =>
+importCommand.SetHandler(async (DirectoryInfo? projectArg, bool reimport) =>
 {
     var logger = sp.GetRequiredService<ILogger<Program>>();
+    var project = ResolveProjectOrExit(projectArg, logger);
     var projectService = sp.GetRequiredService<IProjectService>();
     var providers = sp.GetServices<IDataProvider>().ToList();
 
@@ -383,26 +432,60 @@ importCommand.SetHandler(async (DirectoryInfo project, bool reimport) =>
 
 }, importProjectArg, importReimportOption);
 
+// --- reimport command ---
+var reimportCommand = new Command("reimport", "Wipe data/ and build/, re-import all environments, and rebuild");
+var reimportProjectArg = MakeProjectArg();
+reimportCommand.AddArgument(reimportProjectArg);
+
+reimportCommand.SetHandler(async (DirectoryInfo? projectArg) =>
+{
+    var logger = sp.GetRequiredService<ILogger<Program>>();
+    var project = ResolveProjectOrExit(projectArg, logger);
+
+    logger.LogInformation("Starting reimport for {Dir}", project.FullName);
+
+    // Run: import --reimport
+    var importResult = await rootCommand.InvokeAsync(new[] { "import", project.FullName, "--reimport" });
+    if (importResult != 0)
+    {
+        logger.LogError("Import step failed, aborting.");
+        return;
+    }
+
+    // Run: build --all
+    await rootCommand.InvokeAsync(new[] { "build", project.FullName, "--all" });
+
+}, reimportProjectArg);
+
 // --- build command ---
 var buildCommand = new Command("build", "Build data files from a Mimir project for a specific environment");
-var buildProjectArg = new Argument<DirectoryInfo>("project", "Path to Mimir project directory");
-var buildOutputArg = new Argument<DirectoryInfo>("output", "Path to output data directory");
+var buildProjectOption = MakeProjectOption();
+var buildOutputOption = new Option<DirectoryInfo?>("--output", "Output directory (overrides configured buildPath; ignored with --all)")
+{
+    Arity = ArgumentArity.ZeroOrOne
+};
+buildOutputOption.AddAlias("-o");
 var buildEnvOption = new Option<string?>("--env", "Environment to build for (e.g. server, client)");
 buildEnvOption.AddAlias("-e");
 var buildAllOption = new Option<bool>("--all", "Build all environments to their configured buildPaths");
-buildCommand.AddArgument(buildProjectArg);
-buildCommand.AddArgument(buildOutputArg);
+buildCommand.AddOption(buildProjectOption);
+buildCommand.AddOption(buildOutputOption);
 buildCommand.AddOption(buildEnvOption);
 buildCommand.AddOption(buildAllOption);
 
-buildCommand.SetHandler(async (DirectoryInfo project, DirectoryInfo output, string? envName, bool buildAll) =>
+buildCommand.SetHandler(async (DirectoryInfo? projectOpt, DirectoryInfo? outputOpt, string? envName, bool buildAll) =>
 {
     var logger = sp.GetRequiredService<ILogger<Program>>();
+    var project = ResolveProjectOrExit(projectOpt, logger);
     var projectService = sp.GetRequiredService<IProjectService>();
     var providers = sp.GetServices<IDataProvider>().ToDictionary(p => p.FormatId);
 
     var manifest = await projectService.LoadProjectAsync(project.FullName);
     var template = await TemplateResolver.LoadAsync(project.FullName);
+
+    // Default to --all when no env or output specified
+    if (!buildAll && envName == null && outputOpt == null)
+        buildAll = true;
 
     // Determine which environments to build
     var envsToBuild = new Dictionary<string, string>(); // envName → outputDir
@@ -417,12 +500,27 @@ buildCommand.SetHandler(async (DirectoryInfo project, DirectoryInfo output, stri
     }
     else if (envName != null)
     {
-        envsToBuild[envName] = output.FullName;
+        string outputDir;
+        if (outputOpt != null)
+        {
+            outputDir = outputOpt.FullName;
+        }
+        else if (manifest.Environments?.TryGetValue(envName, out var eConfig) == true)
+        {
+            var buildPath = eConfig.BuildPath ?? Path.Combine("build", envName);
+            outputDir = Path.IsPathRooted(buildPath) ? buildPath : Path.Combine(project.FullName, buildPath);
+        }
+        else
+        {
+            logger.LogError("Environment '{Env}' not found in mimir.json and no --output specified.", envName);
+            return;
+        }
+        envsToBuild[envName] = outputDir;
     }
     else
     {
-        // Legacy mode: build everything to output without splitting
-        envsToBuild[""] = output.FullName;
+        // Legacy: explicit --output
+        envsToBuild[""] = outputOpt!.FullName;
     }
 
     // Load env metadata from template (for merged table splitting)
@@ -559,18 +657,19 @@ buildCommand.SetHandler(async (DirectoryInfo project, DirectoryInfo output, stri
         logger.LogInformation("Built {Count} files for {Env}", built, eName == "" ? "all" : eName);
     }
 
-}, buildProjectArg, buildOutputArg, buildEnvOption, buildAllOption);
+}, buildProjectOption, buildOutputOption, buildEnvOption, buildAllOption);
 
 // --- query command ---
 var queryCommand = new Command("query", "Run SQL against a Mimir project");
-var queryProjectArg = new Argument<DirectoryInfo>("project", "Path to Mimir project directory");
+var queryProjectOption = MakeProjectOption();
 var sqlArg = new Argument<string>("sql", "SQL query to execute");
-queryCommand.AddArgument(queryProjectArg);
+queryCommand.AddOption(queryProjectOption);
 queryCommand.AddArgument(sqlArg);
 
-queryCommand.SetHandler(async (DirectoryInfo project, string sql) =>
+queryCommand.SetHandler(async (DirectoryInfo? projectOpt, string sql) =>
 {
     var logger = sp.GetRequiredService<ILogger<Program>>();
+    var project = ResolveProjectOrExit(projectOpt, logger);
     var projectService = sp.GetRequiredService<IProjectService>();
     using var engine = sp.GetRequiredService<ISqlEngine>();
 
@@ -588,7 +687,7 @@ queryCommand.SetHandler(async (DirectoryInfo project, string sql) =>
 
     Console.WriteLine($"({results.Count} rows)");
 
-}, queryProjectArg, sqlArg);
+}, queryProjectOption, sqlArg);
 
 // --- dump command (diagnostic) ---
 var dumpCommand = new Command("dump", "Dump decrypted SHN file structure for debugging");
@@ -604,12 +703,13 @@ analyzeCommand.SetHandler((DirectoryInfo dir) => Mimir.Cli.TypeAnalysis.AnalyzeA
 
 // --- validate command ---
 var validateCommand = new Command("validate", "Validate a Mimir project against constraint rules");
-var validateProjectArg = new Argument<DirectoryInfo>("project", "Path to Mimir project directory");
+var validateProjectArg = MakeProjectArg();
 validateCommand.AddArgument(validateProjectArg);
 
-validateCommand.SetHandler(async (DirectoryInfo project) =>
+validateCommand.SetHandler(async (DirectoryInfo? projectArg) =>
 {
     var logger = sp.GetRequiredService<ILogger<Program>>();
+    var project = ResolveProjectOrExit(projectArg, logger);
     var projectService = sp.GetRequiredService<IProjectService>();
     using var engine = sp.GetRequiredService<ISqlEngine>();
 
@@ -689,14 +789,15 @@ validateCommand.SetHandler(async (DirectoryInfo project) =>
 
 // --- edit command ---
 var editCommand = new Command("edit", "Run SQL to modify project data and save changes back to JSON");
-var editProjectArg = new Argument<DirectoryInfo>("project", "Path to Mimir project directory");
+var editProjectOption = MakeProjectOption();
 var editSqlArg = new Argument<string>("sql", "SQL statement(s) to execute (UPDATE, INSERT, DELETE)");
-editCommand.AddArgument(editProjectArg);
+editCommand.AddOption(editProjectOption);
 editCommand.AddArgument(editSqlArg);
 
-editCommand.SetHandler(async (DirectoryInfo project, string sql) =>
+editCommand.SetHandler(async (DirectoryInfo? projectOpt, string sql) =>
 {
     var logger = sp.GetRequiredService<ILogger<Program>>();
+    var project = ResolveProjectOrExit(projectOpt, logger);
     var projectService = sp.GetRequiredService<IProjectService>();
     using var engine = sp.GetRequiredService<ISqlEngine>();
 
@@ -755,16 +856,17 @@ editCommand.SetHandler(async (DirectoryInfo project, string sql) =>
     logger.LogInformation("Saved {Count} tables back to project", saved);
     Console.WriteLine($"{affected} rows modified, {saved} tables saved.");
 
-}, editProjectArg, editSqlArg);
+}, editProjectOption, editSqlArg);
 
 // --- shell command (interactive SQL) ---
 var shellCommand = new Command("shell", "Interactive SQL shell against a Mimir project");
-var shellProjectArg = new Argument<DirectoryInfo>("project", "Path to Mimir project directory");
+var shellProjectArg = MakeProjectArg();
 shellCommand.AddArgument(shellProjectArg);
 
-shellCommand.SetHandler(async (DirectoryInfo project) =>
+shellCommand.SetHandler(async (DirectoryInfo? projectArg) =>
 {
     var logger = sp.GetRequiredService<ILogger<Program>>();
+    var project = ResolveProjectOrExit(projectArg, logger);
     var projectService = sp.GetRequiredService<IProjectService>();
     using var engine = sp.GetRequiredService<ISqlEngine>();
 
@@ -908,12 +1010,13 @@ shellCommand.SetHandler(async (DirectoryInfo project) =>
 
 // --- init-template command ---
 var initTemplateCommand = new Command("init-template", "Auto-generate a mimir.template.json from environment scans");
-var initTemplateProjectArg = new Argument<DirectoryInfo>("project", "Path to Mimir project directory");
+var initTemplateProjectArg = MakeProjectArg();
 initTemplateCommand.AddArgument(initTemplateProjectArg);
 
-initTemplateCommand.SetHandler(async (DirectoryInfo project) =>
+initTemplateCommand.SetHandler(async (DirectoryInfo? projectArg) =>
 {
     var logger = sp.GetRequiredService<ILogger<Program>>();
+    var project = ResolveProjectOrExit(projectArg, logger);
     var projectService = sp.GetRequiredService<IProjectService>();
     var providers = sp.GetServices<IDataProvider>().ToList();
 
@@ -962,7 +1065,7 @@ initTemplateCommand.SetHandler(async (DirectoryInfo project) =>
 
 // --- edit-template command ---
 var editTemplateCommand = new Command("edit-template", "Modify merge actions in mimir.template.json");
-var editTemplateProjectArg = new Argument<DirectoryInfo>("project", "Path to Mimir project directory");
+var editTemplateProjectArg = MakeProjectArg();
 var editTemplateTableOption = new Option<string?>("--table", "Target a specific table (applies to all merge actions if omitted)");
 editTemplateTableOption.AddAlias("-t");
 var conflictStrategyOption = new Option<string?>("--conflict-strategy", "Set conflict strategy on merge actions (report or split)");
@@ -970,9 +1073,10 @@ editTemplateCommand.AddArgument(editTemplateProjectArg);
 editTemplateCommand.AddOption(editTemplateTableOption);
 editTemplateCommand.AddOption(conflictStrategyOption);
 
-editTemplateCommand.SetHandler(async (DirectoryInfo project, string? table, string? conflictStrategyVal) =>
+editTemplateCommand.SetHandler(async (DirectoryInfo? projectArg, string? table, string? conflictStrategyVal) =>
 {
     var logger = sp.GetRequiredService<ILogger<Program>>();
+    var project = ResolveProjectOrExit(projectArg, logger);
 
     var templatePath = Path.Combine(project.FullName, TemplateResolver.TemplateFileName);
     if (!File.Exists(templatePath))
@@ -1013,19 +1117,20 @@ editTemplateCommand.SetHandler(async (DirectoryInfo project, string? table, stri
 
 // --- pack command ---
 var packCommand = new Command("pack", "Package client build output into incremental patch zips");
-var packProjectArg = new Argument<DirectoryInfo>("project", "Path to Mimir project directory");
+var packProjectOption = MakeProjectOption();
 var packOutputArg = new Argument<DirectoryInfo>("output-dir", "Path to output directory for patches and patch-index.json");
 var packEnvOption = new Option<string>("--env", () => "client", "Environment to pack (default: client)");
 packEnvOption.AddAlias("-e");
 var packBaseUrlOption = new Option<string?>("--base-url", "URL prefix for patch URLs in the index (e.g. https://patches.example.com/)");
-packCommand.AddArgument(packProjectArg);
+packCommand.AddOption(packProjectOption);
 packCommand.AddArgument(packOutputArg);
 packCommand.AddOption(packEnvOption);
 packCommand.AddOption(packBaseUrlOption);
 
-packCommand.SetHandler(async (DirectoryInfo project, DirectoryInfo outputDir, string envName, string? baseUrl) =>
+packCommand.SetHandler(async (DirectoryInfo? projectOpt, DirectoryInfo outputDir, string envName, string? baseUrl) =>
 {
     var logger = sp.GetRequiredService<ILogger<Program>>();
+    var project = ResolveProjectOrExit(projectOpt, logger);
     var projectService = sp.GetRequiredService<IProjectService>();
 
     var manifest = await projectService.LoadProjectAsync(project.FullName);
@@ -1057,10 +1162,11 @@ packCommand.SetHandler(async (DirectoryInfo project, DirectoryInfo outputDir, st
     else
         Console.WriteLine(message);
 
-}, packProjectArg, packOutputArg, packEnvOption, packBaseUrlOption);
+}, packProjectOption, packOutputArg, packEnvOption, packBaseUrlOption);
 
 rootCommand.AddCommand(initCommand);
 rootCommand.AddCommand(importCommand);
+rootCommand.AddCommand(reimportCommand);
 rootCommand.AddCommand(buildCommand);
 rootCommand.AddCommand(queryCommand);
 rootCommand.AddCommand(editCommand);
@@ -1214,3 +1320,33 @@ static int GetSectionIndex(IDictionary<string, object>? metadata)
     };
 }
 
+// --- project discovery (git-like CWD detection) ---
+
+static string? FindProjectRoot()
+{
+    var dir = new DirectoryInfo(Directory.GetCurrentDirectory());
+    while (dir != null)
+    {
+        if (File.Exists(Path.Combine(dir.FullName, "mimir.json")))
+            return dir.FullName;
+        dir = dir.Parent;
+    }
+    return null;
+}
+
+static DirectoryInfo ResolveProjectOrExit(DirectoryInfo? provided, ILogger logger)
+{
+    if (provided != null) return provided;
+
+    var found = FindProjectRoot();
+    if (found != null)
+    {
+        logger.LogDebug("Using project at {Dir} (discovered from CWD)", found);
+        return new DirectoryInfo(found);
+    }
+
+    Console.Error.WriteLine("error: not a mimir project (or any parent up to root: mimir.json not found)");
+    Console.Error.WriteLine("hint: create a project with 'mimir init <name> --env server=<path>'");
+    Environment.Exit(1);
+    return null!; // unreachable
+}
