@@ -1,8 +1,7 @@
 @echo off
-:: Start all containers (SQL + game servers). Builds game server image if needed.
-:: SQL image is NOT rebuilt — use rebuild-sql.bat for that.
+:: Start all containers without rebuilding anything.
+:: Use rebuild-game.bat if you've changed server binaries or scripts.
 cd /d "%~dp0"
 set DOCKER_BUILDKIT=0
-docker compose -f docker-compose.yml build
 docker compose -f docker-compose.yml --profile sql up -d
 pause
