@@ -14,14 +14,19 @@ internal static class ConfigTableFormatParser
     {
         var lines = new List<string>();
 
-        foreach (var table in tables)
+        // Resolve type names upfront
+        var typeNames = tables.Select(table =>
         {
             var meta = table.Schema.Metadata;
-            string typeName = meta?.TryGetValue("typeName", out var tn) == true
+            return meta?.TryGetValue("typeName", out var tn) == true
                 ? ToStr(tn) : table.Schema.TableName;
+        }).ToList();
 
-            // Write schema block
-            lines.Add($"#DEFINE {typeName}");
+        // Write ALL #DEFINE blocks first (matching real Fiesta file layout)
+        for (int i = 0; i < tables.Count; i++)
+        {
+            var table = tables[i];
+            lines.Add($"#DEFINE {typeNames[i]}");
             foreach (var col in table.Schema.Columns)
             {
                 string typeTag = MapTypeBack(col.Type);
@@ -29,8 +34,12 @@ internal static class ConfigTableFormatParser
             }
             lines.Add("#ENDDEFINE");
             lines.Add("");
+        }
 
-            // Write data rows
+        // Then write ALL data rows
+        for (int i = 0; i < tables.Count; i++)
+        {
+            var table = tables[i];
             foreach (var row in table.Rows)
             {
                 var values = table.Schema.Columns.Select(col =>
@@ -38,10 +47,11 @@ internal static class ConfigTableFormatParser
                     var val = row.TryGetValue(col.Name, out var v) ? v : null;
                     return FormatCsvValue(val, col.Type);
                 });
-                lines.Add($"{typeName} {string.Join(", ", values)}");
+                lines.Add($"{typeNames[i]} {string.Join(", ", values)}");
             }
 
-            lines.Add("");
+            if (table.Rows.Count > 0)
+                lines.Add("");
         }
 
         return lines;
