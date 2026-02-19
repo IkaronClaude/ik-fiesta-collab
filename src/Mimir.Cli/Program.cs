@@ -34,17 +34,6 @@ Option<DirectoryInfo?> MakeProjectOption()
     return opt;
 }
 
-// Shared project argument used by commands that have no other positional args
-Argument<DirectoryInfo?> MakeProjectArg()
-{
-    var arg = new Argument<DirectoryInfo?>("project",
-        "Path to Mimir project directory (defaults to current directory)")
-    {
-        Arity = ArgumentArity.ZeroOrOne
-    };
-    arg.SetDefaultValue(null);
-    return arg;
-}
 
 // --- init command ---
 var initCommand = new Command("init", "Create a new Mimir project directory with a skeleton mimir.json");
@@ -127,15 +116,15 @@ initCommand.SetHandler((DirectoryInfo project, string[] envs) =>
 
 // --- import command ---
 var importCommand = new Command("import", "Import data files into a Mimir project using environments from mimir.json");
-var importProjectArg = MakeProjectArg();
+var importProjectOpt = MakeProjectOption();
 var importReimportOption = new Option<bool>("--reimport", "Wipe data/ and build/ directories before importing for a clean re-import");
-importCommand.AddArgument(importProjectArg);
+importCommand.AddOption(importProjectOpt);
 importCommand.AddOption(importReimportOption);
 
-importCommand.SetHandler(async (DirectoryInfo? projectArg, bool reimport) =>
+importCommand.SetHandler(async (DirectoryInfo? projectOpt, bool reimport) =>
 {
     var logger = sp.GetRequiredService<ILogger<Program>>();
-    var project = ResolveProjectOrExit(projectArg, logger);
+    var project = ResolveProjectOrExit(projectOpt, logger);
     var projectService = sp.GetRequiredService<IProjectService>();
     var providers = sp.GetServices<IDataProvider>().ToList();
 
@@ -430,22 +419,22 @@ importCommand.SetHandler(async (DirectoryInfo? projectArg, bool reimport) =>
     logger.LogInformation("Import complete: {Total} tables ({Merged} merged, {Conflicts} conflicts)",
         manifest.Tables.Count, merged, totalConflicts);
 
-}, importProjectArg, importReimportOption);
+}, importProjectOpt, importReimportOption);
 
 // --- reimport command ---
 var reimportCommand = new Command("reimport", "Wipe data/ and build/, re-import all environments, and rebuild");
-var reimportProjectArg = MakeProjectArg();
-reimportCommand.AddArgument(reimportProjectArg);
+var reimportProjectOpt = MakeProjectOption();
+reimportCommand.AddOption(reimportProjectOpt);
 
-reimportCommand.SetHandler(async (DirectoryInfo? projectArg) =>
+reimportCommand.SetHandler(async (DirectoryInfo? projectOpt) =>
 {
     var logger = sp.GetRequiredService<ILogger<Program>>();
-    var project = ResolveProjectOrExit(projectArg, logger);
+    var project = ResolveProjectOrExit(projectOpt, logger);
 
     logger.LogInformation("Starting reimport for {Dir}", project.FullName);
 
     // Run: import --reimport
-    var importResult = await rootCommand.InvokeAsync(new[] { "import", project.FullName, "--reimport" });
+    var importResult = await rootCommand.InvokeAsync(new[] { "import", "--project", project.FullName, "--reimport" });
     if (importResult != 0)
     {
         logger.LogError("Import step failed, aborting.");
@@ -453,9 +442,9 @@ reimportCommand.SetHandler(async (DirectoryInfo? projectArg) =>
     }
 
     // Run: build --all
-    await rootCommand.InvokeAsync(new[] { "build", project.FullName, "--all" });
+    await rootCommand.InvokeAsync(new[] { "build", "--project", project.FullName, "--all" });
 
-}, reimportProjectArg);
+}, reimportProjectOpt);
 
 // --- build command ---
 var buildCommand = new Command("build", "Build data files from a Mimir project for a specific environment");
@@ -731,13 +720,13 @@ analyzeCommand.SetHandler((DirectoryInfo dir) => Mimir.Cli.TypeAnalysis.AnalyzeA
 
 // --- validate command ---
 var validateCommand = new Command("validate", "Validate a Mimir project against constraint rules");
-var validateProjectArg = MakeProjectArg();
-validateCommand.AddArgument(validateProjectArg);
+var validateProjectOpt = MakeProjectOption();
+validateCommand.AddOption(validateProjectOpt);
 
-validateCommand.SetHandler(async (DirectoryInfo? projectArg) =>
+validateCommand.SetHandler(async (DirectoryInfo? projectOpt) =>
 {
     var logger = sp.GetRequiredService<ILogger<Program>>();
-    var project = ResolveProjectOrExit(projectArg, logger);
+    var project = ResolveProjectOrExit(projectOpt, logger);
     var projectService = sp.GetRequiredService<IProjectService>();
     using var engine = sp.GetRequiredService<ISqlEngine>();
 
@@ -813,7 +802,7 @@ validateCommand.SetHandler(async (DirectoryInfo? projectArg) =>
     else
         Console.WriteLine($"{violations} violations found across {checks} checks.");
 
-}, validateProjectArg);
+}, validateProjectOpt);
 
 // --- edit command ---
 var editCommand = new Command("edit", "Run SQL to modify project data and save changes back to JSON");
@@ -888,13 +877,13 @@ editCommand.SetHandler(async (DirectoryInfo? projectOpt, string sql) =>
 
 // --- shell command (interactive SQL) ---
 var shellCommand = new Command("shell", "Interactive SQL shell against a Mimir project");
-var shellProjectArg = MakeProjectArg();
-shellCommand.AddArgument(shellProjectArg);
+var shellProjectOpt = MakeProjectOption();
+shellCommand.AddOption(shellProjectOpt);
 
-shellCommand.SetHandler(async (DirectoryInfo? projectArg) =>
+shellCommand.SetHandler(async (DirectoryInfo? projectOpt) =>
 {
     var logger = sp.GetRequiredService<ILogger<Program>>();
-    var project = ResolveProjectOrExit(projectArg, logger);
+    var project = ResolveProjectOrExit(projectOpt, logger);
     var projectService = sp.GetRequiredService<IProjectService>();
     using var engine = sp.GetRequiredService<ISqlEngine>();
 
@@ -1034,17 +1023,17 @@ shellCommand.SetHandler(async (DirectoryInfo? projectArg) =>
         }
     }
 
-}, shellProjectArg);
+}, shellProjectOpt);
 
 // --- init-template command ---
 var initTemplateCommand = new Command("init-template", "Auto-generate a mimir.template.json from environment scans");
-var initTemplateProjectArg = MakeProjectArg();
-initTemplateCommand.AddArgument(initTemplateProjectArg);
+var initTemplateProjectOpt = MakeProjectOption();
+initTemplateCommand.AddOption(initTemplateProjectOpt);
 
-initTemplateCommand.SetHandler(async (DirectoryInfo? projectArg) =>
+initTemplateCommand.SetHandler(async (DirectoryInfo? projectOpt) =>
 {
     var logger = sp.GetRequiredService<ILogger<Program>>();
-    var project = ResolveProjectOrExit(projectArg, logger);
+    var project = ResolveProjectOrExit(projectOpt, logger);
     var projectService = sp.GetRequiredService<IProjectService>();
     var providers = sp.GetServices<IDataProvider>().ToList();
 
@@ -1089,22 +1078,22 @@ initTemplateCommand.SetHandler(async (DirectoryInfo? projectArg) =>
     logger.LogInformation("Generated {File} with {Actions} actions: {Copy} copy, {Merge} merge, {PK} setPK, {UK} setUK",
         TemplateResolver.TemplateFileName, template.Actions.Count, copyCount, mergeCount, pkCount, ukCount);
 
-}, initTemplateProjectArg);
+}, initTemplateProjectOpt);
 
 // --- edit-template command ---
 var editTemplateCommand = new Command("edit-template", "Modify merge actions in mimir.template.json");
-var editTemplateProjectArg = MakeProjectArg();
+var editTemplateProjectOpt = MakeProjectOption();
 var editTemplateTableOption = new Option<string?>("--table", "Target a specific table (applies to all merge actions if omitted)");
 editTemplateTableOption.AddAlias("-t");
 var conflictStrategyOption = new Option<string?>("--conflict-strategy", "Set conflict strategy on merge actions (report or split)");
-editTemplateCommand.AddArgument(editTemplateProjectArg);
+editTemplateCommand.AddOption(editTemplateProjectOpt);
 editTemplateCommand.AddOption(editTemplateTableOption);
 editTemplateCommand.AddOption(conflictStrategyOption);
 
-editTemplateCommand.SetHandler(async (DirectoryInfo? projectArg, string? table, string? conflictStrategyVal) =>
+editTemplateCommand.SetHandler(async (DirectoryInfo? projectOpt, string? table, string? conflictStrategyVal) =>
 {
     var logger = sp.GetRequiredService<ILogger<Program>>();
-    var project = ResolveProjectOrExit(projectArg, logger);
+    var project = ResolveProjectOrExit(projectOpt, logger);
 
     var templatePath = Path.Combine(project.FullName, TemplateResolver.TemplateFileName);
     if (!File.Exists(templatePath))
@@ -1141,7 +1130,7 @@ editTemplateCommand.SetHandler(async (DirectoryInfo? projectArg, string? table, 
     await File.WriteAllTextAsync(templatePath, doc.ToJsonString(writeOptions));
     logger.LogInformation("Updated {Count} merge action(s) in {File}", modified, TemplateResolver.TemplateFileName);
 
-}, editTemplateProjectArg, editTemplateTableOption, conflictStrategyOption);
+}, editTemplateProjectOpt, editTemplateTableOption, conflictStrategyOption);
 
 // --- pack command ---
 var packCommand = new Command("pack", "Package client build output into incremental patch zips");
