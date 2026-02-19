@@ -8,6 +8,12 @@ if /i not "%CONFIRM%"=="y" (
     pause
     exit /b 0
 )
+call mimir.bat init-template test-project
+if errorlevel 1 (
+    echo Template generation failed.
+    pause
+    exit /b 1
+)
 call mimir.bat import test-project --reimport
 if errorlevel 1 (
     echo Import failed.

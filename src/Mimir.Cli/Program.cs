@@ -22,6 +22,61 @@ var sp = services.BuildServiceProvider();
 
 var rootCommand = new RootCommand("Mimir - Fiesta Online server data toolkit");
 
+// --- init command ---
+var initCommand = new Command("init", "Create a new Mimir project directory with a skeleton mimir.json");
+var initProjectArg = new Argument<DirectoryInfo>("project", "Path to new Mimir project directory to create");
+var initEnvOption = new Option<string[]>("--env", "Environment definition in name=importPath format (e.g. server=Z:/Server). Repeat for multiple envs.");
+initEnvOption.AddAlias("-e");
+initEnvOption.AllowMultipleArgumentsPerToken = false;
+initCommand.AddArgument(initProjectArg);
+initCommand.AddOption(initEnvOption);
+
+initCommand.SetHandler((DirectoryInfo project, string[] envs) =>
+{
+    var logger = sp.GetRequiredService<ILogger<Program>>();
+    var projectService = sp.GetRequiredService<IProjectService>();
+
+    if (File.Exists(Path.Combine(project.FullName, "mimir.json")))
+    {
+        logger.LogError("mimir.json already exists in {Dir}. Delete it first or choose a different directory.", project.FullName);
+        return Task.CompletedTask;
+    }
+
+    var environments = new Dictionary<string, EnvironmentConfig>();
+    foreach (var env in envs)
+    {
+        var idx = env.IndexOf('=');
+        if (idx <= 0)
+        {
+            logger.LogError("Invalid --env value '{Value}'. Expected format: name=importPath", env);
+            return Task.CompletedTask;
+        }
+        var name = env[..idx];
+        var importPath = env[(idx + 1)..];
+        environments[name] = new EnvironmentConfig { ImportPath = importPath, BuildPath = $"build/{name}" };
+    }
+
+    if (environments.Count == 0)
+    {
+        logger.LogError("No environments specified. Use --env name=path (e.g. --env server=Z:/Server)");
+        return Task.CompletedTask;
+    }
+
+    Directory.CreateDirectory(project.FullName);
+
+    var manifest = new MimirProject { Environments = environments };
+    return projectService.SaveProjectAsync(project.FullName, manifest).ContinueWith(_ =>
+    {
+        logger.LogInformation("Created {Dir}/mimir.json with {Count} environment(s): {Envs}",
+            project.FullName, environments.Count, string.Join(", ", environments.Keys));
+        logger.LogInformation("Next steps:");
+        logger.LogInformation("  mimir init-template {Dir}", project.FullName);
+        logger.LogInformation("  mimir import {Dir}", project.FullName);
+        logger.LogInformation("  mimir build {Dir} ./build --all", project.FullName);
+    });
+
+}, initProjectArg, initEnvOption);
+
 // --- import command ---
 var importCommand = new Command("import", "Import data files into a Mimir project using environments from mimir.json");
 var importProjectArg = new Argument<DirectoryInfo>("project", "Path to Mimir project directory (must have mimir.json with environments)");
@@ -995,6 +1050,7 @@ packCommand.SetHandler(async (DirectoryInfo project, DirectoryInfo outputDir, st
 
 }, packProjectArg, packOutputArg, packEnvOption, packBaseUrlOption);
 
+rootCommand.AddCommand(initCommand);
 rootCommand.AddCommand(importCommand);
 rootCommand.AddCommand(buildCommand);
 rootCommand.AddCommand(queryCommand);
