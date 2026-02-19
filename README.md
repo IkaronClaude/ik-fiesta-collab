@@ -17,21 +17,52 @@ Server administration toolkit for Fiesta Online private servers. Converts game d
 
 ## Quick Start
 
-```bash
-# Import server + client data into a project
-dotnet run --project src/Mimir.Cli -- import my-project
+`mimir.bat` in the repo root is a convenience wrapper — all commands below use it. Alternatively substitute `dotnet run --project src/Mimir.Cli --` for `mimir`.
 
-# Interactive SQL shell
-dotnet run --project src/Mimir.Cli -- shell my-project
+### First-time project setup
 
-# Run a query
-dotnet run --project src/Mimir.Cli -- query my-project "SELECT * FROM ItemInfo WHERE Level > 100"
+```bat
+:: 1. Create project directory and mimir.json with environment configs
+mimir init my-project --env server=Z:/Server --env client=Z:/Client
 
-# Build back to server files
-dotnet run --project src/Mimir.Cli -- build my-project ./build/server --env server
+:: 2. Scan environments and auto-generate merge/copy rules
+mimir init-template my-project
 
-# Build all environments
-dotnet run --project src/Mimir.Cli -- build my-project ./build --all
+:: 3. Import all data files into JSON
+mimir import my-project
+
+:: 4. Build back to native server/client formats
+mimir build my-project ./my-project/build --all
+```
+
+### Day-to-day workflow
+
+```bat
+:: Edit data with SQL
+mimir edit my-project "UPDATE ItemInfo SET AC = 100 WHERE InxName = 'NoviceSword'"
+
+:: Interactive SQL shell
+mimir shell my-project
+
+:: Run a query
+mimir query my-project "SELECT * FROM ItemInfo WHERE Level > 100"
+
+:: Rebuild after edits
+mimir build my-project ./my-project/build --all
+```
+
+### Clean re-import (wipes data/ and build/, regenerates template)
+
+```bat
+deploy\reimport.bat
+```
+
+Or manually:
+
+```bat
+mimir init-template my-project
+mimir import my-project --reimport
+mimir build my-project ./my-project/build --all
 ```
 
 ## Project Structure
@@ -42,7 +73,7 @@ dotnet run --project src/Mimir.Cli -- build my-project ./build --all
 | `Mimir.Shn` | SHN binary provider + QuestData provider |
 | `Mimir.ShineTable` | Text table providers (`#table` and `#DEFINE` formats) |
 | `Mimir.Sql` | SQLite in-memory engine (load, query, extract) |
-| `Mimir.Cli` | CLI: import, build, query, edit, shell, init-template, validate |
+| `Mimir.Cli` | CLI: init, init-template, import, build, query, edit, shell, validate, pack |
 
 ## Data Formats
 
@@ -86,14 +117,16 @@ dotnet run --project src/Mimir.Cli -- edit-template my-project --conflict-strate
 
 | Command | Description |
 |---------|-------------|
-| `import <project>` | Import data from configured environments into a project |
-| `build <project> <output>` | Build project back to native file formats |
-| `query <project> "<sql>"` | Run a SQL query against loaded tables |
-| `edit <project> "<sql>"` | Execute SQL modifications and save back to JSON |
-| `shell <project>` | Interactive SQL shell with `.tables`, `.schema`, `.save` |
-| `init-template <project>` | Auto-generate merge/copy template from environment scan |
-| `edit-template <project>` | Modify merge actions in template (e.g. set conflict strategy) |
+| `init <project> --env name=path` | Create a new project directory with a skeleton `mimir.json` |
+| `init-template <project>` | Scan environments and auto-generate `mimir.template.json` |
+| `import <project> [--reimport]` | Import data from configured environments; `--reimport` wipes `data/` and `build/` first |
+| `build <project> <output> [--env name\|--all]` | Build project back to native file formats per environment |
+| `query <project> "<sql>"` | Run a SQL SELECT against loaded tables |
+| `edit <project> "<sql>"` | Execute SQL modifications (UPDATE/INSERT/DELETE) and save back to JSON |
+| `shell <project>` | Interactive SQL shell with `.tables`, `.schema`, `.save` dot-commands |
 | `validate <project>` | Check foreign key constraints and data integrity |
+| `edit-template <project>` | Modify merge actions in `mimir.template.json` (e.g. set conflict strategy) |
+| `pack <project> <output-dir>` | Package client build into incremental patch zips with a `patch-index.json` |
 
 ## Import Coverage
 
