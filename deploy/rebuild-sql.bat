@@ -10,7 +10,7 @@ if /i not "%CONFIRM%"=="y" (
     pause
     exit /b 0
 )
-docker compose -f docker-compose.yml --profile sql down -v
-docker compose -f docker-compose.yml --profile sql build sqlserver
-docker compose -f docker-compose.yml --profile sql up -d sqlserver
+docker compose -f docker-compose.yml down -v
+docker compose -f docker-compose.yml build sqlserver
+docker compose -f docker-compose.yml up -d sqlserver
 pause

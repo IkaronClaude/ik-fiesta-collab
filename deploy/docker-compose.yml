@@ -1,11 +1,11 @@
 # Fiesta Online server — one container per process
 # All services communicate via Docker Compose DNS hostnames.
 #
-# Usage:
-#   docker compose build                  # Build game server image only
-#   docker compose --profile sql build    # Build SQL image (rarely needed)
-#   docker compose --profile sql up -d    # Start everything including SQL
-#   docker compose up -d                  # Start game servers (SQL must be running)
+# Usage: see deploy/*.bat scripts
+#   start.bat        — start all containers
+#   stop.bat         — stop all containers
+#   rebuild-game.bat — rebuild game image + start (excludes SQL)
+#   rebuild-sql.bat  — wipe SQL data + restore from .bak (destructive!)
 
 x-gameserver: &gameserver
   build:
@@ -16,7 +16,6 @@ x-gameserver: &gameserver
 
 services:
   sqlserver:
-    profiles: ["sql"]
     build:
       context: .
       dockerfile: Dockerfile.sql
