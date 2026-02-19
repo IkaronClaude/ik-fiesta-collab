@@ -179,23 +179,31 @@ else {
 
 # Always fall through to log tailing — even on failure, logs show what went wrong.
 
-# --- Step 7: Tail all DebugMessage logs ---
+# --- Step 7: Tail all logs (DebugMessage/ + root-level Assert/ExitLog/Msg files) ---
 
 $logDir = "$processDir\DebugMessage"
-Write-Host "Watching for logs in $logDir..."
+Write-Host "Watching for logs in $logDir and $processDir (root-level)..."
 
+# Collect initial log files from both DebugMessage/ and process root.
+# Root-level patterns: Assert*.txt, ExitLog*.txt, Msg_*.txt
 $timeout = 60
 $logFiles = @()
 for ($i = 0; $i -lt $timeout; $i++) {
+    $debugFiles = @()
+    $rootFiles  = @()
     if (Test-Path $logDir) {
-        $logFiles = @(Get-ChildItem ($logDir + '\*.txt') -ErrorAction SilentlyContinue)
-        if ($logFiles.Count -gt 0) { break }
+        $debugFiles = @(Get-ChildItem ($logDir + '\*.txt') -ErrorAction SilentlyContinue)
     }
+    $rootFiles = @(Get-ChildItem $processDir -Filter 'Assert*.txt'  -ErrorAction SilentlyContinue)
+    $rootFiles += @(Get-ChildItem $processDir -Filter 'ExitLog*.txt' -ErrorAction SilentlyContinue)
+    $rootFiles += @(Get-ChildItem $processDir -Filter 'Msg_*.txt'    -ErrorAction SilentlyContinue)
+    $logFiles = $debugFiles + $rootFiles
+    if ($logFiles.Count -gt 0) { break }
     Start-Sleep -Seconds 1
 }
 
 if ($logFiles.Count -eq 0) {
-    Write-Host "No log files found in $logDir after ${timeout}s. Keeping container alive..."
+    Write-Host "No log files found after ${timeout}s. Keeping container alive..."
     while ($true) { Start-Sleep -Seconds 60 }
 }
 
@@ -209,20 +217,27 @@ foreach ($lf in $logFiles) {
     } -ArgumentList $lf.FullName, $lf.BaseName
 }
 
+# Watch both DebugMessage/ and process root for newly appearing log files.
 $watcherJob = Start-Job -ScriptBlock {
-    param($dir)
+    param($processDir, $logDir)
     $known = @{}
     while ($true) {
-        $files = Get-ChildItem ($dir + '\*.txt') -ErrorAction SilentlyContinue
+        $files = @()
+        if (Test-Path $logDir) {
+            $files += @(Get-ChildItem ($logDir + '\*.txt') -ErrorAction SilentlyContinue)
+        }
+        $files += @(Get-ChildItem $processDir -Filter 'Assert*.txt'  -ErrorAction SilentlyContinue)
+        $files += @(Get-ChildItem $processDir -Filter 'ExitLog*.txt' -ErrorAction SilentlyContinue)
+        $files += @(Get-ChildItem $processDir -Filter 'Msg_*.txt'    -ErrorAction SilentlyContinue)
         foreach ($f in $files) {
-            if (-not $known.ContainsKey($f.Name)) {
-                $known[$f.Name] = $true
+            if (-not $known.ContainsKey($f.FullName)) {
+                $known[$f.FullName] = $true
                 Write-Output ('NEW_LOG:{0}:{1}' -f $f.FullName, $f.BaseName)
             }
         }
         Start-Sleep -Seconds 5
     }
-} -ArgumentList $logDir
+} -ArgumentList $processDir, $logDir
 
 while ($true) {
     $watcherOutput = Receive-Job -Job $watcherJob -ErrorAction SilentlyContinue

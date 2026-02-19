@@ -655,6 +655,34 @@ buildCommand.SetHandler(async (DirectoryInfo? projectOpt, DirectoryInfo? outputO
         }
 
         logger.LogInformation("Built {Count} files for {Env}", built, eName == "" ? "all" : eName);
+
+        // Process copyFile actions — copy raw passthrough files (e.g. _ServerGroup.txt)
+        foreach (var action in template.Actions.Where(a => a.Action == "copyFile"))
+        {
+            if (action.Env == null || action.Path == null) continue;
+            // Only process for the matching env (or legacy "" mode = copy all)
+            if (eName != "" && action.Env != eName) continue;
+
+            if (!manifest.Environments!.TryGetValue(action.Env, out var srcEnvConfig))
+            {
+                logger.LogWarning("CopyFile: environment '{Env}' not found in mimir.json", action.Env);
+                continue;
+            }
+
+            var normalizedPath = action.Path.Replace('/', Path.DirectorySeparatorChar);
+            var srcFile = Path.Combine(srcEnvConfig.ImportPath, normalizedPath);
+            var destFile = Path.Combine(outputDir, normalizedPath);
+
+            if (!File.Exists(srcFile))
+            {
+                logger.LogWarning("CopyFile: source not found: {Path}", srcFile);
+                continue;
+            }
+
+            Directory.CreateDirectory(Path.GetDirectoryName(destFile)!);
+            File.Copy(srcFile, destFile, overwrite: true);
+            logger.LogInformation("CopyFile: {Path}", action.Path);
+        }
     }
 
 }, buildProjectOption, buildOutputOption, buildEnvOption, buildAllOption);

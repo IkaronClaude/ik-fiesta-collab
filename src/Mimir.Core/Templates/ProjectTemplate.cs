@@ -64,6 +64,15 @@ public sealed class TemplateAction
     [JsonPropertyName("conflictStrategy")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? ConflictStrategy { get; init; }
+
+    // copyFile — copy a raw file verbatim from env source dir to build output
+    [JsonPropertyName("env")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Env { get; init; }
+
+    [JsonPropertyName("path")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Path { get; init; }
 }
 
 public sealed class TableRef
