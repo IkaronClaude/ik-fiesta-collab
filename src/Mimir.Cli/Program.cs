@@ -160,7 +160,16 @@ importCommand.SetHandler(async (DirectoryInfo project, bool reimport) =>
             var key = (action.From.Table, action.From.Env);
             if (rawTables.TryGetValue(key, out var raw))
             {
-                mergedTables[action.To] = raw;
+                // Tag every row with the source env so that after a subsequent merge,
+                // target-only rows are correctly excluded from other envs at build time.
+                var taggedRowEnvs = Enumerable.Repeat<List<string>?>([action.From.Env], raw.Data.Count).ToList();
+                mergedTables[action.To] = new TableFile
+                {
+                    Header = raw.Header,
+                    Columns = raw.Columns,
+                    Data = raw.Data,
+                    RowEnvironments = taggedRowEnvs
+                };
                 tablesHandledByActions.Add(action.To);
 
                 // Store base env column order and source path

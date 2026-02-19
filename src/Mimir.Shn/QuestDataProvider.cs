@@ -162,10 +162,6 @@ public sealed class QuestDataProvider : IDataProvider
         using var fs = File.Create(filePath);
         using var writer = new BinaryWriter(fs);
 
-        int fixedDataSize = metadata.TryGetValue("fixedDataSize", out var fds)
-            ? GetMetadataInt(fds)
-            : DefaultFixedDataSize;
-
         writer.Write(version);
         writer.Write((ushort)data.Rows.Count);
 
@@ -183,7 +179,8 @@ public sealed class QuestDataProvider : IDataProvider
             var s2 = EucKr.GetBytes(row["InProgressScript"]?.ToString() ?? "");
             var s3 = EucKr.GetBytes(row["FinishScript"]?.ToString() ?? "");
 
-            ushort recordLength = (ushort)(2 + fixedDataSize + s1.Length + 1 + s2.Length + 1 + s3.Length + 1);
+            // Use actual byte length of FixedData — metadata value may belong to a different env
+            ushort recordLength = (ushort)(2 + fixedData.Length + s1.Length + 1 + s2.Length + 1 + s3.Length + 1);
 
             writer.Write(recordLength);
             writer.Write(fixedData);
