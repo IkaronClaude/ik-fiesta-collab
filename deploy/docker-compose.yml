@@ -181,5 +181,18 @@ services:
       worldmanager:
         condition: service_started
 
+  # --- Optional patch server (profile: patch) ---
+  # Start with: docker compose --profile patch up -d
+  # Or use start.bat which includes it automatically.
+  patch-server:
+    image: nginx:alpine
+    profiles: [patch]
+    container_name: fiesta-patch
+    ports:
+      - "8080:80"
+    volumes:
+      - ../test-project/patches:/usr/share/nginx/html:ro
+    restart: unless-stopped
+
 volumes:
   sql-data:
