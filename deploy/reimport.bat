@@ -1,18 +1,13 @@
 @echo off
 :: Re-import all server and client data into test-project, then rebuild.
 :: WARNING: Wipes existing test-project data/ and build/ directories first.
+:: NOTE: mimir.template.json is preserved — run init-template manually if you need to regenerate it.
 cd /d "%~dp0.."
 set /p CONFIRM="This will wipe test-project/data/ and test-project/build/. Continue? (y/N): "
 if /i not "%CONFIRM%"=="y" (
     echo Cancelled.
     pause
     exit /b 0
-)
-call mimir.bat init-template test-project
-if errorlevel 1 (
-    echo Template generation failed.
-    pause
-    exit /b 1
 )
 call mimir.bat import test-project --reimport
 if errorlevel 1 (
