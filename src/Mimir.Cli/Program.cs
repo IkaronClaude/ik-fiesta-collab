@@ -672,6 +672,31 @@ buildCommand.SetHandler(async (DirectoryInfo? projectOpt, DirectoryInfo? outputO
             File.Copy(srcFile, destFile, overwrite: true);
             logger.LogInformation("CopyFile: {Path}", action.Path);
         }
+
+        // Overrides: copy everything from overridesPath verbatim, winning over all other output
+        var currentEnvConfig = eName != "" && manifest.Environments?.TryGetValue(eName, out var ec) == true ? ec : null;
+        if (currentEnvConfig?.OverridesPath != null)
+        {
+            var overridesDir = new DirectoryInfo(currentEnvConfig.OverridesPath);
+            if (!overridesDir.Exists)
+            {
+                logger.LogWarning("Override path does not exist for {Env}: {Path}", eName, currentEnvConfig.OverridesPath);
+            }
+            else
+            {
+                var overrideFiles = overridesDir.EnumerateFiles("*", SearchOption.AllDirectories);
+                int overrideCount = 0;
+                foreach (var f in overrideFiles)
+                {
+                    var relPath = Path.GetRelativePath(overridesDir.FullName, f.FullName);
+                    var destFile = Path.Combine(outputDir, relPath);
+                    Directory.CreateDirectory(Path.GetDirectoryName(destFile)!);
+                    File.Copy(f.FullName, destFile, overwrite: true);
+                    overrideCount++;
+                }
+                logger.LogInformation("Overrides: copied {Count} file(s) from {Path}", overrideCount, currentEnvConfig.OverridesPath);
+            }
+        }
     }
 
 }, buildProjectOption, buildOutputOption, buildEnvOption, buildAllOption);

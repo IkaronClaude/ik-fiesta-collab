@@ -42,4 +42,12 @@ public sealed class EnvironmentConfig
     [JsonPropertyName("buildPath")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? BuildPath { get; init; }
+
+    /// <summary>
+    /// Optional directory of files to copy verbatim into build output,
+    /// overwriting anything already placed there by table builds or copyFile actions.
+    /// </summary>
+    [JsonPropertyName("overridesPath")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? OverridesPath { get; init; }
 }
