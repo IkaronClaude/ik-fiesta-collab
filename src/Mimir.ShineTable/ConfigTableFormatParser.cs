@@ -291,9 +291,9 @@ internal static class ConfigTableFormatParser
             }
             else
             {
-                // Unquoted value - read until comma or whitespace-then-comma
+                // Unquoted value - read until comma or tab (both are field separators)
                 int start = i;
-                while (i < input.Length && input[i] != ',')
+                while (i < input.Length && input[i] != ',' && input[i] != '\t')
                     i++;
                 values.Add(input[start..i].Trim());
             }

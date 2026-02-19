@@ -53,7 +53,8 @@ public static class TemplateGenerator
                     On = joinCol != null
                         ? new JoinClause { Source = joinCol, Target = joinCol }
                         : null,
-                    ColumnStrategy = "auto"
+                    ColumnStrategy = "auto",
+                    ConflictStrategy = "split"
                 });
             }
 
@@ -90,15 +91,17 @@ public static class TemplateGenerator
         var bColNames = b.Columns.Select(c => c.Name).ToHashSet();
         var shared = aColNames.Intersect(bColNames).ToHashSet();
 
-        // Prefer known PK column names
-        foreach (var candidate in PkCandidates)
+        // Prefer string unique-key columns first (InxName, IndexName) — these are stable
+        // across environments. Numeric IDs like "ID" or "Index" are often row-position-based
+        // and can differ between server and client.
+        foreach (var candidate in UkCandidates)
         {
             if (shared.Contains(candidate))
                 return candidate;
         }
 
-        // Try UK candidates
-        foreach (var candidate in UkCandidates)
+        // Fall back to known numeric PK column names
+        foreach (var candidate in PkCandidates)
         {
             if (shared.Contains(candidate))
                 return candidate;
