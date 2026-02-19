@@ -1028,9 +1028,16 @@ shellCommand.SetHandler(async (DirectoryInfo? projectOpt) =>
 // --- init-template command ---
 var initTemplateCommand = new Command("init-template", "Auto-generate a mimir.template.json from environment scans");
 var initTemplateProjectOpt = MakeProjectOption();
+var initTemplatePassthroughOption = new Option<string[]>("--passthrough",
+    "Copy all non-table files from the named environment(s) to build output (e.g. --passthrough server)")
+{
+    AllowMultipleArgumentsPerToken = false,
+    Arity = ArgumentArity.ZeroOrMore
+};
 initTemplateCommand.AddOption(initTemplateProjectOpt);
+initTemplateCommand.AddOption(initTemplatePassthroughOption);
 
-initTemplateCommand.SetHandler(async (DirectoryInfo? projectOpt) =>
+initTemplateCommand.SetHandler(async (DirectoryInfo? projectOpt, string[] passthroughEnvs) =>
 {
     var logger = sp.GetRequiredService<ILogger<Program>>();
     var project = ResolveProjectOrExit(projectOpt, logger);
@@ -1067,18 +1074,39 @@ initTemplateCommand.SetHandler(async (DirectoryInfo? projectOpt) =>
         logger.LogInformation("Found {Count} tables in {Env}", tables.Count, envName);
     }
 
-    var template = TemplateGenerator.Generate(envTables, envOrder);
+    // Detect passthrough files for envs opted-in via --passthrough
+    var passthroughFiles = new List<(string env, string path)>();
+    var passthroughEnvSet = passthroughEnvs.ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+    foreach (var (envName, envConfig) in manifest.Environments)
+    {
+        if (!passthroughEnvSet.Contains(envName)) continue;
+
+        var sourceDir = new DirectoryInfo(envConfig.ImportPath);
+        if (!sourceDir.Exists) continue;
+
+        foreach (var file in sourceDir.EnumerateFiles("*", SearchOption.AllDirectories))
+        {
+            if (providers.Any(p => p.CanHandle(file.FullName))) continue;
+
+            var relPath = Path.GetRelativePath(sourceDir.FullName, file.FullName).Replace('\\', '/');
+            passthroughFiles.Add((envName, relPath));
+        }
+    }
+
+    var template = TemplateGenerator.Generate(envTables, envOrder, passthroughFiles);
     await TemplateResolver.SaveAsync(project.FullName, template);
 
     var copyCount = template.Actions.Count(a => a.Action == "copy");
     var mergeCount = template.Actions.Count(a => a.Action == "merge");
     var pkCount = template.Actions.Count(a => a.Action == "setPrimaryKey");
     var ukCount = template.Actions.Count(a => a.Action == "setUniqueKey");
+    var copyFileCount = template.Actions.Count(a => a.Action == "copyFile");
 
-    logger.LogInformation("Generated {File} with {Actions} actions: {Copy} copy, {Merge} merge, {PK} setPK, {UK} setUK",
-        TemplateResolver.TemplateFileName, template.Actions.Count, copyCount, mergeCount, pkCount, ukCount);
+    logger.LogInformation("Generated {File} with {Actions} actions: {Copy} copy, {Merge} merge, {PK} setPK, {UK} setUK, {CopyFile} copyFile",
+        TemplateResolver.TemplateFileName, template.Actions.Count, copyCount, mergeCount, pkCount, ukCount, copyFileCount);
 
-}, initTemplateProjectOpt);
+}, initTemplateProjectOpt, initTemplatePassthroughOption);
 
 // --- edit-template command ---
 var editTemplateCommand = new Command("edit-template", "Modify merge actions in mimir.template.json");

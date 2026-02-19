@@ -13,7 +13,8 @@ public static class TemplateGenerator
 
     public static ProjectTemplate Generate(
         Dictionary<(string table, string env), TableFile> envTables,
-        IReadOnlyList<string> envOrder)
+        IReadOnlyList<string> envOrder,
+        IReadOnlyList<(string env, string path)>? passthroughFiles = null)
     {
         var actions = new List<TemplateAction>();
 
@@ -78,6 +79,20 @@ public static class TemplateGenerator
                     Action = "setUniqueKey",
                     Table = tableName,
                     Column = ukCol
+                });
+            }
+        }
+
+        // Add copyFile actions for passthrough files (not handled by any table provider)
+        if (passthroughFiles != null)
+        {
+            foreach (var (env, path) in passthroughFiles)
+            {
+                actions.Add(new TemplateAction
+                {
+                    Action = "copyFile",
+                    Env = env,
+                    Path = path
                 });
             }
         }
