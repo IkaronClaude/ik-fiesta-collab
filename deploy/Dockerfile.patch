@@ -6,7 +6,7 @@ SHELL ["powershell", "-Command", "$ErrorActionPreference = 'Stop';"]
 
 # Simple PowerShell HTTP server script
 RUN New-Item -ItemType Directory -Path C:\patch-server -Force | Out-Null
-COPY scripts\serve-patches.ps1 C:\patch-server\serve-patches.ps1
+COPY scripts/serve-patches.ps1 C:/patch-server/serve-patches.ps1
 
 EXPOSE 80
 
