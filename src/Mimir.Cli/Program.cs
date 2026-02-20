@@ -295,7 +295,8 @@ importCommand.SetHandler(async (DirectoryInfo? projectOpt, bool reimport) =>
                     ColumnOrder = raw.Columns.Select(c => c.Name).ToList(),
                     ColumnOverrides = new(),
                     ColumnRenames = new(),
-                    SourceRelDir = rawRelDirs.GetValueOrDefault(key, "")
+                    SourceRelDir = rawRelDirs.GetValueOrDefault(key, ""),
+                    FormatMetadata = ExtractFormatMetadata(raw.Header.Metadata)
                 };
 
                 logger.LogInformation("Copy: {From}@{Env} → {To}", action.From.Table, action.From.Env, action.To);
@@ -385,7 +386,8 @@ importCommand.SetHandler(async (DirectoryInfo? projectOpt, bool reimport) =>
                 ColumnOrder = rawTables[key].Columns.Select(c => c.Name).ToList(),
                 ColumnOverrides = new(),
                 ColumnRenames = new(),
-                SourceRelDir = rawRelDirs.GetValueOrDefault(key, "")
+                SourceRelDir = rawRelDirs.GetValueOrDefault(key, ""),
+                FormatMetadata = ExtractFormatMetadata(rawTables[key].Header.Metadata)
             };
 
             logger.LogDebug("Passthrough: {Table} (only in {Env})", tableName, envs[0]);
@@ -421,7 +423,8 @@ importCommand.SetHandler(async (DirectoryInfo? projectOpt, bool reimport) =>
                         ColumnOrder = first.Columns.Select(c => c.Name).ToList(),
                         ColumnOverrides = new(),
                         ColumnRenames = new(),
-                        SourceRelDir = rawRelDirs.GetValueOrDefault(key, "")
+                        SourceRelDir = rawRelDirs.GetValueOrDefault(key, ""),
+                        FormatMetadata = ExtractFormatMetadata(rawTables[key].Header.Metadata)
                     };
                 }
 
@@ -455,7 +458,7 @@ importCommand.SetHandler(async (DirectoryInfo? projectOpt, bool reimport) =>
             else
                 metadata[SourceOrigin.MetadataKey] = envMetas.Keys.First();
 
-            // Store per-env metadata (including sourceRelDir)
+            // Store per-env metadata (including sourceRelDir and format metadata)
             foreach (var (eName, eMeta) in envMetas)
             {
                 metadata[eName] = new Dictionary<string, object?>
@@ -463,7 +466,8 @@ importCommand.SetHandler(async (DirectoryInfo? projectOpt, bool reimport) =>
                     ["columnOrder"] = eMeta.ColumnOrder,
                     ["columnOverrides"] = eMeta.ColumnOverrides.Count > 0 ? eMeta.ColumnOverrides : null,
                     ["columnRenames"] = eMeta.ColumnRenames.Count > 0 ? eMeta.ColumnRenames : null,
-                    ["sourceRelDir"] = eMeta.SourceRelDir
+                    ["sourceRelDir"] = eMeta.SourceRelDir,
+                    ["formatMetadata"] = eMeta.FormatMetadata
                 };
             }
 
@@ -495,6 +499,15 @@ importCommand.SetHandler(async (DirectoryInfo? projectOpt, bool reimport) =>
 
     logger.LogInformation("Import complete: {Total} tables ({Merged} merged, {Conflicts} conflicts)",
         manifest.Tables.Count, merged, totalConflicts);
+
+    static Dictionary<string, object>? ExtractFormatMetadata(Dictionary<string, object>? meta)
+    {
+        if (meta == null) return null;
+        var result = new Dictionary<string, object>();
+        foreach (var k in new[] { "cryptHeader", "header" })
+            if (meta.TryGetValue(k, out var v) && v != null) result[k] = v;
+        return result.Count > 0 ? result : null;
+    }
 
 }, importProjectOpt, importReimportOption);
 

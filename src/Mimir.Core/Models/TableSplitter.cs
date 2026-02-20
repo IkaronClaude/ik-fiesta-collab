@@ -72,9 +72,25 @@ public static class TableSplitter
             outputRows.Add(outputRow);
         }
 
+        // If this env has its own format metadata (e.g. SHN cryptHeader), override the merged
+        // table's header values so we write the correct binary headers for this env.
+        var header = merged.Header;
+        if (envMeta.FormatMetadata?.Count > 0)
+        {
+            var meta = new Dictionary<string, object>(merged.Header.Metadata ?? new Dictionary<string, object>());
+            foreach (var (k, v) in envMeta.FormatMetadata)
+                meta[k] = v;
+            header = new TableHeader
+            {
+                TableName = merged.Header.TableName,
+                SourceFormat = merged.Header.SourceFormat,
+                Metadata = meta
+            };
+        }
+
         return new TableFile
         {
-            Header = merged.Header,
+            Header = header,
             Columns = outputColumns,
             Data = outputRows
             // No RowEnvironments — clean non-merged output

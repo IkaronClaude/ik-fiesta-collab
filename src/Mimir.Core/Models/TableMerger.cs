@@ -299,7 +299,8 @@ public static class TableMerger
         {
             ColumnOrder = sourceColumnOrder,
             ColumnOverrides = columnOverrides,
-            ColumnRenames = splitRenames.ToDictionary(kv => kv.Key, kv => kv.Value)
+            ColumnRenames = splitRenames.ToDictionary(kv => kv.Key, kv => kv.Value),
+            FormatMetadata = ExtractFormatMetadata(source.Header.Metadata)
         };
 
         var mergedTable = new TableFile
@@ -316,6 +317,20 @@ public static class TableMerger
             Conflicts = conflicts,
             EnvMetadata = envMetadata
         };
+    }
+
+    /// <summary>
+    /// Extracts format-specific metadata keys (cryptHeader, header) from a raw table's metadata.
+    /// These are stored per-env so each env can rebuild its SHN files with the original binary headers.
+    /// </summary>
+    internal static Dictionary<string, object>? ExtractFormatMetadata(Dictionary<string, object>? metadata)
+    {
+        if (metadata == null) return null;
+        var result = new Dictionary<string, object>();
+        foreach (var key in new[] { "cryptHeader", "header" })
+            if (metadata.TryGetValue(key, out var val) && val != null)
+                result[key] = val;
+        return result.Count > 0 ? result : null;
     }
 
     private static bool ValuesEqual(object? a, object? b)
@@ -382,6 +397,12 @@ public sealed class EnvMergeMetadata
     public string? SourceRelDir { get; set; }
 
     /// <summary>
+    /// Format-specific metadata captured at import (e.g. cryptHeader, header for SHN files).
+    /// Stored per-env so each environment builds with its own original binary headers.
+    /// </summary>
+    public Dictionary<string, object>? FormatMetadata { get; set; }
+
+    /// <summary>
     /// Parses an EnvMergeMetadata from a JsonElement (as stored in table metadata).
     /// </summary>
     public static EnvMergeMetadata? FromJsonElement(JsonElement je)
@@ -422,12 +443,21 @@ public sealed class EnvMergeMetadata
         if (je.TryGetProperty("sourceRelDir", out var srdElem) && srdElem.ValueKind == JsonValueKind.String)
             sourceRelDir = srdElem.GetString();
 
+        Dictionary<string, object>? formatMetadata = null;
+        if (je.TryGetProperty("formatMetadata", out var fmElem) && fmElem.ValueKind == JsonValueKind.Object)
+        {
+            formatMetadata = new Dictionary<string, object>();
+            foreach (var prop in fmElem.EnumerateObject())
+                formatMetadata[prop.Name] = prop.Value.Clone(); // clone so JsonElement stays valid
+        }
+
         return new EnvMergeMetadata
         {
             ColumnOrder = columnOrder,
             ColumnOverrides = columnOverrides,
             ColumnRenames = columnRenames,
-            SourceRelDir = sourceRelDir
+            SourceRelDir = sourceRelDir,
+            FormatMetadata = formatMetadata
         };
     }
 }
