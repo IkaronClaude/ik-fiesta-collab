@@ -27,8 +27,17 @@ if errorlevel 1 (
 )
 
 echo.
-echo === Starting containers ===
+echo === Copying build to deployed snapshot ===
 cd /d "%~dp0"
+robocopy "..\test-project\build\server" "..\test-project\deployed\server" /E /PURGE /NFL /NDL /NJH /NJS
+if errorlevel 8 (
+    echo ERROR: robocopy failed.
+    pause
+    exit /b 1
+)
+
+echo.
+echo === Starting containers ===
 set DOCKER_BUILDKIT=0
 docker compose --profile patch -f docker-compose.yml up -d
 
