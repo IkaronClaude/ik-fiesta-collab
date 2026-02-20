@@ -73,6 +73,8 @@ internal static class ShineTableFormatParser
     public static List<TableEntry> Parse(string filePath, string[] lines)
     {
         var tables = new List<TableEntry>();
+        // Keyed by raw table name (from metadata["tableName"]) for #RecordIn lookup
+        var tablesByName = new Dictionary<string, TableEntry>(StringComparer.OrdinalIgnoreCase);
         string fileName = Path.GetFileNameWithoutExtension(filePath);
         var preprocessor = new Preprocessor();
         int sectionIndex = 0;
@@ -112,8 +114,29 @@ internal static class ShineTableFormatParser
                 {
                     table.Schema.Metadata!["sectionIndex"] = sectionIndex++;
                     tables.Add(table);
+                    if (table.Schema.Metadata.TryGetValue("tableName", out var tn))
+                        tablesByName[tn.ToString()!] = table;
                 }
                 i = nextLine;
+                continue;
+            }
+
+            // #RecordIn TABLE_NAME field1 field2... - file-level rows routed to a named table
+            if (raw.StartsWith("#recordin", StringComparison.OrdinalIgnoreCase))
+            {
+                var parts = SplitFields(raw);
+                if (parts.Length >= 2 && tablesByName.TryGetValue(parts[1], out var target))
+                {
+                    var cols = target.Schema.Columns;
+                    var row = new Dictionary<string, object?>(cols.Count);
+                    for (int c = 0; c < cols.Count && c + 2 < parts.Length; c++)
+                    {
+                        string field = preprocessor.Apply(parts[c + 2]);
+                        row[cols[c].Name] = ConvertValue(field, cols[c].Type);
+                    }
+                    ((List<Dictionary<string, object?>>)target.Rows).Add(row);
+                }
+                i++;
                 continue;
             }
 
@@ -153,8 +176,8 @@ internal static class ShineTableFormatParser
 
             string lower = raw.ToLowerInvariant();
 
-            // Next table or end of file
-            if (lower.StartsWith("#table") || lower.StartsWith("#end"))
+            // Next table, end of file, or file-level #RecordIn section
+            if (lower.StartsWith("#table") || lower.StartsWith("#end") || lower.StartsWith("#recordin"))
                 break;
 
             if (lower.StartsWith("#columntype"))

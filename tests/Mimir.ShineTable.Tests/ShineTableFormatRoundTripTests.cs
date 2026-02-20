@@ -233,4 +233,40 @@ public class ShineTableFormatRoundTripTests
         parsed[0].Rows.Count.ShouldBe(1);
         parsed[0].Rows[0]["ID"].ShouldBe((uint)5);
     }
+
+    [Fact]
+    public void Parse_RecordIn_AddsRowsToNamedTable()
+    {
+        // MobChat.txt style: all #table headers first, then #RecordIn TABLE_NAME rows at file level
+        var lines = new[]
+        {
+            "#table\tPIECE",
+            "#columntype\tINDEX\tDWRD\tSTRING[65]",
+            "#columnname\tMobIndex\tRate\tScript0",
+            "",
+            "#table\tATTACK",
+            "#columntype\tINDEX\tDWRD\tSTRING[65]",
+            "#columnname\tMobIndex\tRate\tScript0",
+            "",
+            "#RecordIn\tPIECE\tSlime\t50\tWelcome to Fiesta!",
+            "#RecordIn\tATTACK\tSlime\t40\tHi-ya!",
+            "#RecordIn\tPIECE\tMushRoom\t60\tI am a Mushroom!",
+            "#End"
+        };
+
+        var parsed = ShineTableFormatParser.Parse("MobChat.txt", lines);
+
+        parsed.Count.ShouldBe(2);
+
+        var piece = parsed.First(t => t.Schema.TableName == "MobChat_PIECE");
+        piece.Rows.Count.ShouldBe(2);
+        piece.Rows[0]["MobIndex"].ShouldBe("Slime");
+        piece.Rows[0]["Script0"].ShouldBe("Welcome to Fiesta!");
+        piece.Rows[1]["MobIndex"].ShouldBe("MushRoom");
+
+        var attack = parsed.First(t => t.Schema.TableName == "MobChat_ATTACK");
+        attack.Rows.Count.ShouldBe(1);
+        attack.Rows[0]["MobIndex"].ShouldBe("Slime");
+        attack.Rows[0]["Script0"].ShouldBe("Hi-ya!");
+    }
 }
