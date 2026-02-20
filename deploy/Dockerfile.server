@@ -34,6 +34,7 @@ RUN Invoke-WebRequest -Uri 'https://go.microsoft.com/fwlink/?linkid=2266337' \
     Remove-Item C:/msodbcsql.msi
 
 # Copy all server process directories (binaries + DLLs)
+COPY server-files/GamigoZR/     C:/server/GamigoZR/
 COPY server-files/Account/      C:/server/Account/
 COPY server-files/AccountLog/   C:/server/AccountLog/
 COPY server-files/Character/    C:/server/Character/

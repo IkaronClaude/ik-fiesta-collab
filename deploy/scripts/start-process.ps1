@@ -136,7 +136,30 @@ reg add "HKLM\SOFTWARE\Wow6432Node\GBO" /v Sabana /d 2554545953 /f | Out-Null
 
 # SQL wait removed — docker-compose depends_on: service_healthy handles this.
 
-# --- Step 4: Register and start Windows service ---
+# --- Step 4: Register and start GamigoZR (Zone processes only) ---
+# GamigoZR is a core service required by all Zone processes. Must be running before Zone.exe starts.
+
+if ($processName -match '^Zone(\d+)$') {
+    $gamigoZRExe = 'C:\server\GamigoZR\GamigoZR.exe'
+    if (Test-Path $gamigoZRExe) {
+        Write-Host 'Registering GamigoZR service...'
+        sc.exe create GamigoZR binPath= $gamigoZRExe start= demand | Write-Host
+
+        Write-Host 'Starting GamigoZR...'
+        try {
+            Start-Service -Name GamigoZR -ErrorAction Stop
+            Write-Host 'GamigoZR started.'
+        }
+        catch {
+            Write-Warning ('Failed to start GamigoZR: {0}' -f $_)
+        }
+    }
+    else {
+        Write-Warning "GamigoZR.exe not found at $gamigoZRExe — Zone may crash without it."
+    }
+}
+
+# --- Step 5: Register and start Windows service ---
 # Don't run the exe directly — it calls StartServiceCtrlDispatcher() which blocks forever.
 # Register the service with sc.exe create, then Start-Service starts it properly via SCM.
 
@@ -179,7 +202,7 @@ else {
 
 # Always fall through to log tailing — even on failure, logs show what went wrong.
 
-# --- Step 7: Tail all logs (DebugMessage/ + root-level Assert/ExitLog/Msg files) ---
+# --- Step 6: Tail all logs (DebugMessage/ + root-level Assert/ExitLog/Msg files) ---
 
 $logDir = "$processDir\DebugMessage"
 Write-Host "Watching for logs in $logDir and $processDir (root-level)..."
@@ -194,9 +217,17 @@ for ($i = 0; $i -lt $timeout; $i++) {
     if (Test-Path $logDir) {
         $debugFiles = @(Get-ChildItem ($logDir + '\*.txt') -ErrorAction SilentlyContinue)
     }
-    $rootFiles = @(Get-ChildItem $processDir -Filter 'Assert*.txt'  -ErrorAction SilentlyContinue)
-    $rootFiles += @(Get-ChildItem $processDir -Filter 'ExitLog*.txt' -ErrorAction SilentlyContinue)
-    $rootFiles += @(Get-ChildItem $processDir -Filter 'Msg_*.txt'    -ErrorAction SilentlyContinue)
+    $rootFiles = @(Get-ChildItem $processDir -Filter 'Assert*.txt'        -ErrorAction SilentlyContinue)
+    $rootFiles += @(Get-ChildItem $processDir -Filter 'ExitLog*.txt'       -ErrorAction SilentlyContinue)
+    $rootFiles += @(Get-ChildItem $processDir -Filter 'Msg_*.txt'          -ErrorAction SilentlyContinue)
+    # Zone-specific logs: Dbg.txt, MapLoad.txt, Message.txt, Size.txt (mostly noise),
+    # "Zone.exe <date> CallStack.txt" (crash call stack — matches the .mdmp), 5ZoneServerDumpStack<date>.txt
+    $rootFiles += @(Get-ChildItem $processDir -Filter 'Dbg.txt'            -ErrorAction SilentlyContinue)
+    $rootFiles += @(Get-ChildItem $processDir -Filter 'MapLoad*.txt'       -ErrorAction SilentlyContinue)
+    $rootFiles += @(Get-ChildItem $processDir -Filter 'Message*.txt'       -ErrorAction SilentlyContinue)
+    $rootFiles += @(Get-ChildItem $processDir -Filter 'Size*.txt'          -ErrorAction SilentlyContinue)
+    $rootFiles += @(Get-ChildItem $processDir -Filter '*CallStack.txt'    -ErrorAction SilentlyContinue)
+    $rootFiles += @(Get-ChildItem $processDir -Filter '5ZoneServer*.txt'   -ErrorAction SilentlyContinue)
     $logFiles = $debugFiles + $rootFiles
     if ($logFiles.Count -gt 0) { break }
     Start-Sleep -Seconds 1
@@ -226,9 +257,15 @@ $watcherJob = Start-Job -ScriptBlock {
         if (Test-Path $logDir) {
             $files += @(Get-ChildItem ($logDir + '\*.txt') -ErrorAction SilentlyContinue)
         }
-        $files += @(Get-ChildItem $processDir -Filter 'Assert*.txt'  -ErrorAction SilentlyContinue)
-        $files += @(Get-ChildItem $processDir -Filter 'ExitLog*.txt' -ErrorAction SilentlyContinue)
-        $files += @(Get-ChildItem $processDir -Filter 'Msg_*.txt'    -ErrorAction SilentlyContinue)
+        $files += @(Get-ChildItem $processDir -Filter 'Assert*.txt'        -ErrorAction SilentlyContinue)
+        $files += @(Get-ChildItem $processDir -Filter 'ExitLog*.txt'       -ErrorAction SilentlyContinue)
+        $files += @(Get-ChildItem $processDir -Filter 'Msg_*.txt'          -ErrorAction SilentlyContinue)
+        $files += @(Get-ChildItem $processDir -Filter 'Dbg.txt'            -ErrorAction SilentlyContinue)
+        $files += @(Get-ChildItem $processDir -Filter 'MapLoad*.txt'       -ErrorAction SilentlyContinue)
+        $files += @(Get-ChildItem $processDir -Filter 'Message*.txt'       -ErrorAction SilentlyContinue)
+        $files += @(Get-ChildItem $processDir -Filter 'Size*.txt'          -ErrorAction SilentlyContinue)
+        $files += @(Get-ChildItem $processDir -Filter '*CallStack.txt'    -ErrorAction SilentlyContinue)
+        $files += @(Get-ChildItem $processDir -Filter '5ZoneServer*.txt'   -ErrorAction SilentlyContinue)
         foreach ($f in $files) {
             if (-not $known.ContainsKey($f.FullName)) {
                 $known[$f.FullName] = $true
