@@ -1,0 +1,13 @@
+# Patch server — serves Mimir patch zips and patch-index.json over HTTP.
+# Uses the same Windows Server Core base as the game servers.
+FROM mcr.microsoft.com/windows/servercore:ltsc2022
+
+SHELL ["powershell", "-Command", "$ErrorActionPreference = 'Stop';"]
+
+# Simple PowerShell HTTP server script
+RUN New-Item -ItemType Directory -Path C:\patch-server -Force | Out-Null
+COPY scripts\serve-patches.ps1 C:\patch-server\serve-patches.ps1
+
+EXPOSE 80
+
+CMD ["powershell", "-ExecutionPolicy", "Bypass", "-File", "C:\\patch-server\\serve-patches.ps1"]

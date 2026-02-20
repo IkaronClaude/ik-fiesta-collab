@@ -185,13 +185,15 @@ services:
   # Start with: docker compose --profile patch up -d
   # Or use start.bat which includes it automatically.
   patch-server:
-    image: nginx:alpine
+    build:
+      context: .
+      dockerfile: Dockerfile.patch
     profiles: [patch]
     container_name: fiesta-patch
     ports:
       - "8080:80"
     volumes:
-      - ../test-project/patches:/usr/share/nginx/html:ro
+      - ../test-project/patches:C:/patches:ro
     restart: unless-stopped
 
 volumes:
