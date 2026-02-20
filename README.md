@@ -1,19 +1,23 @@
 # Mimir
 
-Server administration toolkit for Fiesta Online private servers. Converts game data files into a git-friendly JSON project format, provides SQL querying, bulk editing, validation, and builds back to server format. Supports multi-environment workflows (server + client data).
+Server administration toolkit for Fiesta Online private servers. Converts game data files into a git-friendly JSON project format, provides SQL querying, bulk editing, validation, and builds back to server format. Supports multi-environment workflows (server + client data) and client patch distribution.
 
 ## How It Works
 
 ```
 [Server/Client Files] --import--> [JSON Project] --edit/query--> [JSON Project] --build--> [Server/Client Files]
       SHN/txt                      git-tracked        SQL/CLI                         SHN/txt
+                                                                                           |
+                                                                                        --pack--> [Patch Server]
+                                                                                                  HTTP patches
 ```
 
 1. **Import** your server and client data directories into a Mimir project
 2. **Query and edit** using SQL or the interactive shell
 3. **Commit** your changes to git — each table is a single JSON file, clean diffs
 4. **Build** to convert back to server/client format per environment
-5. **Validate** to catch broken references, orphaned items, and constraint violations
+5. **Pack** to generate incremental client patches served over HTTP
+6. **Validate** to catch broken references, orphaned items, and constraint violations
 
 ---
 
@@ -40,19 +44,25 @@ cd ProjectMimir
 setx PATH "%PATH%;C:\Projects\Mimir"
 ```
 
-Or just call it with the full path, or `cd` to the repo root before running.
-
 ### 3. Create a project
 
 A "project" is a directory that holds your imported game data as JSON. Create one with `mimir init`:
 
 ```bat
-mimir init my-server --env server=Z:/Server --env client=Z:/Client
+mimir init my-server --env server=Z:/Server --env client=Z:/Client/ressystem
 ```
 
-This creates `my-server/mimir.json` with your import paths, plus `.gitignore` and `reimport.bat`.
+This creates inside `my-server/`:
+- `mimir.json` — project manifest
+- `mimir.bat` — local mimir resolver (all generated scripts call this; edit if mimir isn't in PATH)
+- `.gitignore` — excludes `build/` and `patches/`
+- `deploy/reimport.bat` — wipe + reimport + rebuild
+- `deploy/deploy.bat` — build + pack client patches
+- `deploy/patcher/` — client patch scripts
 
-> The `server` and `client` names are yours to choose — they become the env names used in build output.
+> Pass `--mimir <cmd>` to bake a specific path into `mimir.bat` (e.g. `--mimir C:\Tools\mimir.bat`). Default assumes `mimir` is in PATH.
+
+> The `server` and `client` env names are yours to choose — they become the env names used in build output.
 
 ### 4. Generate merge rules
 
@@ -60,10 +70,10 @@ Mimir needs to know how to handle tables that exist in both server and client. A
 
 ```bat
 cd my-server
-mimir init-template
+mimir init-template --passthrough server
 ```
 
-This scans both environments and writes `mimir.template.json`. Tables in both envs get a `merge` rule; tables in only one env get a `copy` rule.
+This scans both environments and writes `mimir.template.json`. Tables in both envs get a `merge` rule; tables in only one env get a `copy` rule. `--passthrough server` also adds `copyFile` actions for any non-table files found in the server env (e.g. plain `.txt` config files like `_ServerGroup.txt`).
 
 > **Important:** After generating, set `split` strategy on tables with known value conflicts (e.g. ColorInfo, ItemViewInfo). This tells Mimir to preserve both env's values in separate columns rather than erroring on conflict:
 >
@@ -87,7 +97,15 @@ This reads all SHN and text table files from each configured environment, merges
 mimir build --all
 ```
 
-Converts the JSON project back to native server/client formats. Output goes to `build/server/` and `build/client/` (as configured in `mimir.json`).
+Converts the JSON project back to native server/client formats. Output goes to `build/server/` and `build/client/` (as configured in `mimir.json`). Also copies any `copyFile` passthrough files and applies `overridesPath` files on top.
+
+### 7. Pack client patches
+
+```bat
+mimir pack patches --env client
+```
+
+Compares `build/client/` against the previous pack state, creates a versioned zip of changed files in `patches/`, and updates `patches/patch-index.json`. Client patchers check this index to download only what changed.
 
 ---
 
@@ -110,6 +128,9 @@ mimir query "SELECT InxName, AC, ReqLevel FROM ItemInfo WHERE ReqLevel > 100 LIM
 :: Rebuild after edits
 mimir build --all
 
+:: Pack fresh client patches
+mimir pack patches --env client
+
 :: Commit your changes
 git add data/
 git commit -m "Increase NoviceSword AC to 100"
@@ -125,43 +146,92 @@ Wipes `data/` and `build/`, re-imports everything from source, and rebuilds. You
 :: From within the project dir:
 mimir reimport
 
-:: Or run the generated script:
-reimport.bat
+:: Or via the generated script:
+deploy\reimport.bat
 ```
 
-Or manually:
+---
+
+## Client Patching
+
+Mimir includes a self-contained patching system so game clients can update themselves from a patch server.
+
+### How it works
+
+1. `mimir pack patches --env client` — compares `build/client/` to previous state, writes a versioned zip + updates `patches/patch-index.json`
+2. A patch server (nginx or any HTTP server) serves the `patches/` directory
+3. `deploy\patcher\patch.bat <client-dir>` — checks `patch-index.json`, downloads and applies any new patches, verifies SHA-256
+
+### Configure the patch URL
+
+Edit `deploy/patcher/patcher.config`:
+
+```
+PatchUrl=http://localhost:8080/
+```
+
+Point this at wherever your patch server is running.
+
+### Apply patches to your client
 
 ```bat
-mimir import --reimport
-mimir build --all
+deploy\patcher\patch.bat C:\Fiesta\Client
 ```
+
+The patcher stores `.mimir-version` in the client directory to track the current version and only download what's new.
 
 ---
 
 ## Docker Game Server
 
-See `deploy/` for Docker Compose configuration that runs a full Fiesta server stack locally (SQL Server + all 11 game processes).
+See `deploy/` for Docker Compose configuration that runs a full Fiesta server stack locally (SQL Server + all 11 game processes + optional patch server).
+
+### Quick start
 
 ```bat
-:: Build containers (disable BuildKit for Windows containers)
-set DOCKER_BUILDKIT=0
 cd deploy
+
+:: First time: build the image and restore SQL databases
+set DOCKER_BUILDKIT=0
 docker compose build
-
-:: Start SQL Server first
 docker compose up sqlserver -d
+:: (wait for SQL to be healthy, then restore .bak files)
 
-:: Start all game processes
-docker compose up -d
-
-:: View logs
-docker compose logs -f
-
-:: Stop everything
-docker compose down
+:: Start everything including the patch server
+start.bat
 ```
 
-The game server containers volume-mount `build/server/` from your Mimir project, so `mimir build --all` followed by `docker compose restart` picks up data changes without rebuilding the image.
+### Included bat scripts
+
+| Script | What it does |
+|--------|-------------|
+| `start.bat` | Start all containers (game servers + patch server on :8080) |
+| `stop.bat` | Stop all containers |
+| `deploy.bat` | Stop → `mimir build --all` → `mimir pack patches` → start |
+| `reimport.bat` | Full reimport from source files (slow, wipes data/) |
+| `rebuild-game.bat` | Rebuild game server Docker image + start |
+| `rebuild-sql.bat` | Wipe and restore SQL databases (destructive) |
+| `restart-game.bat` | Restart game process containers after a data change |
+| `logs.bat` | Stream logs from all containers (`docker compose logs -f`) |
+
+### Full deploy cycle (data change workflow)
+
+```bat
+cd deploy
+deploy.bat
+```
+
+Then apply client patches:
+
+```bat
+deploy\patcher\patch.bat C:\Fiesta\Client
+```
+
+Then launch the game.
+
+### Patch server
+
+The patch server is an nginx container serving `patches/` on port 8080. It starts automatically with `start.bat`. `deploy.bat` always runs `mimir pack` before starting containers so the patch server is immediately up to date.
 
 > **SQL Server SA password**: `V63WsdafLJT9NDAn`
 > Connect: `sqlcmd -S localhost\SQLEXPRESS -U sa -P V63WsdafLJT9NDAn -C`
@@ -174,15 +244,23 @@ The game server containers volume-mount `build/server/` from your Mimir project,
 my-server/
   mimir.json              # project manifest (environments, table index)
   mimir.template.json     # merge rules, constraints, column annotations
-  .gitignore              # excludes build/ from git
-  reimport.bat            # convenience script: reimport + rebuild
+  mimir.bat               # mimir resolver — edit this if mimir isn't in PATH
+  .gitignore              # excludes build/ and patches/ from git
   data/
     shn/                  # SHN tables (server, client, or merged)
-    shinetable/           # text tables (#table format) preserving 9Data layout
-    configtable/          # #DEFINE config tables (ServerInfo, DefaultCharacterData)
+    shinetable/           # text tables (#table format)
+    configtable/          # #DEFINE config tables
   build/
     server/               # built server output (SHN + txt)
     client/               # built client output
+  patches/                # incremental patch zips + patch-index.json
+  deploy/
+    reimport.bat          # wipe + reimport + rebuild
+    deploy.bat            # build + pack (no Docker assumed)
+    patcher/
+      patch.bat           # run this to patch your game client
+      patch.ps1           # patcher implementation
+      patcher.config      # set PatchUrl here
 ```
 
 ---
@@ -193,17 +271,43 @@ Mimir automatically finds the project by walking up from the current directory (
 
 | Command | Description |
 |---------|-------------|
-| `init <dir> --env name=path` | Create a new project with `.gitignore`, `reimport.bat`, and `mimir.json` |
-| `init-template` | Scan environments and auto-generate `mimir.template.json` |
+| `init <dir> --env name=path [--mimir cmd]` | Create a new project with `mimir.json`, `mimir.bat`, and `deploy/` scripts |
+| `init-template [--passthrough env]` | Scan environments and auto-generate `mimir.template.json`; `--passthrough` adds `copyFile` actions for non-table files |
 | `import [--reimport]` | Import data from configured environments; `--reimport` wipes `data/` and `build/` first |
 | `reimport` | Shortcut: `import --reimport` then `build --all` |
 | `build [--all] [--env name] [--output dir]` | Build to native formats; defaults to `--all` when no flags given |
+| `pack <output-dir> [--env client]` | Generate incremental patch zip + update `patch-index.json` |
 | `query "<sql>"` | Run a SQL SELECT against loaded tables |
 | `edit "<sql>"` | Execute SQL modifications (UPDATE/INSERT/DELETE) and save back to JSON |
 | `shell` | Interactive SQL shell with `.tables`, `.schema`, `.save` dot-commands |
 | `validate` | Check foreign key constraints and data integrity |
 | `edit-template [--table name] [--conflict-strategy split\|report]` | Modify merge actions in `mimir.template.json` |
-| `pack <output-dir> [--env client]` | Package client build into incremental patch zips with `patch-index.json` |
+
+---
+
+## mimir.json Environment Config
+
+```json
+{
+  "environments": {
+    "server": {
+      "importPath": "Z:/Server",
+      "buildPath": "build/server"
+    },
+    "client": {
+      "importPath": "Z:/Client/ressystem",
+      "buildPath": "build/client",
+      "overridesPath": "Z:/ClientOverrides"
+    }
+  }
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `importPath` | Source directory to import from |
+| `buildPath` | Output directory for `mimir build` |
+| `overridesPath` | Optional directory — every file here is copied verbatim into build output last, overriding tables and `copyFile` actions |
 
 ---
 
@@ -215,7 +319,7 @@ Mimir automatically finds the project by walking up from the current directory (
 | `Mimir.Shn` | SHN binary provider + QuestData provider |
 | `Mimir.ShineTable` | Text table providers (`#table` and `#DEFINE` formats) |
 | `Mimir.Sql` | SQLite in-memory engine (load, query, extract) |
-| `Mimir.Cli` | CLI: init, import, reimport, build, query, edit, shell, validate, edit-template, pack |
+| `Mimir.Cli` | CLI: init, import, reimport, build, pack, query, edit, shell, validate, edit-template |
 
 ## Data Formats
 
