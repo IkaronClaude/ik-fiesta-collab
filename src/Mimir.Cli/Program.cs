@@ -41,10 +41,14 @@ var initProjectArg = new Argument<DirectoryInfo>("project", "Path to new Mimir p
 var initEnvOption = new Option<string[]>("--env", "Environment definition in name=importPath format (e.g. server=Z:/Server). Repeat for multiple envs.");
 initEnvOption.AddAlias("-e");
 initEnvOption.AllowMultipleArgumentsPerToken = false;
+var initMimirOption = new Option<string>("--mimir",
+    () => "mimir",
+    "Command or path to the mimir executable baked into generated mimir.bat (default: mimir, assumes PATH)");
 initCommand.AddArgument(initProjectArg);
 initCommand.AddOption(initEnvOption);
+initCommand.AddOption(initMimirOption);
 
-initCommand.SetHandler((DirectoryInfo project, string[] envs) =>
+initCommand.SetHandler((DirectoryInfo project, string[] envs, string mimirCmd) =>
 {
     var logger = sp.GetRequiredService<ILogger<Program>>();
     var projectService = sp.GetRequiredService<IProjectService>();
@@ -76,43 +80,116 @@ initCommand.SetHandler((DirectoryInfo project, string[] envs) =>
     }
 
     Directory.CreateDirectory(project.FullName);
+    Directory.CreateDirectory(Path.Combine(project.FullName, "deploy"));
+    Directory.CreateDirectory(Path.Combine(project.FullName, "deploy", "patcher"));
 
     var manifest = new MimirProject { Environments = environments };
     return projectService.SaveProjectAsync(project.FullName, manifest).ContinueWith(_ =>
     {
-        // Generate .gitignore
-        var gitignorePath = Path.Combine(project.FullName, ".gitignore");
-        if (!File.Exists(gitignorePath))
+        void WriteIfMissing(string path, string content)
         {
-            File.WriteAllText(gitignorePath,
-                "# Mimir generated outputs — keep data/ in git, exclude build/\n" +
-                "build/\n");
-            logger.LogInformation("Created .gitignore");
+            if (!File.Exists(path)) { File.WriteAllText(path, content); logger.LogInformation("Created {Path}", Path.GetRelativePath(project.FullName, path)); }
         }
 
-        // Generate reimport.bat
-        var reimportBatPath = Path.Combine(project.FullName, "reimport.bat");
-        if (!File.Exists(reimportBatPath))
-        {
-            File.WriteAllText(reimportBatPath,
-                "@echo off\r\n" +
-                ":: Re-import all data and rebuild. Wipes data/ and build/ first.\r\n" +
-                ":: NOTE: mimir.template.json is preserved (edit manually, don't regenerate unless you mean to).\r\n" +
-                "cd /d \"%~dp0\"\r\n" +
-                "mimir reimport\r\n");
-            logger.LogInformation("Created reimport.bat");
-        }
+        // .gitignore
+        WriteIfMissing(Path.Combine(project.FullName, ".gitignore"),
+            "# Mimir generated outputs\r\nbuild/\r\npatches/\r\n");
 
-        logger.LogInformation("Created {Dir}/mimir.json with {Count} environment(s): {Envs}",
+        // mimir.bat — single editable reference to the mimir executable
+        WriteIfMissing(Path.Combine(project.FullName, "mimir.bat"),
+            "@echo off\r\n" +
+            ":: Mimir CLI resolver for this project.\r\n" +
+            ":: Edit the line below if mimir is not in your PATH.\r\n" +
+            $"{mimirCmd} %*\r\n");
+
+        // deploy/reimport.bat
+        WriteIfMissing(Path.Combine(project.FullName, "deploy", "reimport.bat"),
+            "@echo off\r\n" +
+            ":: Re-import all data and rebuild. Wipes data/ and build/ first.\r\n" +
+            ":: NOTE: mimir.template.json is preserved — don't regenerate it unless you mean to.\r\n" +
+            "cd /d \"%~dp0..\"\r\n" +
+            "call mimir.bat reimport\r\n" +
+            "pause\r\n");
+
+        // deploy/deploy.bat — build + pack (no Docker assumptions)
+        WriteIfMissing(Path.Combine(project.FullName, "deploy", "deploy.bat"),
+            "@echo off\r\n" +
+            ":: Build all environments and generate client patches.\r\n" +
+            "cd /d \"%~dp0..\"\r\n" +
+            "call mimir.bat build --all\r\n" +
+            "if errorlevel 1 ( pause & exit /b 1 )\r\n" +
+            "call mimir.bat pack patches --env client\r\n" +
+            "if errorlevel 1 ( pause & exit /b 1 )\r\n" +
+            "echo Done! Patches written to patches/\r\n" +
+            "pause\r\n");
+
+        // deploy/patcher/patcher.config
+        WriteIfMissing(Path.Combine(project.FullName, "deploy", "patcher", "patcher.config"),
+            "PatchUrl=http://localhost:8080/\r\n");
+
+        // deploy/patcher/patch.bat
+        WriteIfMissing(Path.Combine(project.FullName, "deploy", "patcher", "patch.bat"),
+            "@echo off\r\n" +
+            "REM Mimir Client Patcher\r\n" +
+            "REM Usage: patch.bat [client-dir]\r\n" +
+            "set CLIENT_DIR=%~1\r\n" +
+            "if \"%CLIENT_DIR%\"==\"\" set CLIENT_DIR=%CD%\r\n" +
+            "powershell -ExecutionPolicy Bypass -File \"%~dp0patch.ps1\" -ClientDir \"%CLIENT_DIR%\"\r\n" +
+            "pause\r\n");
+
+        // deploy/patcher/patch.ps1 — full patcher implementation
+        WriteIfMissing(Path.Combine(project.FullName, "deploy", "patcher", "patch.ps1"),
+            "param(\r\n" +
+            "    [Parameter(Mandatory=$true)]\r\n" +
+            "    [string]$ClientDir\r\n" +
+            ")\r\n" +
+            "$ErrorActionPreference = 'Stop'\r\n" +
+            "$configPath = Join-Path $PSScriptRoot 'patcher.config'\r\n" +
+            "if (-not (Test-Path $configPath)) { Write-Host 'ERROR: patcher.config not found' -ForegroundColor Red; exit 1 }\r\n" +
+            "$patchUrl = $null\r\n" +
+            "foreach ($line in Get-Content $configPath) { if ($line -match '^PatchUrl=(.+)$') { $patchUrl = $Matches[1].Trim() } }\r\n" +
+            "if (-not $patchUrl) { Write-Host 'ERROR: PatchUrl not found in patcher.config' -ForegroundColor Red; exit 1 }\r\n" +
+            "if (-not $patchUrl.EndsWith('/')) { $patchUrl += '/' }\r\n" +
+            "Write-Host \"Mimir Client Patcher`n  Patch server: $patchUrl`n  Client dir:   $ClientDir`n\"\r\n" +
+            "if (-not (Test-Path $ClientDir)) { New-Item -ItemType Directory -Path $ClientDir -Force | Out-Null }\r\n" +
+            "$versionFile = Join-Path $ClientDir '.mimir-version'\r\n" +
+            "$currentVersion = 0\r\n" +
+            "if (Test-Path $versionFile) { $currentVersion = [int](Get-Content $versionFile -Raw).Trim() }\r\n" +
+            "Write-Host \"Current version: $currentVersion\"\r\n" +
+            "try { $indexJson = (Invoke-WebRequest -Uri \"${patchUrl}patch-index.json\" -UseBasicParsing).Content }\r\n" +
+            "catch { Write-Host \"ERROR: Failed to download patch index: $_\" -ForegroundColor Red; exit 1 }\r\n" +
+            "$index = $indexJson | ConvertFrom-Json\r\n" +
+            "$latestVersion = $index.latestVersion\r\n" +
+            "Write-Host \"Latest version:  $latestVersion\"\r\n" +
+            "if ($currentVersion -ge $latestVersion) { Write-Host \"`nClient is up to date!\" -ForegroundColor Green; exit 0 }\r\n" +
+            "$patches = $index.patches | Where-Object { $_.version -gt $currentVersion } | Sort-Object version\r\n" +
+            "Write-Host \"`nApplying $($patches.Count) patch(es)...\"\r\n" +
+            "foreach ($patch in $patches) {\r\n" +
+            "    $url = $patch.url\r\n" +
+            "    if (-not ($url -match '^https?://') -and -not ($url -match '^file:///')) { $url = \"${patchUrl}${url}\" }\r\n" +
+            "    Write-Host \"Patch v$($patch.version): $($patch.fileCount) files, $([math]::Round($patch.sizeBytes/1024,1)) KB\"\r\n" +
+            "    $tempZip = Join-Path $env:TEMP \"mimir-patch-v$($patch.version).zip\"\r\n" +
+            "    try { Invoke-WebRequest -Uri $url -OutFile $tempZip -UseBasicParsing }\r\n" +
+            "    catch { Write-Host \"  ERROR: Download failed: $_\" -ForegroundColor Red; exit 1 }\r\n" +
+            "    $actualHash = (Get-FileHash -Path $tempZip -Algorithm SHA256).Hash.ToLower()\r\n" +
+            "    if ($actualHash -ne $patch.sha256) { Write-Host '  ERROR: SHA-256 mismatch!' -ForegroundColor Red; Remove-Item $tempZip -Force; exit 1 }\r\n" +
+            "    Expand-Archive -Path $tempZip -DestinationPath $ClientDir -Force\r\n" +
+            "    Set-Content -Path $versionFile -Value $patch.version\r\n" +
+            "    Remove-Item $tempZip -Force\r\n" +
+            "    Write-Host \"  Applied v$($patch.version).\" -ForegroundColor Green\r\n" +
+            "}\r\n" +
+            "Write-Host \"`nPatching complete! Client is now at version $latestVersion.\" -ForegroundColor Green\r\n");
+
+        logger.LogInformation("Created project at {Dir} with {Count} environment(s): {Envs}",
             project.FullName, environments.Count, string.Join(", ", environments.Keys));
         logger.LogInformation("Next steps:");
         logger.LogInformation("  cd {Dir}", project.FullName);
-        logger.LogInformation("  mimir init-template");
+        logger.LogInformation("  mimir init-template --passthrough server");
         logger.LogInformation("  mimir import");
         logger.LogInformation("  mimir build --all");
     });
 
-}, initProjectArg, initEnvOption);
+}, initProjectArg, initEnvOption, initMimirOption);
 
 // --- import command ---
 var importCommand = new Command("import", "Import data files into a Mimir project using environments from mimir.json");

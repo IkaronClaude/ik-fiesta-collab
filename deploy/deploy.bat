@@ -19,7 +19,7 @@ if errorlevel 1 (
 
 echo.
 echo === Generating client patches ===
-mimir pack --env client
+mimir pack patches --env client
 if errorlevel 1 (
     echo ERROR: mimir pack failed.
     pause
