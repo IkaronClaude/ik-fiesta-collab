@@ -1288,6 +1288,88 @@ editTemplateCommand.SetHandler(async (DirectoryInfo? projectOpt, string? table, 
 
 }, editTemplateProjectOpt, editTemplateTableOption, conflictStrategyOption);
 
+// --- shn command ---
+var shnCommand = new Command("shn", "Inspect SHN binary files without a project");
+var shnFileArg = new Argument<FileInfo>("file", "SHN file to inspect");
+var shnSchemaOpt = new Option<bool>("--schema", "Print column schema (default when no other mode given)");
+var shnRowCountOpt = new Option<bool>("--row-count", "Print record count only");
+var shnHeadOpt = new Option<int?>("--head", "Print first N rows");
+var shnTailOpt = new Option<int?>("--tail", "Print last N rows");
+var shnSkipOpt = new Option<int>("--skip", () => 0, "Skip first N rows (combine with --head/--take)");
+var shnTakeOpt = new Option<int?>("--take", "Print N rows starting after --skip");
+var shnDiffOpt = new Option<FileInfo?>("--diff", "Compare against a second SHN file (positional row diff)");
+var shnDecryptOpt = new Option<FileInfo?>("--decrypt-to", "Write decrypted raw bytes to this file");
+var shnMaxDiffsOpt = new Option<int>("--max-diffs", () => 20, "Max differing rows to display (default: 20)");
+shnCommand.AddArgument(shnFileArg);
+shnCommand.AddOption(shnSchemaOpt);
+shnCommand.AddOption(shnRowCountOpt);
+shnCommand.AddOption(shnHeadOpt);
+shnCommand.AddOption(shnTailOpt);
+shnCommand.AddOption(shnSkipOpt);
+shnCommand.AddOption(shnTakeOpt);
+shnCommand.AddOption(shnDiffOpt);
+shnCommand.AddOption(shnDecryptOpt);
+shnCommand.AddOption(shnMaxDiffsOpt);
+
+shnCommand.SetHandler(context =>
+{
+    var file      = context.ParseResult.GetValueForArgument(shnFileArg);
+    var schema    = context.ParseResult.GetValueForOption(shnSchemaOpt);
+    var rowCount  = context.ParseResult.GetValueForOption(shnRowCountOpt);
+    var head      = context.ParseResult.GetValueForOption(shnHeadOpt);
+    var tail      = context.ParseResult.GetValueForOption(shnTailOpt);
+    var skip      = context.ParseResult.GetValueForOption(shnSkipOpt);
+    var take      = context.ParseResult.GetValueForOption(shnTakeOpt);
+    var diff      = context.ParseResult.GetValueForOption(shnDiffOpt);
+    var decryptTo = context.ParseResult.GetValueForOption(shnDecryptOpt);
+    var maxDiffs  = context.ParseResult.GetValueForOption(shnMaxDiffsOpt);
+
+    if (!file.Exists)
+    {
+        Console.Error.WriteLine($"error: file not found: {file.FullName}");
+        return;
+    }
+
+    // --decrypt-to: standalone mode
+    if (decryptTo != null)
+    {
+        Mimir.Cli.ShnInspectCommand.Decrypt(file.FullName, decryptTo.FullName);
+        return;
+    }
+
+    // --diff: standalone mode
+    if (diff != null)
+    {
+        if (!diff.Exists)
+        {
+            Console.Error.WriteLine($"error: file not found: {diff.FullName}");
+            return;
+        }
+        Mimir.Cli.ShnInspectCommand.Diff(file.FullName, diff.FullName, maxDiffs);
+        return;
+    }
+
+    // --row-count only: just print the number
+    if (rowCount && !schema && !head.HasValue && !tail.HasValue && !take.HasValue && skip == 0)
+    {
+        Mimir.Cli.ShnInspectCommand.PrintRowCount(file.FullName);
+        return;
+    }
+
+    // Row display modes
+    bool rowMode    = head.HasValue || tail.HasValue || take.HasValue || skip > 0;
+    bool schemaMode = schema || rowCount || !rowMode; // default to schema when nothing else set
+
+    if (schemaMode)
+        Mimir.Cli.ShnInspectCommand.PrintSchema(file.FullName);
+
+    if (rowMode)
+    {
+        if (schemaMode) Console.WriteLine();
+        Mimir.Cli.ShnInspectCommand.PrintRows(file.FullName, skip, take, head, tail);
+    }
+});
+
 // --- pack command ---
 var packCommand = new Command("pack", "Package client build output into incremental patch zips");
 var packProjectOption = MakeProjectOption();
@@ -1423,6 +1505,7 @@ rootCommand.AddCommand(shellCommand);
 rootCommand.AddCommand(validateCommand);
 rootCommand.AddCommand(initTemplateCommand);
 rootCommand.AddCommand(editTemplateCommand);
+rootCommand.AddCommand(shnCommand);
 rootCommand.AddCommand(packCommand);
 rootCommand.AddCommand(snapshotCommand);
 rootCommand.AddCommand(dumpCommand);
