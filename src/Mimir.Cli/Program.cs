@@ -121,6 +121,8 @@ initCommand.SetHandler((DirectoryInfo project, string mimirCmd) =>
             "    [string]$ClientDir\r\n" +
             ")\r\n" +
             "$ErrorActionPreference = 'Stop'\r\n" +
+            "# Trim stray quotes that batch quoting adds when a path ends with a backslash\r\n" +
+            "$ClientDir = $ClientDir.Trim('\"')\r\n" +
             "$configPath = Join-Path $PSScriptRoot 'patcher.config'\r\n" +
             "if (-not (Test-Path $configPath)) { Write-Host 'ERROR: patcher.config not found' -ForegroundColor Red; exit 1 }\r\n" +
             "$patchUrl = $null\r\n" +
