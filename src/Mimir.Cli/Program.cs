@@ -1335,6 +1335,65 @@ packCommand.SetHandler(async (DirectoryInfo? projectOpt, DirectoryInfo outputDir
 
 }, packProjectOption, packOutputArg, packEnvOption, packBaseUrlOption);
 
+// --- snapshot command ---
+var snapshotCommand = new Command("snapshot",
+    "Build a complete client snapshot by applying all patches on top of source import files");
+var snapshotProjectOption = MakeProjectOption();
+var snapshotOutputArg = new Argument<DirectoryInfo>("output-dir",
+    "Directory to write the snapshot into");
+var snapshotEnvOption = new Option<string>("--env", () => "client",
+    "Environment to snapshot (default: client)");
+snapshotEnvOption.AddAlias("-e");
+var snapshotPatchesOption = new Option<DirectoryInfo?>("--patches",
+    "Directory containing patch-index.json and patches/ subdir (defaults to <project>/patches/)");
+snapshotCommand.AddOption(snapshotProjectOption);
+snapshotCommand.AddArgument(snapshotOutputArg);
+snapshotCommand.AddOption(snapshotEnvOption);
+snapshotCommand.AddOption(snapshotPatchesOption);
+
+snapshotCommand.SetHandler(async (DirectoryInfo? projectOpt, DirectoryInfo outputDir,
+    string envName, DirectoryInfo? patchesOpt) =>
+{
+    var logger = sp.GetRequiredService<ILogger<Program>>();
+    var project = ResolveProjectOrExit(projectOpt, logger);
+
+    var envConfig = EnvironmentStore.Load(project.FullName, envName);
+    if (envConfig == null)
+    {
+        logger.LogError("Environment '{Env}' not found. Use 'mimir env {Env} init' to configure it.",
+            envName, envName);
+        return;
+    }
+
+    if (envConfig.ImportPath == null)
+    {
+        logger.LogError("Environment '{Env}' has no import-path configured.", envName);
+        return;
+    }
+
+    var patchesDir = patchesOpt?.FullName ?? Path.Combine(project.FullName, "patches");
+    Directory.CreateDirectory(outputDir.FullName);
+
+    logger.LogInformation("Snapshot: {Env} → {Output}", envName, outputDir.FullName);
+    logger.LogInformation("  Source: {ImportPath}", envConfig.ImportPath);
+    logger.LogInformation("  Patches: {PatchesDir}", patchesDir);
+
+    var result = await Mimir.Cli.SnapshotCommand.ExecuteAsync(
+        envConfig.ImportPath, patchesDir, outputDir.FullName);
+
+    if (result.MissingPatches > 0)
+        logger.LogWarning("{Missing} patch file(s) not found on disk and were skipped.", result.MissingPatches);
+
+    if (result.AppliedPatches == 0 && result.MissingPatches == 0)
+        logger.LogInformation("Snapshot complete: {Source} source files copied (no patches found).",
+            result.SourceFiles);
+    else
+        logger.LogInformation(
+            "Snapshot complete: {Source} source files + {Patches} patches applied ({Files} file updates), version {Version}.",
+            result.SourceFiles, result.AppliedPatches, result.PatchedFiles, result.LatestVersion);
+
+}, snapshotProjectOption, snapshotOutputArg, snapshotEnvOption, snapshotPatchesOption);
+
 // --- env command ---
 var envCommand = new Command("env", "Manage project environments (environments/<name>.json)");
 var envProjectOption = MakeProjectOption();
@@ -1363,6 +1422,7 @@ rootCommand.AddCommand(validateCommand);
 rootCommand.AddCommand(initTemplateCommand);
 rootCommand.AddCommand(editTemplateCommand);
 rootCommand.AddCommand(packCommand);
+rootCommand.AddCommand(snapshotCommand);
 rootCommand.AddCommand(dumpCommand);
 rootCommand.AddCommand(analyzeCommand);
 
