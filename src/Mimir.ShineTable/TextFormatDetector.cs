@@ -13,7 +13,7 @@ internal static class TextFormatDetector
         if (!Path.GetExtension(filePath).Equals(".txt", StringComparison.OrdinalIgnoreCase))
             return TextFormat.Unknown;
 
-        foreach (var line in File.ReadLines(filePath))
+        foreach (var line in File.ReadLines(filePath, ShineTableDataProvider.TextEncoding))
         {
             var trimmed = line.Trim();
             if (trimmed.Length == 0 || trimmed.StartsWith(';')) continue;

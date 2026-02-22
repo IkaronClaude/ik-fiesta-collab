@@ -1,3 +1,4 @@
+using System.Text;
 using Microsoft.Extensions.Logging;
 using Mimir.Core.Models;
 using Mimir.Core.Providers;
@@ -27,7 +28,7 @@ public sealed class ConfigTableDataProvider : IDataProvider
     {
         _logger.LogDebug("Reading config table file {FilePath}", filePath);
 
-        var lines = File.ReadAllLines(filePath);
+        var lines = File.ReadAllLines(filePath, ShineTableDataProvider.TextEncoding);
         var tables = ConfigTableFormatParser.Parse(filePath, lines);
 
         if (tables.Count == 0)
@@ -44,7 +45,7 @@ public sealed class ConfigTableDataProvider : IDataProvider
         _logger.LogDebug("Writing config table file {FilePath}", filePath);
 
         var lines = ConfigTableFormatParser.Write(tables);
-        File.WriteAllLines(filePath, lines);
+        File.WriteAllLines(filePath, lines, ShineTableDataProvider.TextEncoding);
         return Task.CompletedTask;
     }
 }

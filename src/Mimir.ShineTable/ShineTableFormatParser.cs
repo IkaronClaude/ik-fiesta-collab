@@ -46,8 +46,10 @@ internal static class ShineTableFormatParser
         ColumnType.UInt16 => "WORD",
         ColumnType.UInt32 => "DWRD",
         ColumnType.Float => "FLOAT",
-        ColumnType.String when col.Length != 32 => $"STRING[{col.Length}]",
-        ColumnType.String => "INDEX",
+        // SourceTypeCode == 0 means the original source used the "INDEX" keyword explicitly.
+        // Any other string column (SourceTypeCode == explicit length, or null) writes STRING[N].
+        ColumnType.String when col.SourceTypeCode == 0 => "INDEX",
+        ColumnType.String => $"STRING[{col.Length}]",
         _ => $"STRING[{col.Length}]"
     };
 
@@ -247,24 +249,32 @@ internal static class ShineTableFormatParser
         {
             string typeStr = (types != null && i < types.Count) ? types[i] : "STRING[32]";
             string name = (names != null && i < names.Count) ? names[i] : $"Col{i}";
-            var (colType, length) = MapColumnType(typeStr);
+            var (colType, length, sourceTypeCode) = MapColumnType(typeStr);
 
             columns.Add(new ColumnDefinition
             {
                 Name = name,
                 Type = colType,
-                Length = length
+                Length = length,
+                SourceTypeCode = sourceTypeCode
             });
         }
 
         return columns;
     }
 
-    private static (ColumnType type, int length) MapColumnType(string typeStr)
+    /// <summary>
+    /// Maps a ShineTable column type string to a ColumnDefinition type + length.
+    /// SourceTypeCode convention: 0 = explicitly "INDEX", positive N = "STRING[N]", null = other types.
+    /// </summary>
+    private static (ColumnType type, int length, int? sourceTypeCode) MapColumnType(string typeStr)
     {
         string upper = typeStr.ToUpperInvariant();
 
-        if (upper == "INDEX" || upper.StartsWith("STRING"))
+        if (upper == "INDEX")
+            return (ColumnType.String, 32, 0); // 0 = INDEX sentinel
+
+        if (upper.StartsWith("STRING"))
         {
             int length = 32; // default
             int bracket = typeStr.IndexOf('[');
@@ -274,16 +284,16 @@ internal static class ShineTableFormatParser
                 if (end > bracket)
                     int.TryParse(typeStr.AsSpan(bracket + 1, end - bracket - 1), out length);
             }
-            return (ColumnType.String, length);
+            return (ColumnType.String, length, length); // sourceTypeCode = explicit length
         }
 
         return upper switch
         {
-            "BYTE" => (ColumnType.Byte, 1),
-            "WORD" => (ColumnType.UInt16, 2),
-            "DWRD" or "DWORD" => (ColumnType.UInt32, 4),
-            "FLOAT" => (ColumnType.Float, 4),
-            _ => (ColumnType.String, 32)
+            "BYTE" => (ColumnType.Byte, 1, null),
+            "WORD" => (ColumnType.UInt16, 2, null),
+            "DWRD" or "DWORD" => (ColumnType.UInt32, 4, null),
+            "FLOAT" => (ColumnType.Float, 4, null),
+            _ => (ColumnType.String, 32, null)
         };
     }
 

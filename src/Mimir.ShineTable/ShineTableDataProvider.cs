@@ -1,3 +1,4 @@
+using System.Text;
 using Microsoft.Extensions.Logging;
 using Mimir.Core.Models;
 using Mimir.Core.Providers;
@@ -9,6 +10,15 @@ namespace Mimir.ShineTable;
 /// </summary>
 public sealed class ShineTableDataProvider : IDataProvider
 {
+    // Shine table .txt files use EUC-KR (code page 949) for Korean strings
+    internal static readonly Encoding TextEncoding;
+
+    static ShineTableDataProvider()
+    {
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+        TextEncoding = Encoding.GetEncoding(949);
+    }
+
     private readonly ILogger<ShineTableDataProvider> _logger;
 
     public ShineTableDataProvider(ILogger<ShineTableDataProvider> logger)
@@ -26,7 +36,7 @@ public sealed class ShineTableDataProvider : IDataProvider
     {
         _logger.LogDebug("Reading shine table file {FilePath}", filePath);
 
-        var lines = File.ReadAllLines(filePath);
+        var lines = File.ReadAllLines(filePath, TextEncoding);
         var tables = ShineTableFormatParser.Parse(filePath, lines);
 
         if (tables.Count == 0)
@@ -43,7 +53,7 @@ public sealed class ShineTableDataProvider : IDataProvider
         _logger.LogDebug("Writing shine table file {FilePath}", filePath);
 
         var lines = ShineTableFormatParser.Write(tables);
-        File.WriteAllLines(filePath, lines);
+        File.WriteAllLines(filePath, lines, TextEncoding);
         return Task.CompletedTask;
     }
 }
