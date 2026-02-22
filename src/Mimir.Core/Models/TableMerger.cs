@@ -127,16 +127,8 @@ public static class TableMerger
         // --- Row merge ---
         var mergedRows = new List<Dictionary<string, object?>>();
         var mergedRowEnvs = new List<List<string>?>();
-        var allColNames = mergedColumns.Select(c => c.Name).ToHashSet();
 
-        // Build join indexes
-        var targetIndex = new Dictionary<string, int>();
-        for (int i = 0; i < target.Data.Count; i++)
-        {
-            var key = Stringify(target.Data[i].GetValueOrDefault(on.Target));
-            targetIndex[key] = i;
-        }
-
+        // Build source join index
         var sourceIndex = new Dictionary<string, int>();
         for (int i = 0; i < source.Data.Count; i++)
         {
@@ -144,80 +136,78 @@ public static class TableMerger
             sourceIndex[key] = i;
         }
 
-        var matchedTargetRows = new HashSet<int>();
         var matchedSourceRows = new HashSet<int>();
 
-        // Process matched rows
-        foreach (var (key, tIdx) in targetIndex)
-        {
-            if (!sourceIndex.TryGetValue(key, out var sIdx)) continue;
-
-            matchedTargetRows.Add(tIdx);
-            matchedSourceRows.Add(sIdx);
-
-            var targetRow = target.Data[tIdx];
-            var sourceRow = source.Data[sIdx];
-            var merged = new Dictionary<string, object?>();
-
-            foreach (var col in mergedColumns)
-            {
-                if (splitRenames.TryGetValue(col.Name, out var origName))
-                {
-                    // This is a split column (Col__env) — get value from source using original name
-                    merged[col.Name] = sourceRow.GetValueOrDefault(origName);
-                }
-                else if (sourceOnlyColNames.Contains(col.Name))
-                {
-                    // Source-only column
-                    merged[col.Name] = sourceRow.GetValueOrDefault(col.Name);
-                }
-                else if (sharedColNames.Contains(col.Name))
-                {
-                    // Shared column — check for conflicts
-                    var tVal = targetRow.GetValueOrDefault(col.Name);
-                    var sVal = sourceRow.GetValueOrDefault(col.Name);
-
-                    if (!ValuesEqual(tVal, sVal))
-                    {
-                        conflicts.Add(new MergeConflict
-                        {
-                            JoinKey = key,
-                            Column = col.Name,
-                            TargetValue = Stringify(tVal),
-                            SourceValue = Stringify(sVal)
-                        });
-                    }
-
-                    merged[col.Name] = tVal; // keep target value
-                }
-                else
-                {
-                    // Target-only or unmatched
-                    merged[col.Name] = targetRow.GetValueOrDefault(col.Name);
-                }
-            }
-
-            mergedRows.Add(merged);
-            mergedRowEnvs.Add(null); // matched = shared
-        }
-
-        // Target-only rows
+        // Process all target rows in their original order.
+        // Each row is either matched (has a corresponding source row) or target-only.
+        // This preserves the target's original row order in the merged output.
         for (int i = 0; i < target.Data.Count; i++)
         {
-            if (matchedTargetRows.Contains(i)) continue;
+            var targetRow = target.Data[i];
+            var key = Stringify(targetRow.GetValueOrDefault(on.Target));
+            var merged = new Dictionary<string, object?>();
 
-            var row = new Dictionary<string, object?>();
-            foreach (var col in mergedColumns)
+            if (sourceIndex.TryGetValue(key, out var sIdx))
             {
-                row[col.Name] = target.Data[i].GetValueOrDefault(col.Name);
-            }
-            mergedRows.Add(row);
+                // Matched row — merge source columns in
+                matchedSourceRows.Add(sIdx);
+                var sourceRow = source.Data[sIdx];
 
-            // Preserve existing row env annotation from target
-            var existingEnv = target.RowEnvironments != null && i < target.RowEnvironments.Count
-                ? target.RowEnvironments[i]
-                : null;
-            mergedRowEnvs.Add(existingEnv);
+                foreach (var col in mergedColumns)
+                {
+                    if (splitRenames.TryGetValue(col.Name, out var origName))
+                    {
+                        // Split column (Col__env) — get value from source using original name
+                        merged[col.Name] = sourceRow.GetValueOrDefault(origName);
+                    }
+                    else if (sourceOnlyColNames.Contains(col.Name))
+                    {
+                        // Source-only column
+                        merged[col.Name] = sourceRow.GetValueOrDefault(col.Name);
+                    }
+                    else if (sharedColNames.Contains(col.Name))
+                    {
+                        // Shared column — check for conflicts
+                        var tVal = targetRow.GetValueOrDefault(col.Name);
+                        var sVal = sourceRow.GetValueOrDefault(col.Name);
+
+                        if (!ValuesEqual(tVal, sVal))
+                        {
+                            conflicts.Add(new MergeConflict
+                            {
+                                JoinKey = key,
+                                Column = col.Name,
+                                TargetValue = Stringify(tVal),
+                                SourceValue = Stringify(sVal)
+                            });
+                        }
+
+                        merged[col.Name] = tVal; // keep target value
+                    }
+                    else
+                    {
+                        // Target-only column
+                        merged[col.Name] = targetRow.GetValueOrDefault(col.Name);
+                    }
+                }
+
+                mergedRows.Add(merged);
+                mergedRowEnvs.Add(null); // null = shared (present in both envs)
+            }
+            else
+            {
+                // Target-only row — no match in source
+                foreach (var col in mergedColumns)
+                    merged[col.Name] = targetRow.GetValueOrDefault(col.Name);
+
+                mergedRows.Add(merged);
+
+                // Preserve existing row env annotation from target
+                var existingEnv = target.RowEnvironments != null && i < target.RowEnvironments.Count
+                    ? target.RowEnvironments[i]
+                    : null;
+                mergedRowEnvs.Add(existingEnv);
+            }
         }
 
         // Source-only rows

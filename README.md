@@ -305,11 +305,45 @@ Mimir automatically finds the project by walking up from the current directory (
 | `reimport [--retain-pack-baseline]` | Shortcut: `import --reimport` then `build --all` |
 | `build [--all] [--env name] [--output dir]` | Build to native formats; defaults to `--all` when no flags given |
 | `pack <output-dir> [--env client]` | Generate incremental patch zip + update `patch-index.json` |
+| `snapshot <output-dir> [--env client] [--patches dir]` | Copy a full client snapshot (source files + all patches applied) to `output-dir` |
 | `query "<sql>"` | Run a SQL SELECT against loaded tables |
 | `edit "<sql>"` | Execute SQL modifications (UPDATE/INSERT/DELETE) and save back to JSON |
 | `shell` | Interactive SQL shell with `.tables`, `.schema`, `.save` dot-commands |
 | `validate` | Check foreign key constraints and data integrity |
 | `edit-template [--table name] [--conflict-strategy split\|report]` | Modify merge actions in `mimir.template.json` |
+| `shn <file> [options]` | Inspect a raw SHN file without importing — see [SHN Inspection](#shn-inspection) |
+
+---
+
+## SHN Inspection
+
+Inspect raw SHN files directly — no project needed. Useful for debugging build output, comparing files, and verifying roundtrip fidelity.
+
+```bat
+:: Print column schema (default when no display option given)
+mimir shn ItemInfo.shn --schema
+
+:: Row count (reads only the header — very fast)
+mimir shn ItemInfo.shn --row-count
+
+:: First / last N rows
+mimir shn ItemInfo.shn --head 10
+mimir shn ItemInfo.shn --tail 5
+
+:: Arbitrary row slice
+mimir shn ItemInfo.shn --skip 100 --take 20
+
+:: Diff two SHN files side by side (positional row comparison)
+mimir shn source\ItemInfo.shn build\server\9Data\Shine\ItemInfo.shn --diff
+mimir shn source\ItemInfo.shn build\server\9Data\Shine\ItemInfo.shn --diff --max-diffs 50
+
+:: Write decrypted bytes for hex analysis
+mimir shn ItemInfo.shn --decrypt-to ItemInfo.bin
+```
+
+**`--diff` output** compares files row by row. For each differing row it shows which columns changed. The reorder heuristic: if ≥50% of shared columns differ in a positional row, it's flagged as a likely row reorder rather than a data change.
+
+Wide tables (>8 columns) are printed in vertical card format; narrow tables print as a horizontal grid.
 
 ---
 

@@ -259,4 +259,109 @@ public class TableMergerTests
         targetRow.ShouldContainKey("ClientCol");
         targetRow["ClientCol"].ShouldBeNull();
     }
+
+    // --- Row order tests ---
+
+    [Fact]
+    public void RowOrder_TargetRowsPreserveOriginalOrder()
+    {
+        // Target has rows in non-sequential order: 3, 1, 2
+        // This verifies we don't accidentally sort or hash-scramble target rows.
+        var target = MakeTable("Items",
+            [Col("ID", ColumnType.UInt32), Col("Name", ColumnType.String, 16)],
+            Row(("ID", (object?)(uint)3), ("Name", "Third")),
+            Row(("ID", (uint)1), ("Name", "First")),
+            Row(("ID", (uint)2), ("Name", "Second")));
+
+        // Source covers IDs 1 and 2, in different order than target
+        var source = MakeTable("Items",
+            [Col("ID", ColumnType.UInt32), Col("Name", ColumnType.String, 16)],
+            Row(("ID", (object?)(uint)2), ("Name", "Second")),
+            Row(("ID", (uint)1), ("Name", "First")));
+
+        var join = new JoinClause { Source = "ID", Target = "ID" };
+        var result = TableMerger.Merge(target, source, join, "client", "auto");
+
+        result.Table.Data.Count.ShouldBe(3);
+        // Output must preserve target's original row order: 3, 1, 2
+        result.Table.Data[0]["ID"]!.ToString().ShouldBe("3");
+        result.Table.Data[1]["ID"]!.ToString().ShouldBe("1");
+        result.Table.Data[2]["ID"]!.ToString().ShouldBe("2");
+    }
+
+    [Fact]
+    public void RowOrder_SourceOnlyRowsAppendedAfterTargetRows()
+    {
+        // Target: ID=1, ID=3
+        var target = MakeTable("Items",
+            [Col("ID", ColumnType.UInt32), Col("Name", ColumnType.String, 16)],
+            Row(("ID", (object?)(uint)1), ("Name", "A")),
+            Row(("ID", (uint)3), ("Name", "C")));
+
+        // Source: ID=1 (matched), ID=4 (source-only), ID=2 (source-only) — in this order
+        var source = MakeTable("Items",
+            [Col("ID", ColumnType.UInt32), Col("Name", ColumnType.String, 16)],
+            Row(("ID", (object?)(uint)1), ("Name", "A")),
+            Row(("ID", (uint)4), ("Name", "D")),
+            Row(("ID", (uint)2), ("Name", "B")));
+
+        var join = new JoinClause { Source = "ID", Target = "ID" };
+        var result = TableMerger.Merge(target, source, join, "client", "auto");
+
+        result.Table.Data.Count.ShouldBe(4);
+        // Target rows first in original order
+        result.Table.Data[0]["ID"]!.ToString().ShouldBe("1");
+        result.Table.Data[1]["ID"]!.ToString().ShouldBe("3");
+        // Source-only rows appended after all target rows, in source order
+        result.Table.Data[2]["ID"]!.ToString().ShouldBe("4");
+        result.Table.Data[3]["ID"]!.ToString().ShouldBe("2");
+    }
+
+    [Fact]
+    public void RowOrder_ParallelTablesHaveMatchingRowPositions()
+    {
+        // Simulates the ItemInfo / ItemInfoServer game requirement:
+        // two tables must have the same item at each row index so the
+        // game engine can cross-reference by position.
+        //
+        // Both tables share the same target (server import), so after
+        // merge both should have rows in the same target order.
+
+        var serverOrder = new[] { (uint)100, (uint)200, (uint)300 };
+
+        // Table A (e.g. ItemInfo): merged from server + client
+        var targetA = MakeTable("ItemInfo",
+            [Col("ID", ColumnType.UInt32), Col("Name", ColumnType.String, 32)],
+            Row(("ID", (object?)(uint)100), ("Name", "Item100")),
+            Row(("ID", (uint)200), ("Name", "Item200")),
+            Row(("ID", (uint)300), ("Name", "Item300")));
+
+        // Client has IDs in scrambled order
+        var sourceA = MakeTable("ItemInfo",
+            [Col("ID", ColumnType.UInt32), Col("ClientCol", ColumnType.String, 16)],
+            Row(("ID", (object?)(uint)300), ("ClientCol", "C300")),
+            Row(("ID", (uint)100), ("ClientCol", "C100")));
+
+        // Table B (e.g. ItemInfoServer): server-only, same source order
+        var targetB = MakeTable("ItemInfoServer",
+            [Col("ID", ColumnType.UInt32), Col("ServerStat", ColumnType.UInt16, 2)],
+            Row(("ID", (object?)(uint)100), ("ServerStat", (ushort)10)),
+            Row(("ID", (uint)200), ("ServerStat", (ushort)20)),
+            Row(("ID", (uint)300), ("ServerStat", (ushort)30)));
+
+        var join = new JoinClause { Source = "ID", Target = "ID" };
+        var resultA = TableMerger.Merge(targetA, sourceA, join, "client", "auto");
+
+        // ItemInfo must have shared rows in server order (100, 200, 300)
+        for (int i = 0; i < serverOrder.Length; i++)
+            resultA.Table.Data[i]["ID"]!.ToString().ShouldBe(serverOrder[i].ToString());
+
+        // ItemInfoServer is in same server order (no merge, just source)
+        for (int i = 0; i < serverOrder.Length; i++)
+            targetB.Data[i]["ID"]!.ToString().ShouldBe(serverOrder[i].ToString());
+
+        // Cross-check: row N in both tables has the same ID
+        for (int i = 0; i < serverOrder.Length; i++)
+            resultA.Table.Data[i]["ID"]!.ToString().ShouldBe(targetB.Data[i]["ID"]!.ToString());
+    }
 }
