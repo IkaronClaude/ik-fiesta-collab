@@ -187,37 +187,27 @@ public static class PackCommand
     }
 
     /// <summary>
-    /// Seeds the per-env pack manifest (version 0) from the source import path so that the first
-    /// <c>mimir pack</c> only includes files that actually differ from what players already have.
-    /// Called by the import command after a successful import.
-    /// Only hashes files that at least one provider can handle — same filter as import.
-    /// Relpaths are relative to <paramref name="importPath"/> itself, matching build output layout:
-    /// e.g. importPath=Z:/ClientSource, file=Z:/ClientSource/ressystem/ItemInfo.shn
-    ///      → relpath "ressystem/ItemInfo.shn" == pack relpath in build/client/
+    /// Seeds the per-env pack manifest (version 0) by hashing the current build output directory.
+    /// Called by the build command after a successful build for patchable envs.
+    /// Because the baseline is seeded from build output (not source files), the first
+    /// <c>mimir pack</c> after a fresh build always produces 0 changed files — only actual
+    /// data edits show up in subsequent patches.
     /// </summary>
     public static async Task<int> SeedBaselineAsync(
         string projectDir,
         string envName,
-        string importPath,
-        IReadOnlyList<IDataProvider> providers)
+        string buildOutputDir)
     {
         var manifestPath = Path.Combine(projectDir, $".mimir-pack-manifest-{envName}.json");
 
-        if (!Directory.Exists(importPath))
-        {
-            var empty = new PackManifest { Version = 0 };
-            await File.WriteAllTextAsync(manifestPath, JsonSerializer.Serialize(empty, JsonOptions));
-            return 0;
-        }
-
         var allFiles = new Dictionary<string, string>();
-        foreach (var file in Directory.EnumerateFiles(importPath, "*", SearchOption.AllDirectories))
+        if (Directory.Exists(buildOutputDir))
         {
-            if (!providers.Any(p => p.CanHandle(file)))
-                continue;
-
-            var relPath = Path.GetRelativePath(importPath, file).Replace('\\', '/');
-            allFiles[relPath] = await HashFileAsync(file);
+            foreach (var file in Directory.EnumerateFiles(buildOutputDir, "*", SearchOption.AllDirectories))
+            {
+                var relPath = Path.GetRelativePath(buildOutputDir, file).Replace('\\', '/');
+                allFiles[relPath] = await HashFileAsync(file);
+            }
         }
 
         var manifest = new PackManifest { Version = 0, Files = allFiles };

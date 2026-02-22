@@ -173,16 +173,10 @@ initCommand.SetHandler((DirectoryInfo project, string mimirCmd) =>
 var importCommand = new Command("import", "Import data files into a Mimir project using environments from mimir.json");
 var importProjectOpt = MakeProjectOption();
 var importReimportOption = new Option<bool>("--reimport", "Wipe data/ and build/ directories before importing for a clean re-import");
-var importRetainBaselineOption = new Option<bool>("--retain-pack-baseline",
-    "Keep the existing pack baseline manifest. By default import reseeds it from source so that patch v1 only contains actual changes from vanilla.");
-var importReseedBaselineOption = new Option<bool>("--reseed-baseline-only",
-    "Only reseed the pack baseline manifest from import sources — no import, no data changes. Fast alternative to reimport when you just need to reset the baseline.");
 importCommand.AddOption(importProjectOpt);
 importCommand.AddOption(importReimportOption);
-importCommand.AddOption(importRetainBaselineOption);
-importCommand.AddOption(importReseedBaselineOption);
 
-importCommand.SetHandler(async (DirectoryInfo? projectOpt, bool reimport, bool retainPackBaseline, bool reseedBaselineOnly) =>
+importCommand.SetHandler(async (DirectoryInfo? projectOpt, bool reimport) =>
 {
     var logger = sp.GetRequiredService<ILogger<Program>>();
     var project = ResolveProjectOrExit(projectOpt, logger);
@@ -190,29 +184,6 @@ importCommand.SetHandler(async (DirectoryInfo? projectOpt, bool reimport, bool r
     var providers = sp.GetServices<IDataProvider>().ToList();
 
     var manifest = await projectService.LoadProjectAsync(project.FullName);
-
-    if (reseedBaselineOnly)
-    {
-        var allEnvsForSeed = EnvironmentStore.LoadAll(project.FullName);
-        var seedEnvs = allEnvsForSeed
-            .Where(kv => kv.Value.SeedPackBaseline)
-            .ToDictionary(kv => kv.Key, kv => kv.Value.ImportPath ?? "");
-        if (seedEnvs.Count == 0)
-        {
-            logger.LogWarning("No environments have seedPackBaseline: true. Set it with: mimir env <name> set seed-pack-baseline true");
-            return;
-        }
-        logger.LogInformation("Reseeding pack baseline from: {Envs}", string.Join(", ", seedEnvs.Keys));
-        var totalCount = 0;
-        foreach (var (eName, importPath) in seedEnvs)
-        {
-            var count = await Mimir.Cli.PackCommand.SeedBaselineAsync(project.FullName, eName, importPath, providers);
-            totalCount += count;
-            logger.LogInformation("  {Env}: {Count} files seeded", eName, count);
-        }
-        logger.LogInformation("Pack baseline reseeded (v0, {Count} files total).", totalCount);
-        return;
-    }
 
     if (reimport)
     {
@@ -513,25 +484,6 @@ importCommand.SetHandler(async (DirectoryInfo? projectOpt, bool reimport, bool r
     logger.LogInformation("Import complete: {Total} tables ({Merged} merged, {Conflicts} conflicts)",
         manifest.Tables.Count, merged, totalConflicts);
 
-    // Seed pack baseline from import sources (unless caller asked to retain existing baseline)
-    if (!retainPackBaseline && allEnvs.Count > 0)
-    {
-        var seedEnvs = allEnvs
-            .Where(kv => kv.Value.SeedPackBaseline && kv.Value.ImportPath != null)
-            .ToDictionary(kv => kv.Key, kv => kv.Value.ImportPath!);
-        if (seedEnvs.Count > 0)
-        {
-            logger.LogInformation("Seeding pack baseline from: {Envs}", string.Join(", ", seedEnvs.Keys));
-            var totalSeedCount = 0;
-            foreach (var (eName, importPath) in seedEnvs)
-            {
-                var count = await Mimir.Cli.PackCommand.SeedBaselineAsync(project.FullName, eName, importPath, providers);
-                totalSeedCount += count;
-                logger.LogInformation("  {Env}: {Count} files seeded", eName, count);
-            }
-            logger.LogInformation("Pack baseline established (v0, {Count} files). Use --retain-pack-baseline to skip.", totalSeedCount);
-        }
-    }
 
     static Dictionary<string, object>? ExtractFormatMetadata(Dictionary<string, object>? meta)
     {
@@ -542,37 +494,31 @@ importCommand.SetHandler(async (DirectoryInfo? projectOpt, bool reimport, bool r
         return result.Count > 0 ? result : null;
     }
 
-}, importProjectOpt, importReimportOption, importRetainBaselineOption, importReseedBaselineOption);
+}, importProjectOpt, importReimportOption);
 
 // --- reimport command ---
 var reimportCommand = new Command("reimport", "Wipe data/ and build/, re-import all environments, and rebuild");
 var reimportProjectOpt = MakeProjectOption();
-var reimportRetainBaselineOption = new Option<bool>("--retain-pack-baseline",
-    "Keep the existing pack baseline manifest instead of reseeding it from source.");
 reimportCommand.AddOption(reimportProjectOpt);
-reimportCommand.AddOption(reimportRetainBaselineOption);
 
-reimportCommand.SetHandler(async (DirectoryInfo? projectOpt, bool retainPackBaseline) =>
+reimportCommand.SetHandler(async (DirectoryInfo? projectOpt) =>
 {
     var logger = sp.GetRequiredService<ILogger<Program>>();
     var project = ResolveProjectOrExit(projectOpt, logger);
 
     logger.LogInformation("Starting reimport for {Dir}", project.FullName);
 
-    // Run: import --reimport (pass through --retain-pack-baseline if set)
-    var importArgs = new List<string> { "import", "--project", project.FullName, "--reimport" };
-    if (retainPackBaseline) importArgs.Add("--retain-pack-baseline");
-    var importResult = await rootCommand.InvokeAsync(importArgs.ToArray());
+    var importResult = await rootCommand.InvokeAsync(new[] { "import", "--project", project.FullName, "--reimport" });
     if (importResult != 0)
     {
         logger.LogError("Import step failed, aborting.");
         return;
     }
 
-    // Run: build --all
+    // Run: build --all (this will also seed pack baselines for patchable envs)
     await rootCommand.InvokeAsync(new[] { "build", "--project", project.FullName, "--all" });
 
-}, reimportProjectOpt, reimportRetainBaselineOption);
+}, reimportProjectOpt);
 
 // --- build command ---
 var buildCommand = new Command("build", "Build data files from a Mimir project for a specific environment");
@@ -831,6 +777,15 @@ buildCommand.SetHandler(async (DirectoryInfo? projectOpt, DirectoryInfo? outputO
                 }
                 logger.LogInformation("Overrides: copied {Count} file(s) from {Path}", overrideCount, currentEnvConfig.OverridesPath);
             }
+        }
+
+        // Seed pack baseline from build output for patchable envs.
+        // Baseline is seeded AFTER overrides so it reflects the exact final state of the output dir.
+        // This means mimir pack always diffs against what was last built, not against source files.
+        if (eName != "" && allEnvs.TryGetValue(eName, out var seedEnvConfig) && seedEnvConfig.SeedPackBaseline)
+        {
+            var count = await Mimir.Cli.PackCommand.SeedBaselineAsync(project.FullName, eName, outputDir);
+            logger.LogInformation("Pack baseline seeded from build output ({Count} files)", count);
         }
     }
 
