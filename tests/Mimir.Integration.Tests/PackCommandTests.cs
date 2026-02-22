@@ -102,7 +102,7 @@ public class PackCommandTests : IAsyncLifetime
         await RunBuildClient();
         await RunPack();
 
-        var manifestPath = Path.Combine(_projectDir, ".mimir-pack-manifest.json");
+        var manifestPath = Path.Combine(_projectDir, ".mimir-pack-manifest-client.json");
         File.Exists(manifestPath).ShouldBeTrue();
 
         var manifest = JsonSerializer.Deserialize<PackManifest>(
@@ -187,7 +187,7 @@ public class PackCommandTests : IAsyncLifetime
         await RunPack();
 
         var manifest = JsonSerializer.Deserialize<PackManifest>(
-            await File.ReadAllTextAsync(Path.Combine(_projectDir, ".mimir-pack-manifest.json")))!;
+            await File.ReadAllTextAsync(Path.Combine(_projectDir, ".mimir-pack-manifest-client.json")))!;
         manifest.Version.ShouldBe(2);
         manifest.Files.Count.ShouldBe(3); // still tracks all files
     }
@@ -289,7 +289,7 @@ public class PackCommandTests : IAsyncLifetime
         await RunPack();
 
         var manifest = JsonSerializer.Deserialize<PackManifest>(
-            await File.ReadAllTextAsync(Path.Combine(_projectDir, ".mimir-pack-manifest.json")))!;
+            await File.ReadAllTextAsync(Path.Combine(_projectDir, ".mimir-pack-manifest-client.json")))!;
         manifest.Files.Keys.ShouldContain("ressystem/icon.png");
         manifest.Files.Count.ShouldBe(4); // 3 SHN + 1 override
     }

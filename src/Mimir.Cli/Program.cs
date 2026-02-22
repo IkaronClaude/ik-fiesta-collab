@@ -202,10 +202,15 @@ importCommand.SetHandler(async (DirectoryInfo? projectOpt, bool reimport, bool r
             logger.LogWarning("No environments have seedPackBaseline: true. Set it with: mimir env <name> set seed-pack-baseline true");
             return;
         }
-        var manifestPath = Path.Combine(project.FullName, ".mimir-pack-manifest.json");
         logger.LogInformation("Reseeding pack baseline from: {Envs}", string.Join(", ", seedEnvs.Keys));
-        var fileCount = await Mimir.Cli.PackCommand.SeedBaselineAsync(manifestPath, seedEnvs, providers);
-        logger.LogInformation("Pack baseline reseeded (v0, {Count} files).", fileCount);
+        var totalCount = 0;
+        foreach (var (eName, importPath) in seedEnvs)
+        {
+            var count = await Mimir.Cli.PackCommand.SeedBaselineAsync(project.FullName, eName, importPath, providers);
+            totalCount += count;
+            logger.LogInformation("  {Env}: {Count} files seeded", eName, count);
+        }
+        logger.LogInformation("Pack baseline reseeded (v0, {Count} files total).", totalCount);
         return;
     }
 
@@ -516,10 +521,15 @@ importCommand.SetHandler(async (DirectoryInfo? projectOpt, bool reimport, bool r
             .ToDictionary(kv => kv.Key, kv => kv.Value.ImportPath!);
         if (seedEnvs.Count > 0)
         {
-            var manifestPath = Path.Combine(project.FullName, ".mimir-pack-manifest.json");
             logger.LogInformation("Seeding pack baseline from: {Envs}", string.Join(", ", seedEnvs.Keys));
-            var fileCount = await Mimir.Cli.PackCommand.SeedBaselineAsync(manifestPath, seedEnvs, providers);
-            logger.LogInformation("Pack baseline established (v0, {Count} files). Use --retain-pack-baseline to skip.", fileCount);
+            var totalSeedCount = 0;
+            foreach (var (eName, importPath) in seedEnvs)
+            {
+                var count = await Mimir.Cli.PackCommand.SeedBaselineAsync(project.FullName, eName, importPath, providers);
+                totalSeedCount += count;
+                logger.LogInformation("  {Env}: {Count} files seeded", eName, count);
+            }
+            logger.LogInformation("Pack baseline established (v0, {Count} files). Use --retain-pack-baseline to skip.", totalSeedCount);
         }
     }
 
