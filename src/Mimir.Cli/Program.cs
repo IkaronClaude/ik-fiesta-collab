@@ -70,7 +70,13 @@ initCommand.SetHandler((DirectoryInfo project, string[] envs, string mimirCmd) =
         }
         var name = env[..idx];
         var importPath = env[(idx + 1)..];
-        environments[name] = new EnvironmentConfig { ImportPath = importPath, BuildPath = $"build/{name}" };
+        // Auto-enable pack baseline seeding for envs whose importPath is a subdirectory
+        // (parent is not a drive root) — these are client-style envs that get packed.
+        // Server-style envs at Z:/Server have a drive root parent and are not packed.
+        var normalizedImport = importPath.TrimEnd('/', '\\');
+        var importParent = Path.GetDirectoryName(normalizedImport);
+        var seedBaseline = importParent != null && importParent.Length > 3;
+        environments[name] = new EnvironmentConfig { ImportPath = importPath, BuildPath = $"build/{name}", SeedPackBaseline = seedBaseline };
     }
 
     if (environments.Count == 0)
@@ -220,11 +226,18 @@ importCommand.SetHandler(async (DirectoryInfo? projectOpt, bool reimport, bool r
             logger.LogError("No environments defined in mimir.json.");
             return;
         }
+        var seedEnvs = manifest.Environments
+            .Where(kv => kv.Value.SeedPackBaseline)
+            .ToDictionary(kv => kv.Key, kv => kv.Value.ImportPath);
+        if (seedEnvs.Count == 0)
+        {
+            logger.LogWarning("No environments have seedPackBaseline: true in mimir.json. Nothing to reseed.");
+            return;
+        }
         var manifestPath = Path.Combine(project.FullName, ".mimir-pack-manifest.json");
-        var envImportPaths = manifest.Environments.ToDictionary(kv => kv.Key, kv => kv.Value.ImportPath);
-        logger.LogInformation("Reseeding pack baseline from import sources...");
-        var fileCount = await Mimir.Cli.PackCommand.SeedBaselineAsync(manifestPath, envImportPaths);
-        logger.LogInformation("Pack baseline reseeded (v0, {Count} source files hashed).", fileCount);
+        logger.LogInformation("Reseeding pack baseline from: {Envs}", string.Join(", ", seedEnvs.Keys));
+        var fileCount = await Mimir.Cli.PackCommand.SeedBaselineAsync(manifestPath, seedEnvs, providers);
+        logger.LogInformation("Pack baseline reseeded (v0, {Count} files).", fileCount);
         return;
     }
 
@@ -524,11 +537,16 @@ importCommand.SetHandler(async (DirectoryInfo? projectOpt, bool reimport, bool r
     // Seed pack baseline from import sources (unless caller asked to retain existing baseline)
     if (!retainPackBaseline && manifest.Environments is { Count: > 0 })
     {
-        var manifestPath = Path.Combine(project.FullName, ".mimir-pack-manifest.json");
-        var envImportPaths = manifest.Environments.ToDictionary(kv => kv.Key, kv => kv.Value.ImportPath);
-        logger.LogInformation("Seeding pack baseline from import sources...");
-        var fileCount = await Mimir.Cli.PackCommand.SeedBaselineAsync(manifestPath, envImportPaths);
-        logger.LogInformation("Pack baseline established (v0, {Count} source files hashed). Use --retain-pack-baseline to skip.", fileCount);
+        var seedEnvs = manifest.Environments
+            .Where(kv => kv.Value.SeedPackBaseline)
+            .ToDictionary(kv => kv.Key, kv => kv.Value.ImportPath);
+        if (seedEnvs.Count > 0)
+        {
+            var manifestPath = Path.Combine(project.FullName, ".mimir-pack-manifest.json");
+            logger.LogInformation("Seeding pack baseline from: {Envs}", string.Join(", ", seedEnvs.Keys));
+            var fileCount = await Mimir.Cli.PackCommand.SeedBaselineAsync(manifestPath, seedEnvs, providers);
+            logger.LogInformation("Pack baseline established (v0, {Count} files). Use --retain-pack-baseline to skip.", fileCount);
+        }
     }
 
     static Dictionary<string, object>? ExtractFormatMetadata(Dictionary<string, object>? meta)

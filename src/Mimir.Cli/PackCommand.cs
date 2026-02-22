@@ -2,6 +2,7 @@ using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Mimir.Core.Providers;
 
 namespace Mimir.Cli;
 
@@ -189,19 +190,36 @@ public static class PackCommand
     /// Seeds the pack manifest (version 0) from source import paths so that the first
     /// <c>mimir pack</c> only includes files that actually differ from what players already have.
     /// Called by the import command after a successful import.
+    /// Only hashes files that at least one provider can handle — same filter as import.
     /// </summary>
     /// <param name="manifestPath">Path to write .mimir-pack-manifest.json</param>
     /// <param name="envImportPaths">env name → importPath from mimir.json environments</param>
-    public static async Task<int> SeedBaselineAsync(string manifestPath, Dictionary<string, string> envImportPaths)
+    /// <param name="providers">Data providers used to filter files (same as import)</param>
+    public static async Task<int> SeedBaselineAsync(
+        string manifestPath,
+        Dictionary<string, string> envImportPaths,
+        IReadOnlyList<IDataProvider> providers)
     {
         var allFiles = new Dictionary<string, string>();
         foreach (var (_, importPath) in envImportPaths)
         {
             if (!Directory.Exists(importPath))
                 continue;
+
+            // Manifest root determines the relpath prefix in manifest keys.
+            // If the parent is not a drive root, use it so the importPath dir name is included
+            // as a prefix — matching how build output lays out files.
+            // e.g. Z:/ClientSource/ressystem → root Z:/ClientSource → "ressystem/ItemInfo.shn"
+            //      Z:/Server               → root Z:/Server        → "9Data/Shine/ItemInfo.shn"
+            // We enumerate importPath only (not the parent) to avoid hashing unrelated files.
             var manifestRoot = GetManifestRoot(importPath);
+
             foreach (var file in Directory.EnumerateFiles(importPath, "*", SearchOption.AllDirectories))
             {
+                // Apply the same file filter as import — skip files no provider handles
+                if (!providers.Any(p => p.CanHandle(file)))
+                    continue;
+
                 var relPath = Path.GetRelativePath(manifestRoot, file).Replace('\\', '/');
                 allFiles[relPath] = await HashFileAsync(file);
             }

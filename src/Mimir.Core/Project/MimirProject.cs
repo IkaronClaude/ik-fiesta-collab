@@ -50,4 +50,14 @@ public sealed class EnvironmentConfig
     [JsonPropertyName("overridesPath")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? OverridesPath { get; init; }
+
+    /// <summary>
+    /// When true, <c>mimir import</c> seeds the pack baseline manifest from this
+    /// environment's importPath after each import, so that <c>mimir pack</c> only
+    /// distributes files that differ from the stock source. Set this on client envs;
+    /// leave unset (false) for server envs that are never packed.
+    /// </summary>
+    [JsonPropertyName("seedPackBaseline")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool SeedPackBaseline { get; init; }
 }
