@@ -93,6 +93,7 @@ public static class PackCommand
             return ("No files found in build output.", 0);
 
         // Step 3: Load previous manifest
+        // The baseline (v0) is established by `mimir import` — run with --retain-pack-baseline to skip reseed.
         var manifestPath = Path.Combine(projectDir, ".mimir-pack-manifest.json");
         PackManifest? previousManifest = null;
         if (File.Exists(manifestPath))
@@ -182,6 +183,48 @@ public static class PackCommand
         await File.WriteAllTextAsync(manifestPath, JsonSerializer.Serialize(newManifest, JsonOptions));
 
         return ($"Packed version {nextVersion}: {changedFiles.Count} files, {zipSize} bytes", nextVersion);
+    }
+
+    /// <summary>
+    /// Seeds the pack manifest (version 0) from source import paths so that the first
+    /// <c>mimir pack</c> only includes files that actually differ from what players already have.
+    /// Called by the import command after a successful import.
+    /// </summary>
+    /// <param name="manifestPath">Path to write .mimir-pack-manifest.json</param>
+    /// <param name="envImportPaths">env name → importPath from mimir.json environments</param>
+    public static async Task<int> SeedBaselineAsync(string manifestPath, Dictionary<string, string> envImportPaths)
+    {
+        var allFiles = new Dictionary<string, string>();
+        foreach (var (_, importPath) in envImportPaths)
+        {
+            if (!Directory.Exists(importPath))
+                continue;
+            var manifestRoot = GetManifestRoot(importPath);
+            foreach (var file in Directory.EnumerateFiles(importPath, "*", SearchOption.AllDirectories))
+            {
+                var relPath = Path.GetRelativePath(manifestRoot, file).Replace('\\', '/');
+                allFiles[relPath] = await HashFileAsync(file);
+            }
+        }
+
+        var manifest = new PackManifest { Version = 0, Files = allFiles };
+        await File.WriteAllTextAsync(manifestPath, JsonSerializer.Serialize(manifest, JsonOptions));
+        return allFiles.Count;
+    }
+
+    /// <summary>
+    /// Computes the manifest root for a given importPath.
+    /// If the parent directory is not a drive root, the parent is the root (so the last
+    /// directory component is included as a path prefix in manifest keys, matching build output).
+    /// e.g. "Z:/ClientSource/ressystem" → root "Z:/ClientSource" → relpath "ressystem/ItemInfo.shn"
+    ///      "Z:/Server" → root "Z:/Server" → relpath "9Data/Shine/ItemInfo.shn"
+    /// </summary>
+    private static string GetManifestRoot(string importPath)
+    {
+        var normalized = importPath.TrimEnd('/', '\\');
+        var parent = Path.GetDirectoryName(normalized);
+        // Drive roots like "Z:\" have length 3; treat importPath itself as root in that case
+        return (parent == null || parent.Length <= 3) ? normalized : parent;
     }
 
     private static async Task<string> HashFileAsync(string path)

@@ -195,10 +195,13 @@ initCommand.SetHandler((DirectoryInfo project, string[] envs, string mimirCmd) =
 var importCommand = new Command("import", "Import data files into a Mimir project using environments from mimir.json");
 var importProjectOpt = MakeProjectOption();
 var importReimportOption = new Option<bool>("--reimport", "Wipe data/ and build/ directories before importing for a clean re-import");
+var importRetainBaselineOption = new Option<bool>("--retain-pack-baseline",
+    "Keep the existing pack baseline manifest. By default import reseeds it from source so that patch v1 only contains actual changes from vanilla.");
 importCommand.AddOption(importProjectOpt);
 importCommand.AddOption(importReimportOption);
+importCommand.AddOption(importRetainBaselineOption);
 
-importCommand.SetHandler(async (DirectoryInfo? projectOpt, bool reimport) =>
+importCommand.SetHandler(async (DirectoryInfo? projectOpt, bool reimport, bool retainPackBaseline) =>
 {
     var logger = sp.GetRequiredService<ILogger<Program>>();
     var project = ResolveProjectOrExit(projectOpt, logger);
@@ -500,6 +503,16 @@ importCommand.SetHandler(async (DirectoryInfo? projectOpt, bool reimport) =>
     logger.LogInformation("Import complete: {Total} tables ({Merged} merged, {Conflicts} conflicts)",
         manifest.Tables.Count, merged, totalConflicts);
 
+    // Seed pack baseline from import sources (unless caller asked to retain existing baseline)
+    if (!retainPackBaseline && manifest.Environments is { Count: > 0 })
+    {
+        var manifestPath = Path.Combine(project.FullName, ".mimir-pack-manifest.json");
+        var envImportPaths = manifest.Environments.ToDictionary(kv => kv.Key, kv => kv.Value.ImportPath);
+        logger.LogInformation("Seeding pack baseline from import sources...");
+        var fileCount = await Mimir.Cli.PackCommand.SeedBaselineAsync(manifestPath, envImportPaths);
+        logger.LogInformation("Pack baseline established (v0, {Count} source files hashed). Use --retain-pack-baseline to skip.", fileCount);
+    }
+
     static Dictionary<string, object>? ExtractFormatMetadata(Dictionary<string, object>? meta)
     {
         if (meta == null) return null;
@@ -509,22 +522,27 @@ importCommand.SetHandler(async (DirectoryInfo? projectOpt, bool reimport) =>
         return result.Count > 0 ? result : null;
     }
 
-}, importProjectOpt, importReimportOption);
+}, importProjectOpt, importReimportOption, importRetainBaselineOption);
 
 // --- reimport command ---
 var reimportCommand = new Command("reimport", "Wipe data/ and build/, re-import all environments, and rebuild");
 var reimportProjectOpt = MakeProjectOption();
+var reimportRetainBaselineOption = new Option<bool>("--retain-pack-baseline",
+    "Keep the existing pack baseline manifest instead of reseeding it from source.");
 reimportCommand.AddOption(reimportProjectOpt);
+reimportCommand.AddOption(reimportRetainBaselineOption);
 
-reimportCommand.SetHandler(async (DirectoryInfo? projectOpt) =>
+reimportCommand.SetHandler(async (DirectoryInfo? projectOpt, bool retainPackBaseline) =>
 {
     var logger = sp.GetRequiredService<ILogger<Program>>();
     var project = ResolveProjectOrExit(projectOpt, logger);
 
     logger.LogInformation("Starting reimport for {Dir}", project.FullName);
 
-    // Run: import --reimport
-    var importResult = await rootCommand.InvokeAsync(new[] { "import", "--project", project.FullName, "--reimport" });
+    // Run: import --reimport (pass through --retain-pack-baseline if set)
+    var importArgs = new List<string> { "import", "--project", project.FullName, "--reimport" };
+    if (retainPackBaseline) importArgs.Add("--retain-pack-baseline");
+    var importResult = await rootCommand.InvokeAsync(importArgs.ToArray());
     if (importResult != 0)
     {
         logger.LogError("Import step failed, aborting.");
@@ -534,7 +552,7 @@ reimportCommand.SetHandler(async (DirectoryInfo? projectOpt) =>
     // Run: build --all
     await rootCommand.InvokeAsync(new[] { "build", "--project", project.FullName, "--all" });
 
-}, reimportProjectOpt);
+}, reimportProjectOpt, reimportRetainBaselineOption);
 
 // --- build command ---
 var buildCommand = new Command("build", "Build data files from a Mimir project for a specific environment");
