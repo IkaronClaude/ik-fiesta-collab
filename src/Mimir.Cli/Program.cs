@@ -1363,17 +1363,19 @@ packCommand.SetHandler(async (DirectoryInfo? projectOpt, DirectoryInfo outputDir
 
 // --- env command ---
 var envCommand = new Command("env", "Manage project environments (environments/<name>.json)");
-envCommand.TreatUnmatchedTokensAsErrors = false;
 var envProjectOption = MakeProjectOption();
+var envArgsArg = new Argument<string[]>("args", "env <name|all> <verb> [args...]")
+{
+    Arity = ArgumentArity.ZeroOrMore
+};
 envCommand.AddOption(envProjectOption);
-envCommand.SetHandler(async (System.CommandLine.Invocation.InvocationContext ctx) =>
+envCommand.AddArgument(envArgsArg);
+envCommand.SetHandler(async (DirectoryInfo? projectOpt, string[] tokens) =>
 {
     var logger = sp.GetRequiredService<ILogger<Program>>();
-    var projectOpt = ctx.ParseResult.GetValueForOption(envProjectOption);
     var project = ResolveProjectOrExit(projectOpt, logger);
-    var tokens = ctx.ParseResult.UnmatchedTokens.ToList();
     await Mimir.Cli.EnvCommand.HandleAsync(project.FullName, tokens, logger);
-});
+}, envProjectOption, envArgsArg);
 
 rootCommand.AddCommand(envCommand);
 rootCommand.AddCommand(initCommand);
