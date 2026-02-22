@@ -91,6 +91,20 @@ mimir import
 
 This reads all SHN and text table files from each configured environment, merges them according to your template, and writes `data/**/*.json` files.
 
+After import completes, Mimir automatically seeds the **pack baseline** by hashing all source files. This means the first `mimir pack` only distributes files that actually differ from the stock client — not every file. The baseline is stored in `.mimir-pack-manifest.json` (version 0) in the project directory.
+
+To skip the baseline reseed (e.g. if you already have patches in the wild and don't want to reset the diff baseline):
+
+```bat
+mimir import --retain-pack-baseline
+```
+
+To reset the baseline without doing a full reimport (just re-hashes source files, takes seconds):
+
+```bat
+mimir import --reseed-baseline-only
+```
+
 ### 6. Build
 
 ```bat
@@ -106,6 +120,8 @@ mimir pack patches --env client
 ```
 
 Compares `build/client/` against the previous pack state, creates a versioned zip of changed files in `patches/`, and updates `patches/patch-index.json`. Client patchers check this index to download only what changed.
+
+On first run the baseline was seeded by `mimir import`, so patch v1 only contains files that differ from the stock client. On subsequent runs each pack is incremental from the previous one.
 
 ---
 
@@ -207,19 +223,24 @@ start.bat
 |--------|-------------|
 | `start.bat` | Start all containers (game servers + patch server on :8080) |
 | `stop.bat` | Stop all containers |
-| `deploy.bat` | Stop → `mimir build --all` → `mimir pack patches` → start |
-| `reimport.bat` | Full reimport from source files (slow, wipes data/) |
-| `rebuild-game.bat` | Rebuild game server Docker image + start |
+| `update.bat` | **Iterative dev cycle**: `mimir build --all` → `mimir pack patches` → snapshot → restart game servers (no SQL touch, no Docker rebuild) |
+| `deploy.bat` | **Full cycle**: stop all → `mimir build --all` → `mimir pack patches` → snapshot → start all |
+| `restart-game.bat` | Snapshot only → restart game containers (use after a manual `mimir build`) |
+| `reimport.bat` | Full reimport from source files (slow — wipes data/, rebuilds everything) |
+| `rebuild-game.bat` | Rebuild game server Docker image + start (needed after server binary changes) |
 | `rebuild-sql.bat` | Wipe and restore SQL databases (destructive) |
-| `restart-game.bat` | Restart game process containers after a data change |
 | `logs.bat` | Stream logs from all containers (`docker compose logs -f`) |
 
-### Full deploy cycle (data change workflow)
+### Iterative data change workflow
+
+For day-to-day data changes while the server is running:
 
 ```bat
 cd deploy
-deploy.bat
+update.bat
 ```
+
+This builds data, generates an incremental client patch, snapshots to `deployed/server/`, and restarts only the game processes. SQL and Docker images are untouched. Typical turnaround is under a minute.
 
 Then apply client patches:
 
@@ -227,7 +248,14 @@ Then apply client patches:
 deploy\patcher\patch.bat C:\Fiesta\Client
 ```
 
-Then launch the game.
+### Full deploy (first time or after binary/config changes)
+
+```bat
+cd deploy
+deploy.bat
+```
+
+Stops all containers, builds everything, packs patches, and starts fresh.
 
 ### Patch server
 
@@ -273,8 +301,8 @@ Mimir automatically finds the project by walking up from the current directory (
 |---------|-------------|
 | `init <dir> --env name=path [--mimir cmd]` | Create a new project with `mimir.json`, `mimir.bat`, and `deploy/` scripts |
 | `init-template [--passthrough env]` | Scan environments and auto-generate `mimir.template.json`; `--passthrough` adds `copyFile` actions for non-table files |
-| `import [--reimport]` | Import data from configured environments; `--reimport` wipes `data/` and `build/` first |
-| `reimport` | Shortcut: `import --reimport` then `build --all` |
+| `import [--reimport] [--retain-pack-baseline] [--reseed-baseline-only]` | Import data from configured environments; seeds pack baseline from source afterward. `--reimport` wipes `data/` and `build/` first. `--retain-pack-baseline` skips baseline reseed. `--reseed-baseline-only` only re-hashes source files for the baseline, no import. |
+| `reimport [--retain-pack-baseline]` | Shortcut: `import --reimport` then `build --all` |
 | `build [--all] [--env name] [--output dir]` | Build to native formats; defaults to `--all` when no flags given |
 | `pack <output-dir> [--env client]` | Generate incremental patch zip + update `patch-index.json` |
 | `query "<sql>"` | Run a SQL SELECT against loaded tables |
