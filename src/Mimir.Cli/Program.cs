@@ -779,13 +779,22 @@ buildCommand.SetHandler(async (DirectoryInfo? projectOpt, DirectoryInfo? outputO
             }
         }
 
-        // Seed pack baseline from build output for patchable envs.
-        // Baseline is seeded AFTER overrides so it reflects the exact final state of the output dir.
-        // This means mimir pack always diffs against what was last built, not against source files.
+        // Seed pack baseline from source import files for patchable envs.
+        // Using source files as baseline ensures players receive Mimir's rebuilt SHN versions
+        // (which differ from originals due to roundtrip zeroing of padded string garbage bytes)
+        // in the first patch, allowing client integrity checks to pass.
         if (eName != "" && allEnvs.TryGetValue(eName, out var seedEnvConfig) && seedEnvConfig.SeedPackBaseline)
         {
-            var count = await Mimir.Cli.PackCommand.SeedBaselineAsync(project.FullName, eName, outputDir);
-            logger.LogInformation("Pack baseline seeded from build output ({Count} files)", count);
+            if (seedEnvConfig.ImportPath == null)
+            {
+                logger.LogWarning("Cannot seed pack baseline for {Env}: import-path not set.", eName);
+            }
+            else
+            {
+                var count = await Mimir.Cli.PackCommand.SeedBaselineAsync(
+                    project.FullName, eName, seedEnvConfig.ImportPath, providers.Values.ToList());
+                logger.LogInformation("Pack baseline seeded from source files ({Count} files)", count);
+            }
         }
     }
 
