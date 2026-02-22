@@ -197,11 +197,14 @@ var importProjectOpt = MakeProjectOption();
 var importReimportOption = new Option<bool>("--reimport", "Wipe data/ and build/ directories before importing for a clean re-import");
 var importRetainBaselineOption = new Option<bool>("--retain-pack-baseline",
     "Keep the existing pack baseline manifest. By default import reseeds it from source so that patch v1 only contains actual changes from vanilla.");
+var importReseedBaselineOption = new Option<bool>("--reseed-baseline-only",
+    "Only reseed the pack baseline manifest from import sources — no import, no data changes. Fast alternative to reimport when you just need to reset the baseline.");
 importCommand.AddOption(importProjectOpt);
 importCommand.AddOption(importReimportOption);
 importCommand.AddOption(importRetainBaselineOption);
+importCommand.AddOption(importReseedBaselineOption);
 
-importCommand.SetHandler(async (DirectoryInfo? projectOpt, bool reimport, bool retainPackBaseline) =>
+importCommand.SetHandler(async (DirectoryInfo? projectOpt, bool reimport, bool retainPackBaseline, bool reseedBaselineOnly) =>
 {
     var logger = sp.GetRequiredService<ILogger<Program>>();
     var project = ResolveProjectOrExit(projectOpt, logger);
@@ -209,6 +212,21 @@ importCommand.SetHandler(async (DirectoryInfo? projectOpt, bool reimport, bool r
     var providers = sp.GetServices<IDataProvider>().ToList();
 
     var manifest = await projectService.LoadProjectAsync(project.FullName);
+
+    if (reseedBaselineOnly)
+    {
+        if (manifest.Environments is not { Count: > 0 })
+        {
+            logger.LogError("No environments defined in mimir.json.");
+            return;
+        }
+        var manifestPath = Path.Combine(project.FullName, ".mimir-pack-manifest.json");
+        var envImportPaths = manifest.Environments.ToDictionary(kv => kv.Key, kv => kv.Value.ImportPath);
+        logger.LogInformation("Reseeding pack baseline from import sources...");
+        var fileCount = await Mimir.Cli.PackCommand.SeedBaselineAsync(manifestPath, envImportPaths);
+        logger.LogInformation("Pack baseline reseeded (v0, {Count} source files hashed).", fileCount);
+        return;
+    }
 
     if (reimport)
     {
@@ -522,7 +540,7 @@ importCommand.SetHandler(async (DirectoryInfo? projectOpt, bool reimport, bool r
         return result.Count > 0 ? result : null;
     }
 
-}, importProjectOpt, importReimportOption, importRetainBaselineOption);
+}, importProjectOpt, importReimportOption, importRetainBaselineOption, importReseedBaselineOption);
 
 // --- reimport command ---
 var reimportCommand = new Command("reimport", "Wipe data/ and build/, re-import all environments, and rebuild");
