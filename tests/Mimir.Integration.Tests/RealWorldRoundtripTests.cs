@@ -276,23 +276,20 @@ public class RealWorldRoundtripTests
         var providers = sp.GetServices<IDataProvider>().ToList();
         var logger = sp.GetRequiredService<ILogger<RealWorldRoundtripTests>>();
 
-        // Write mimir.json
-        var project = new MimirProject
-        {
-            Environments = new Dictionary<string, EnvironmentConfig>
-            {
-                ["server"] = new() { ImportPath = _serverPath! },
-                ["client"] = new() { ImportPath = _clientPath! }
-            }
-        };
+        // Write mimir.json and environment configs
+        var project = new MimirProject();
         await projectService.SaveProjectAsync(projectDir, project);
+        EnvironmentStore.Save(projectDir, "server", new EnvironmentConfig { ImportPath = _serverPath! });
+        EnvironmentStore.Save(projectDir, "client", new EnvironmentConfig { ImportPath = _clientPath! });
 
         // Init template
         var envTables = new Dictionary<(string table, string env), TableFile>();
         var envOrder = new List<string> { "server", "client" };
 
-        foreach (var (envName, envConfig) in project.Environments)
+        foreach (var envName in envOrder)
         {
+            var envConfig = EnvironmentStore.Load(projectDir, envName);
+            if (envConfig?.ImportPath == null) continue;
             var sourceDir = new DirectoryInfo(envConfig.ImportPath);
             if (!sourceDir.Exists) continue;
             var tables = await ReadAllTables(sourceDir, providers, logger);
@@ -306,12 +303,14 @@ public class RealWorldRoundtripTests
         // Import
         var manifest = await projectService.LoadProjectAsync(projectDir);
         template = await TemplateResolver.LoadAsync(projectDir);
+        var allEnvs = EnvironmentStore.LoadAll(projectDir);
 
         var rawTables = new Dictionary<(string tableName, string envName), TableFile>();
         var rawRelDirs = new Dictionary<(string tableName, string envName), string>();
 
-        foreach (var (envName, envConfig) in manifest.Environments!)
+        foreach (var (envName, envConfig) in allEnvs)
         {
+            if (envConfig.ImportPath == null) continue;
             var sourceDir = new DirectoryInfo(envConfig.ImportPath);
             if (!sourceDir.Exists) continue;
             var tables = await ReadAllTables(sourceDir, providers, logger);

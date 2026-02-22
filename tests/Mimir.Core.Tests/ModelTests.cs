@@ -138,37 +138,34 @@ public class ModelTests
         env.BuildPath.ShouldBe("./build/server");
     }
 
-    // --- MimirProject.Environments ---
+    // --- EnvironmentConfig serialization (now stored in environments/<name>.json, not mimir.json) ---
 
     [Fact]
-    public void MimirProject_Environments_SerializesCorrectly()
+    public void EnvironmentConfig_SerializesCorrectly()
     {
-        var project = new MimirProject
+        var config = new EnvironmentConfig
         {
-            Version = 2,
-            Environments = new Dictionary<string, EnvironmentConfig>
-            {
-                ["server"] = new() { ImportPath = "Z:/Server/9Data" },
-                ["client"] = new() { ImportPath = "Z:/Client/ressystem" }
-            }
+            ImportPath = "Z:/Server/9Data",
+            BuildPath = "build/server",
+            SeedPackBaseline = false
         };
 
-        var json = JsonSerializer.Serialize(project, JsonOptions);
-        json.ShouldContain("\"environments\"");
+        var json = JsonSerializer.Serialize(config, JsonOptions);
+        json.ShouldContain("\"importPath\"");
         json.ShouldContain("Z:/Server/9Data");
 
-        var deserialized = JsonSerializer.Deserialize<MimirProject>(json, JsonOptions)!;
-        deserialized.Environments.ShouldNotBeNull();
-        deserialized.Environments!.Count.ShouldBe(2);
-        deserialized.Environments["server"].ImportPath.ShouldBe("Z:/Server/9Data");
+        var deserialized = JsonSerializer.Deserialize<EnvironmentConfig>(json, JsonOptions)!;
+        deserialized.ImportPath.ShouldBe("Z:/Server/9Data");
+        deserialized.BuildPath.ShouldBe("build/server");
     }
 
     [Fact]
-    public void MimirProject_Environments_OmittedWhenNull()
+    public void MimirProject_DoesNotContainEnvironments()
     {
         var project = new MimirProject { Version = 1 };
         var json = JsonSerializer.Serialize(project, JsonOptions);
-        json.ShouldNotContain("environments");
+        // environments are now stored in environments/<name>.json, not mimir.json
+        json.ShouldNotContain("\"environments\"");
     }
 
     // --- EnvironmentInfo replaces SourceOrigin ---

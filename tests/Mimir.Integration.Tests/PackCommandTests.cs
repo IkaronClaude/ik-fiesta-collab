@@ -59,16 +59,11 @@ public class PackCommandTests : IAsyncLifetime
             [Col("ID", ColumnType.UInt32, 4, 3), Col("ColorR", ColumnType.Byte, 1, 1)],
             [Row(("ID", (uint)1), ("ColorR", (byte)255))]);
 
-        // Write mimir.json with client environment
+        // Write mimir.json and environment config
         var projectService = _sp.GetRequiredService<IProjectService>();
-        var project = new MimirProject
-        {
-            Environments = new Dictionary<string, EnvironmentConfig>
-            {
-                ["client"] = new() { ImportPath = envDir }
-            }
-        };
+        var project = new MimirProject();
         await projectService.SaveProjectAsync(_projectDir, project);
+        EnvironmentStore.Save(_projectDir, "client", new EnvironmentConfig { ImportPath = envDir });
 
         // Run init-template → import pipeline
         await RunInitTemplate();
@@ -345,21 +340,21 @@ public class PackCommandTests : IAsyncLifetime
 
     private async Task RunInitTemplate()
     {
-        var projectService = _sp.GetRequiredService<IProjectService>();
         var providers = _sp.GetServices<IDataProvider>().ToList();
         var logger = _sp.GetRequiredService<ILogger<PackCommandTests>>();
-        var manifest = await projectService.LoadProjectAsync(_projectDir);
+        var allEnvs = EnvironmentStore.LoadAll(_projectDir);
 
         var envTables = new Dictionary<(string table, string env), TableFile>();
-        foreach (var (envName, envConfig) in manifest.Environments!)
+        foreach (var (envName, envConfig) in allEnvs)
         {
+            if (envConfig.ImportPath == null) continue;
             var sourceDir = new DirectoryInfo(envConfig.ImportPath);
             var tables = await ReadAllTables(sourceDir, providers, logger);
             foreach (var (tableName, (tableFile, _)) in tables)
                 envTables[(tableName, envName)] = tableFile;
         }
 
-        var template = TemplateGenerator.Generate(envTables, manifest.Environments.Keys.ToList());
+        var template = TemplateGenerator.Generate(envTables, allEnvs.Keys.ToList());
         await TemplateResolver.SaveAsync(_projectDir, template);
     }
 
@@ -370,12 +365,14 @@ public class PackCommandTests : IAsyncLifetime
         var logger = _sp.GetRequiredService<ILogger<PackCommandTests>>();
         var manifest = await projectService.LoadProjectAsync(_projectDir);
         var template = await TemplateResolver.LoadAsync(_projectDir);
+        var allEnvs = EnvironmentStore.LoadAll(_projectDir);
 
         var rawTables = new Dictionary<(string tableName, string envName), TableFile>();
         var rawRelDirs = new Dictionary<(string tableName, string envName), string>();
 
-        foreach (var (envName, envConfig) in manifest.Environments!)
+        foreach (var (envName, envConfig) in allEnvs)
         {
+            if (envConfig.ImportPath == null) continue;
             var sourceDir = new DirectoryInfo(envConfig.ImportPath);
             var tables = await ReadAllTables(sourceDir, providers, logger);
             foreach (var (tableName, (tableFile, relDir)) in tables)

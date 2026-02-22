@@ -311,17 +311,12 @@ public class SyntheticRoundtripTests : IAsyncLifetime
                 _originalFileBytes[$"env-b/{Path.GetRelativePath(_envBDir, file).Replace('\\', '/')}"] = await File.ReadAllBytesAsync(file);
         }
 
-        // --- Write mimir.json ---
+        // --- Write mimir.json and environment configs ---
         var projectService = _sp.GetRequiredService<IProjectService>();
-        var project = new MimirProject
-        {
-            Environments = new Dictionary<string, EnvironmentConfig>
-            {
-                ["env-a"] = new() { ImportPath = _envADir },
-                ["env-b"] = new() { ImportPath = _envBDir }
-            }
-        };
+        var project = new MimirProject();
         await projectService.SaveProjectAsync(_projectDir, project);
+        EnvironmentStore.Save(_projectDir, "env-a", new EnvironmentConfig { ImportPath = _envADir });
+        EnvironmentStore.Save(_projectDir, "env-b", new EnvironmentConfig { ImportPath = _envBDir });
 
         // --- Run pipeline: same code paths as CLI ---
         await RunInitTemplate();
@@ -800,13 +795,14 @@ public class SyntheticRoundtripTests : IAsyncLifetime
         var providers = _sp.GetServices<IDataProvider>().ToList();
         var logger = _sp.GetRequiredService<ILogger<SyntheticRoundtripTests>>();
 
-        var manifest = await projectService.LoadProjectAsync(_projectDir);
+        var allEnvs = EnvironmentStore.LoadAll(_projectDir);
 
         var envTables = new Dictionary<(string table, string env), TableFile>();
-        var envOrder = manifest.Environments!.Keys.ToList();
+        var envOrder = allEnvs.Keys.ToList();
 
-        foreach (var (envName, envConfig) in manifest.Environments!)
+        foreach (var (envName, envConfig) in allEnvs)
         {
+            if (envConfig.ImportPath == null) continue;
             var sourceDir = new DirectoryInfo(envConfig.ImportPath);
             var tables = await ReadAllTables(sourceDir, providers, logger);
             foreach (var (tableName, (tableFile, _)) in tables)
@@ -825,13 +821,15 @@ public class SyntheticRoundtripTests : IAsyncLifetime
 
         var manifest = await projectService.LoadProjectAsync(_projectDir);
         var template = await TemplateResolver.LoadAsync(_projectDir);
+        var allEnvs = EnvironmentStore.LoadAll(_projectDir);
 
         // Phase 1: Read all tables
         var rawTables = new Dictionary<(string tableName, string envName), TableFile>();
         var rawRelDirs = new Dictionary<(string tableName, string envName), string>();
 
-        foreach (var (envName, envConfig) in manifest.Environments!)
+        foreach (var (envName, envConfig) in allEnvs)
         {
+            if (envConfig.ImportPath == null) continue;
             var sourceDir = new DirectoryInfo(envConfig.ImportPath);
             var tables = await ReadAllTables(sourceDir, providers, logger);
             foreach (var (tableName, (tableFile, relDir)) in tables)

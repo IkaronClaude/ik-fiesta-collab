@@ -38,17 +38,13 @@ Option<DirectoryInfo?> MakeProjectOption()
 // --- init command ---
 var initCommand = new Command("init", "Create a new Mimir project directory with a skeleton mimir.json");
 var initProjectArg = new Argument<DirectoryInfo>("project", "Path to new Mimir project directory to create");
-var initEnvOption = new Option<string[]>("--env", "Environment definition in name=importPath format (e.g. server=Z:/Server). Repeat for multiple envs.");
-initEnvOption.AddAlias("-e");
-initEnvOption.AllowMultipleArgumentsPerToken = false;
 var initMimirOption = new Option<string>("--mimir",
     () => "mimir",
     "Command or path to the mimir executable baked into generated mimir.bat (default: mimir, assumes PATH)");
 initCommand.AddArgument(initProjectArg);
-initCommand.AddOption(initEnvOption);
 initCommand.AddOption(initMimirOption);
 
-initCommand.SetHandler((DirectoryInfo project, string[] envs, string mimirCmd) =>
+initCommand.SetHandler((DirectoryInfo project, string mimirCmd) =>
 {
     var logger = sp.GetRequiredService<ILogger<Program>>();
     var projectService = sp.GetRequiredService<IProjectService>();
@@ -59,37 +55,12 @@ initCommand.SetHandler((DirectoryInfo project, string[] envs, string mimirCmd) =
         return Task.CompletedTask;
     }
 
-    var environments = new Dictionary<string, EnvironmentConfig>();
-    foreach (var env in envs)
-    {
-        var idx = env.IndexOf('=');
-        if (idx <= 0)
-        {
-            logger.LogError("Invalid --env value '{Value}'. Expected format: name=importPath", env);
-            return Task.CompletedTask;
-        }
-        var name = env[..idx];
-        var importPath = env[(idx + 1)..];
-        // Auto-enable pack baseline seeding for envs whose importPath is a subdirectory
-        // (parent is not a drive root) — these are client-style envs that get packed.
-        // Server-style envs at Z:/Server have a drive root parent and are not packed.
-        var normalizedImport = importPath.TrimEnd('/', '\\');
-        var importParent = Path.GetDirectoryName(normalizedImport);
-        var seedBaseline = importParent != null && importParent.Length > 3;
-        environments[name] = new EnvironmentConfig { ImportPath = importPath, BuildPath = $"build/{name}", SeedPackBaseline = seedBaseline };
-    }
-
-    if (environments.Count == 0)
-    {
-        logger.LogError("No environments specified. Use --env name=path (e.g. --env server=Z:/Server)");
-        return Task.CompletedTask;
-    }
-
     Directory.CreateDirectory(project.FullName);
     Directory.CreateDirectory(Path.Combine(project.FullName, "deploy"));
     Directory.CreateDirectory(Path.Combine(project.FullName, "deploy", "patcher"));
+    EnvironmentStore.EnsureEnvDir(project.FullName);
 
-    var manifest = new MimirProject { Environments = environments };
+    var manifest = new MimirProject();
     return projectService.SaveProjectAsync(project.FullName, manifest).ContinueWith(_ =>
     {
         void WriteIfMissing(string path, string content)
@@ -186,16 +157,17 @@ initCommand.SetHandler((DirectoryInfo project, string[] envs, string mimirCmd) =
             "}\r\n" +
             "Write-Host \"`nPatching complete! Client is now at version $latestVersion.\" -ForegroundColor Green\r\n");
 
-        logger.LogInformation("Created project at {Dir} with {Count} environment(s): {Envs}",
-            project.FullName, environments.Count, string.Join(", ", environments.Keys));
+        logger.LogInformation("Created project at {Dir}", project.FullName);
         logger.LogInformation("Next steps:");
         logger.LogInformation("  cd {Dir}", project.FullName);
+        logger.LogInformation("  mimir env server init Z:/Server");
+        logger.LogInformation("  mimir env client init Z:/ClientSource/ressystem --patchable");
         logger.LogInformation("  mimir init-template --passthrough server");
         logger.LogInformation("  mimir import");
         logger.LogInformation("  mimir build --all");
     });
 
-}, initProjectArg, initEnvOption, initMimirOption);
+}, initProjectArg, initMimirOption);
 
 // --- import command ---
 var importCommand = new Command("import", "Import data files into a Mimir project using environments from mimir.json");
@@ -221,17 +193,13 @@ importCommand.SetHandler(async (DirectoryInfo? projectOpt, bool reimport, bool r
 
     if (reseedBaselineOnly)
     {
-        if (manifest.Environments is not { Count: > 0 })
-        {
-            logger.LogError("No environments defined in mimir.json.");
-            return;
-        }
-        var seedEnvs = manifest.Environments
+        var allEnvsForSeed = EnvironmentStore.LoadAll(project.FullName);
+        var seedEnvs = allEnvsForSeed
             .Where(kv => kv.Value.SeedPackBaseline)
-            .ToDictionary(kv => kv.Key, kv => kv.Value.ImportPath);
+            .ToDictionary(kv => kv.Key, kv => kv.Value.ImportPath ?? "");
         if (seedEnvs.Count == 0)
         {
-            logger.LogWarning("No environments have seedPackBaseline: true in mimir.json. Nothing to reseed.");
+            logger.LogWarning("No environments have seedPackBaseline: true. Set it with: mimir env <name> set seed-pack-baseline true");
             return;
         }
         var manifestPath = Path.Combine(project.FullName, ".mimir-pack-manifest.json");
@@ -259,9 +227,10 @@ importCommand.SetHandler(async (DirectoryInfo? projectOpt, bool reimport, bool r
         logger.LogInformation("--reimport: cleared tables index — starting fresh import");
     }
 
-    if (manifest.Environments is null || manifest.Environments.Count == 0)
+    var allEnvs = EnvironmentStore.LoadAll(project.FullName);
+    if (allEnvs.Count == 0)
     {
-        logger.LogError("No environments defined in mimir.json. Add an 'environments' section with import paths.");
+        logger.LogError("No environments configured. Use: mimir env <name> init <importPath>");
         return;
     }
 
@@ -272,8 +241,13 @@ importCommand.SetHandler(async (DirectoryInfo? projectOpt, bool reimport, bool r
     var rawTables = new Dictionary<(string tableName, string envName), TableFile>();
     var rawRelDirs = new Dictionary<(string tableName, string envName), string>(); // track source-relative dirs
 
-    foreach (var (envName, envConfig) in manifest.Environments)
+    foreach (var (envName, envConfig) in allEnvs)
     {
+        if (envConfig.ImportPath == null)
+        {
+            logger.LogWarning("Skipping environment {Env}: import-path not set. Use: mimir env {Env} set import-path <path>", envName, envName);
+            continue;
+        }
         var sourceDir = new DirectoryInfo(envConfig.ImportPath);
         if (!sourceDir.Exists)
         {
@@ -535,11 +509,11 @@ importCommand.SetHandler(async (DirectoryInfo? projectOpt, bool reimport, bool r
         manifest.Tables.Count, merged, totalConflicts);
 
     // Seed pack baseline from import sources (unless caller asked to retain existing baseline)
-    if (!retainPackBaseline && manifest.Environments is { Count: > 0 })
+    if (!retainPackBaseline && allEnvs.Count > 0)
     {
-        var seedEnvs = manifest.Environments
-            .Where(kv => kv.Value.SeedPackBaseline)
-            .ToDictionary(kv => kv.Key, kv => kv.Value.ImportPath);
+        var seedEnvs = allEnvs
+            .Where(kv => kv.Value.SeedPackBaseline && kv.Value.ImportPath != null)
+            .ToDictionary(kv => kv.Key, kv => kv.Value.ImportPath!);
         if (seedEnvs.Count > 0)
         {
             var manifestPath = Path.Combine(project.FullName, ".mimir-pack-manifest.json");
@@ -615,6 +589,7 @@ buildCommand.SetHandler(async (DirectoryInfo? projectOpt, DirectoryInfo? outputO
 
     var manifest = await projectService.LoadProjectAsync(project.FullName);
     var template = await TemplateResolver.LoadAsync(project.FullName);
+    var allEnvs = EnvironmentStore.LoadAll(project.FullName);
 
     // Default to --all when no env or output specified
     if (!buildAll && envName == null && outputOpt == null)
@@ -622,9 +597,9 @@ buildCommand.SetHandler(async (DirectoryInfo? projectOpt, DirectoryInfo? outputO
 
     // Determine which environments to build
     var envsToBuild = new Dictionary<string, string>(); // envName → outputDir
-    if (buildAll && manifest.Environments != null)
+    if (buildAll)
     {
-        foreach (var (eName, eConfig) in manifest.Environments)
+        foreach (var (eName, eConfig) in allEnvs)
         {
             var buildPath = eConfig.BuildPath ?? Path.Combine("build", eName);
             var fullPath = Path.IsPathRooted(buildPath) ? buildPath : Path.Combine(project.FullName, buildPath);
@@ -638,14 +613,14 @@ buildCommand.SetHandler(async (DirectoryInfo? projectOpt, DirectoryInfo? outputO
         {
             outputDir = outputOpt.FullName;
         }
-        else if (manifest.Environments?.TryGetValue(envName, out var eConfig) == true)
+        else if (allEnvs.TryGetValue(envName, out var eConfig))
         {
             var buildPath = eConfig.BuildPath ?? Path.Combine("build", envName);
             outputDir = Path.IsPathRooted(buildPath) ? buildPath : Path.Combine(project.FullName, buildPath);
         }
         else
         {
-            logger.LogError("Environment '{Env}' not found in mimir.json and no --output specified.", envName);
+            logger.LogError("Environment '{Env}' not found. Use 'mimir env {Env} init' to configure it.", envName, envName);
             return;
         }
         envsToBuild[envName] = outputDir;
@@ -796,9 +771,15 @@ buildCommand.SetHandler(async (DirectoryInfo? projectOpt, DirectoryInfo? outputO
             // Only process for the matching env (or legacy "" mode = copy all)
             if (eName != "" && action.Env != eName) continue;
 
-            if (!manifest.Environments!.TryGetValue(action.Env, out var srcEnvConfig))
+            if (!allEnvs.TryGetValue(action.Env, out var srcEnvConfig))
             {
-                logger.LogWarning("CopyFile: environment '{Env}' not found in mimir.json", action.Env);
+                logger.LogWarning("CopyFile: environment '{Env}' not found", action.Env);
+                continue;
+            }
+
+            if (srcEnvConfig.ImportPath == null)
+            {
+                logger.LogWarning("CopyFile: environment '{Env}' has no import-path configured", action.Env);
                 continue;
             }
 
@@ -818,7 +799,7 @@ buildCommand.SetHandler(async (DirectoryInfo? projectOpt, DirectoryInfo? outputO
         }
 
         // Overrides: copy everything from overridesPath verbatim, winning over all other output
-        var currentEnvConfig = eName != "" && manifest.Environments?.TryGetValue(eName, out var ec) == true ? ec : null;
+        var currentEnvConfig = eName != "" && allEnvs.TryGetValue(eName, out var ec) ? ec : null;
         if (currentEnvConfig?.OverridesPath != null)
         {
             var overridesDir = new DirectoryInfo(currentEnvConfig.OverridesPath);
@@ -1215,18 +1196,20 @@ initTemplateCommand.SetHandler(async (DirectoryInfo? projectOpt, string[] passth
 
     var manifest = await projectService.LoadProjectAsync(project.FullName);
 
-    if (manifest.Environments is null || manifest.Environments.Count == 0)
+    var allEnvs = EnvironmentStore.LoadAll(project.FullName);
+    if (allEnvs.Count == 0)
     {
-        logger.LogError("No environments defined in mimir.json. Add an 'environments' section first.");
+        logger.LogError("No environments configured. Use: mimir env <name> init <importPath>");
         return;
     }
 
     // Scan each environment
     var envTables = new Dictionary<(string table, string env), TableFile>();
-    var envOrder = manifest.Environments.Keys.ToList();
+    var envOrder = allEnvs.Keys.ToList();
 
-    foreach (var (envName, envConfig) in manifest.Environments)
+    foreach (var (envName, envConfig) in allEnvs)
     {
+        if (envConfig.ImportPath == null) { logger.LogWarning("Skipping {Env}: import-path not set.", envName); continue; }
         var sourceDir = new DirectoryInfo(envConfig.ImportPath);
         if (!sourceDir.Exists)
         {
@@ -1247,10 +1230,10 @@ initTemplateCommand.SetHandler(async (DirectoryInfo? projectOpt, string[] passth
     var passthroughFiles = new List<(string env, string path)>();
     var passthroughEnvSet = passthroughEnvs.ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-    foreach (var (envName, envConfig) in manifest.Environments)
+    foreach (var (envName, envConfig) in allEnvs)
     {
         if (!passthroughEnvSet.Contains(envName)) continue;
-
+        if (envConfig.ImportPath == null) continue;
         var sourceDir = new DirectoryInfo(envConfig.ImportPath);
         if (!sourceDir.Exists) continue;
 
@@ -1348,14 +1331,14 @@ packCommand.SetHandler(async (DirectoryInfo? projectOpt, DirectoryInfo outputDir
     var projectService = sp.GetRequiredService<IProjectService>();
 
     var manifest = await projectService.LoadProjectAsync(project.FullName);
-    if (manifest.Environments is null || !manifest.Environments.ContainsKey(envName))
+    var envConfig = EnvironmentStore.Load(project.FullName, envName);
+    if (envConfig == null)
     {
-        logger.LogError("Environment '{Env}' not found in mimir.json.", envName);
+        logger.LogError("Environment '{Env}' not found. Use 'mimir env {Env} init' to configure it.", envName, envName);
         return;
     }
 
     // Determine build directory: use configured buildPath or default build/<env>
-    var envConfig = manifest.Environments[envName];
     var buildPath = envConfig.BuildPath ?? Path.Combine("build", envName);
     var buildDir = Path.IsPathRooted(buildPath) ? buildPath : Path.Combine(project.FullName, buildPath);
 
@@ -1378,6 +1361,21 @@ packCommand.SetHandler(async (DirectoryInfo? projectOpt, DirectoryInfo outputDir
 
 }, packProjectOption, packOutputArg, packEnvOption, packBaseUrlOption);
 
+// --- env command ---
+var envCommand = new Command("env", "Manage project environments (environments/<name>.json)");
+envCommand.TreatUnmatchedTokensAsErrors = false;
+var envProjectOption = MakeProjectOption();
+envCommand.AddOption(envProjectOption);
+envCommand.SetHandler(async (System.CommandLine.Invocation.InvocationContext ctx) =>
+{
+    var logger = sp.GetRequiredService<ILogger<Program>>();
+    var projectOpt = ctx.ParseResult.GetValueForOption(envProjectOption);
+    var project = ResolveProjectOrExit(projectOpt, logger);
+    var tokens = ctx.ParseResult.UnmatchedTokens.ToList();
+    await Mimir.Cli.EnvCommand.HandleAsync(project.FullName, tokens, logger);
+});
+
+rootCommand.AddCommand(envCommand);
 rootCommand.AddCommand(initCommand);
 rootCommand.AddCommand(importCommand);
 rootCommand.AddCommand(reimportCommand);
