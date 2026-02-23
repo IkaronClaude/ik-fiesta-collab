@@ -253,6 +253,7 @@ importCommand.SetHandler(async (DirectoryInfo? projectOpt, bool reimport) =>
 
     var mergeActions = template.Actions.Where(a => a.Action is "copy" or "merge").ToList();
     var tablesHandledByActions = new HashSet<string>();
+    var tableTargetEnvs = new Dictionary<string, string>(); // merged tableName → env that seeded the table via copy
 
     foreach (var action in mergeActions)
     {
@@ -272,6 +273,7 @@ importCommand.SetHandler(async (DirectoryInfo? projectOpt, bool reimport) =>
                     RowEnvironments = taggedRowEnvs
                 };
                 tablesHandledByActions.Add(action.To);
+                tableTargetEnvs[action.To] = action.From.Env;
 
                 // Store base env column order and source path
                 if (!allEnvMetadata.ContainsKey(action.To))
@@ -312,7 +314,8 @@ importCommand.SetHandler(async (DirectoryInfo? projectOpt, bool reimport) =>
 
             var strategy = action.ColumnStrategy ?? "auto";
             var conflictStrategy = action.ConflictStrategy ?? "report";
-            var result = TableMerger.Merge(target, source, action.On, action.From.Env, strategy, conflictStrategy);
+            var targetEnvName = tableTargetEnvs.GetValueOrDefault(action.Into);
+            var result = TableMerger.Merge(target, source, action.On, action.From.Env, strategy, conflictStrategy, targetEnvName);
             mergedTables[action.Into] = result.Table;
 
             // Accumulate env metadata

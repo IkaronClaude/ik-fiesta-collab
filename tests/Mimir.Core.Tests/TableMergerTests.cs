@@ -260,6 +260,103 @@ public class TableMergerTests
         targetRow["ClientCol"].ShouldBeNull();
     }
 
+    // --- Target-only row env tagging tests ---
+
+    [Fact]
+    public void TargetOnlyRow_WithTargetEnvName_GetsTagged()
+    {
+        // Simulates: merge from server (envName) into a target seeded from client (targetEnvName)
+        // Target has ID=1 (will match) and ID=2 (client-only, no match in server)
+        var target = MakeTable("Items",
+            [Col("ID", ColumnType.UInt32), Col("Name", ColumnType.String, 64)],
+            Row(("ID", (object?)(uint)1), ("Name", "Sword")),
+            Row(("ID", (object?)(uint)2), ("Name", "Shield")));
+
+        var source = MakeTable("Items",
+            [Col("ID", ColumnType.UInt32), Col("Name", ColumnType.String, 64)],
+            Row(("ID", (object?)(uint)1), ("Name", "Sword"))); // server has ID=1 only
+
+        var join = new JoinClause { Source = "ID", Target = "ID" };
+        var result = TableMerger.Merge(target, source, join, "server", "auto", "report", "client");
+
+        var envs = result.Table.RowEnvironments!;
+        var sharedIdx = result.Table.Data.ToList().FindIndex(r => r["ID"]?.ToString() == "1");
+        envs[sharedIdx].ShouldBeNull(); // matched → shared
+
+        var targetOnlyIdx = result.Table.Data.ToList().FindIndex(r => r["ID"]?.ToString() == "2");
+        envs[targetOnlyIdx].ShouldNotBeNull();
+        envs[targetOnlyIdx]!.ShouldContain("client"); // target-only → tagged with targetEnvName
+    }
+
+    [Fact]
+    public void TargetOnlyRow_PreTaggedEnv_KeepsEnv_MatchedBecomesNull()
+    {
+        // Simulates copy action: all client rows pre-tagged ["client"] before merge
+        var target = new TableFile
+        {
+            Header = new TableHeader { TableName = "Items", SourceFormat = "shn" },
+            Columns = [Col("ID", ColumnType.UInt32), Col("Name", ColumnType.String, 64)],
+            Data = [
+                Row(("ID", (object?)(uint)1), ("Name", "Sword")),  // will match
+                Row(("ID", (object?)(uint)2), ("Name", "Shield"))  // client-only
+            ],
+            RowEnvironments = [["client"], ["client"]] // pre-tagged by copy action
+        };
+
+        var source = MakeTable("Items",
+            [Col("ID", ColumnType.UInt32), Col("Name", ColumnType.String, 64)],
+            Row(("ID", (object?)(uint)1), ("Name", "Sword"))); // server has ID=1 only
+
+        var join = new JoinClause { Source = "ID", Target = "ID" };
+        var result = TableMerger.Merge(target, source, join, "server", "auto");
+
+        var envs = result.Table.RowEnvironments!;
+        var sharedIdx = result.Table.Data.ToList().FindIndex(r => r["ID"]?.ToString() == "1");
+        envs[sharedIdx].ShouldBeNull(); // matched → null (shared) even though pre-tagged
+
+        var targetOnlyIdx = result.Table.Data.ToList().FindIndex(r => r["ID"]?.ToString() == "2");
+        envs[targetOnlyIdx].ShouldNotBeNull();
+        envs[targetOnlyIdx]!.ShouldContain("client"); // unmatched → preserves pre-tag
+    }
+
+    [Fact]
+    public void ItemInfoScenario_ServerBuildExcludesClientOnlyRows()
+    {
+        // Reproduces the ItemInfo bug: client-only rows must not appear in the server build.
+        // Client rows: A (shared), B (client-only)
+        // Server rows: A (shared), C (server-only)
+        // Server build must contain: A, C — NOT B.
+        var target = new TableFile
+        {
+            Header = new TableHeader { TableName = "ItemInfo", SourceFormat = "shn" },
+            Columns = [Col("InxName", ColumnType.String, 32), Col("ID", ColumnType.UInt32)],
+            Data = [
+                Row(("InxName", "A"), ("ID", (object?)(uint)1)),
+                Row(("InxName", "B"), ("ID", (object?)(uint)2))
+            ],
+            RowEnvironments = [["client"], ["client"]] // pre-tagged by copy action
+        };
+
+        var source = MakeTable("ItemInfo",
+            [Col("InxName", ColumnType.String, 32), Col("ID", ColumnType.UInt32)],
+            Row(("InxName", "A"), ("ID", (object?)(uint)1)),  // shared
+            Row(("InxName", "C"), ("ID", (object?)(uint)3))); // server-only
+
+        var join = new JoinClause { Source = "InxName", Target = "InxName" };
+        var merged = TableMerger.Merge(target, source, join, "server", "auto", "report", "client");
+
+        merged.Table.Data.Count.ShouldBe(3); // A (shared), B (client-only), C (server-only)
+
+        // Server build via TableSplitter must exclude B (client-only)
+        var serverMeta = merged.EnvMetadata["server"];
+        var serverTable = TableSplitter.Split(merged.Table, "server", serverMeta);
+        serverTable.Data.Count.ShouldBe(2); // A + C only
+        var serverKeys = serverTable.Data.Select(r => r["InxName"]!.ToString()).ToList();
+        serverKeys.ShouldContain("A");
+        serverKeys.ShouldContain("C");
+        serverKeys.ShouldNotContain("B");
+    }
+
     // --- Row order tests ---
 
     [Fact]

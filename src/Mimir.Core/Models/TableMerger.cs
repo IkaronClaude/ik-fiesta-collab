@@ -13,7 +13,8 @@ public static class TableMerger
     public static MergeResult Merge(
         TableFile target, TableFile source,
         JoinClause on, string envName, string columnStrategy,
-        string conflictStrategy = "report")
+        string conflictStrategy = "report",
+        string? targetEnvName = null)
     {
         var conflicts = new List<MergeConflict>();
         var envMetadata = new Dictionary<string, EnvMergeMetadata>();
@@ -202,11 +203,13 @@ public static class TableMerger
 
                 mergedRows.Add(merged);
 
-                // Preserve existing row env annotation from target
+                // Preserve existing row env annotation from target (set by copy action pre-tagging).
+                // If untagged (null) and targetEnvName is known, tag with the target env so
+                // this row is excluded from other environments' builds.
                 var existingEnv = target.RowEnvironments != null && i < target.RowEnvironments.Count
                     ? target.RowEnvironments[i]
                     : null;
-                mergedRowEnvs.Add(existingEnv);
+                mergedRowEnvs.Add(existingEnv ?? (targetEnvName != null ? [targetEnvName] : null));
             }
         }
 
