@@ -107,6 +107,18 @@ Without `KEEP_ALIVE`, containers exit automatically when their Windows service s
 
 ## Config
 
+Per-project deploy variables (SQL password, etc.) are stored in `<project>/.mimir-deploy.env` and loaded automatically before every deploy command. Set them with:
+
+```bat
+mimir deploy set SA_PASSWORD=MyStrongPassword1
+```
+
+The file is a plain `KEY=VALUE` list (no comments). It is covered by `*.env` in `.gitignore` — do not commit it.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SA_PASSWORD` | `V63WsdafLJT9NDAn` | SQL Server `sa` password used by the `sqlserver` container and all game processes |
+
 The `deploy/docker-config/ServerInfo/ServerInfo.txt` override (baked into the image) changes:
 - **ODBC driver**: `{SQL Server}` → `{ODBC Driver 17 for SQL Server}`
 - **ODBC server**: `.\SQLEXPRESS` → `sqlserver` (Docker Compose hostname)
@@ -124,5 +136,5 @@ The `deploy/docker-config/ServerInfo/ServerInfo.txt` override (baked into the im
 
 **Can't connect from client**: Only port 9010 (Login) is exposed to the host. Configure the client to connect to `127.0.0.1:9010`.
 
-**SQL password**: `V63WsdafLJT9NDAn`
-Connect: `sqlcmd -S localhost\SQLEXPRESS -U sa -P V63WsdafLJT9NDAn -C`
+**SQL password**: Default is `V63WsdafLJT9NDAn`. Override with `mimir deploy set SA_PASSWORD=...`.
+Connect: `sqlcmd -S localhost\SQLEXPRESS -U sa -P <your-password> -C`
