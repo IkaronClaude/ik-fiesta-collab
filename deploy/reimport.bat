@@ -13,4 +13,4 @@ if "%~1"=="" (
 )
 set "PROJECT=%~1"
 cd /d "%~dp0..\%PROJECT%"
-mimir reimport
+call mimir reimport

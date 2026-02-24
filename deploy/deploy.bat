@@ -22,7 +22,7 @@ docker compose --profile patch -f docker-compose.yml down
 echo.
 echo === Building Mimir project [%PROJECT%] ===
 cd /d "%~dp0..\%PROJECT%"
-mimir build --all
+call mimir build --all
 if errorlevel 1 (
     echo ERROR: mimir build failed.
     pause
@@ -31,7 +31,7 @@ if errorlevel 1 (
 
 echo.
 echo === Generating client patches ===
-mimir pack patches --env client
+call mimir pack patches --env client
 if errorlevel 1 (
     echo ERROR: mimir pack failed.
     pause
