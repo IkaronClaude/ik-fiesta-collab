@@ -419,6 +419,13 @@ public sealed class EnvMergeMetadata
     public Dictionary<string, object>? FormatMetadata { get; set; }
 
     /// <summary>
+    /// Output filename override (without extension).
+    /// Set when the internal table name differs from the desired output filename — e.g.
+    /// "GBHouse__server" builds to "GBHouse.shn". Null means use the table name as-is.
+    /// </summary>
+    public string? OutputName { get; set; }
+
+    /// <summary>
     /// Parses an EnvMergeMetadata from a JsonElement (as stored in table metadata).
     /// </summary>
     public static EnvMergeMetadata? FromJsonElement(JsonElement je)
@@ -459,6 +466,10 @@ public sealed class EnvMergeMetadata
         if (je.TryGetProperty("sourceRelDir", out var srdElem) && srdElem.ValueKind == JsonValueKind.String)
             sourceRelDir = srdElem.GetString();
 
+        string? outputName = null;
+        if (je.TryGetProperty("outputName", out var onElem) && onElem.ValueKind == JsonValueKind.String)
+            outputName = onElem.GetString();
+
         Dictionary<string, object>? formatMetadata = null;
         if (je.TryGetProperty("formatMetadata", out var fmElem) && fmElem.ValueKind == JsonValueKind.Object)
         {
@@ -473,7 +484,8 @@ public sealed class EnvMergeMetadata
             ColumnOverrides = columnOverrides,
             ColumnRenames = columnRenames,
             SourceRelDir = sourceRelDir,
-            FormatMetadata = formatMetadata
+            FormatMetadata = formatMetadata,
+            OutputName = outputName
         };
     }
 }

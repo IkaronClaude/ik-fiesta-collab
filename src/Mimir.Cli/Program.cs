@@ -284,6 +284,7 @@ importCommand.SetHandler(async (DirectoryInfo? projectOpt, bool reimport) =>
                     ColumnOverrides = new(),
                     ColumnRenames = new(),
                     SourceRelDir = rawRelDirs.GetValueOrDefault(key, ""),
+                    OutputName = action.OutputName,
                     FormatMetadata = ExtractFormatMetadata(raw.Header.Metadata)
                 };
 
@@ -465,6 +466,7 @@ importCommand.SetHandler(async (DirectoryInfo? projectOpt, bool reimport) =>
                     ["columnOverrides"] = eMeta.ColumnOverrides.Count > 0 ? eMeta.ColumnOverrides : null,
                     ["columnRenames"] = eMeta.ColumnRenames.Count > 0 ? eMeta.ColumnRenames : null,
                     ["sourceRelDir"] = eMeta.SourceRelDir,
+                    ["outputName"] = eMeta.OutputName,
                     ["formatMetadata"] = eMeta.FormatMetadata
                 };
             }
@@ -700,8 +702,10 @@ buildCommand.SetHandler(async (DirectoryInfo? projectOpt, DirectoryInfo? outputO
                 else
                 {
                     // Single-table file (SHN, etc.) — write immediately
+                    // Use outputName override when set (e.g. "GBHouse__server" → "GBHouse.shn")
+                    var outputFileName = envMeta?.OutputName ?? name;
                     Directory.CreateDirectory(dir);
-                    await provider.WriteAsync(Path.Combine(dir, $"{name}.{ext}"), [entry]);
+                    await provider.WriteAsync(Path.Combine(dir, $"{outputFileName}.{ext}"), [entry]);
                     built++;
                 }
             }

@@ -65,6 +65,15 @@ public sealed class TemplateAction
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? ConflictStrategy { get; init; }
 
+    /// <summary>
+    /// Overrides the output filename (without extension) when building.
+    /// Used for incompatible-schema tables that share a source filename but need
+    /// distinct internal names (e.g. GBHouse__server builds to GBHouse.shn).
+    /// </summary>
+    [JsonPropertyName("outputName")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? OutputName { get; init; }
+
     // copyFile — copy a raw file verbatim from env source dir to build output
     [JsonPropertyName("env")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

@@ -46,17 +46,43 @@ public static class TemplateGenerator
                 var otherTable = envVersions[env];
                 var joinCol = FindJoinColumn(firstTable, otherTable);
 
-                actions.Add(new TemplateAction
+                if (joinCol != null)
                 {
-                    Action = "merge",
-                    From = new TableRef { Table = tableName, Env = env },
-                    Into = tableName,
-                    On = joinCol != null
-                        ? new JoinClause { Source = joinCol, Target = joinCol }
-                        : null,
-                    ColumnStrategy = "auto",
-                    ConflictStrategy = "split"
-                });
+                    // Compatible schemas — standard merge
+                    actions.Add(new TemplateAction
+                    {
+                        Action = "merge",
+                        From = new TableRef { Table = tableName, Env = env },
+                        Into = tableName,
+                        On = new JoinClause { Source = joinCol, Target = joinCol },
+                        ColumnStrategy = "auto",
+                        ConflictStrategy = "split"
+                    });
+                }
+                else
+                {
+                    // Incompatible schemas (zero shared columns): same filename, different tables
+                    // in different environments. Import as a separate env-specific entry with a
+                    // unique internal name but outputName set to the original filename so the build
+                    // still produces {tableName}.shn at the correct path.
+                    var internalName = $"{tableName}__{env}";
+                    actions.Add(new TemplateAction
+                    {
+                        Action = "copy",
+                        From = new TableRef { Table = tableName, Env = env },
+                        To = internalName,
+                        OutputName = tableName
+                    });
+
+                    // Schema declarations for this env's separate table
+                    var pkColOther = FindPrimaryKey(otherTable);
+                    if (pkColOther != null)
+                        actions.Add(new TemplateAction { Action = "setPrimaryKey", Table = internalName, Column = pkColOther });
+
+                    var ukColOther = FindUniqueKey(otherTable);
+                    if (ukColOther != null)
+                        actions.Add(new TemplateAction { Action = "setUniqueKey", Table = internalName, Column = ukColOther });
+                }
             }
 
             // Schema declarations based on first env's columns

@@ -131,6 +131,48 @@ public class TemplateGeneratorTests
     }
 
     [Fact]
+    public void IncompatibleSchemas_GeneratesSeparateCopiesWithOutputName()
+    {
+        // Reproduces the GBHouse bug: client has AmbienceSound/GBHouse.shn (acName, fCenterX...),
+        // server has 9Data/Shine/GBHouse.shn (GB_GameMoney, GB_ExchangeTax...).
+        // Zero shared columns → must NOT generate a null-on merge (which silently drops server data).
+        // Must generate separate copy-per-env so both tables are preserved.
+        var envTables = new Dictionary<(string table, string env), TableFile>
+        {
+            [("GBHouse", "server")] = MakeTable("GBHouse",
+                [Col("GB_GameMoney", ColumnType.UInt32), Col("GB_ExchangeTax", ColumnType.UInt32)]),
+            [("GBHouse", "client")] = MakeTable("GBHouse",
+                [Col("acName", ColumnType.String, 32), Col("fCenterX", ColumnType.Float)])
+        };
+
+        var template = TemplateGenerator.Generate(envTables, ["server", "client"]);
+
+        // Must not generate a null-on merge (the old broken behaviour)
+        template.Actions.ShouldNotContain(a => a.Action == "merge" && a.Into == "GBHouse");
+
+        // Must generate a copy for each env
+        var serverCopy = template.Actions.FirstOrDefault(a =>
+            a.Action == "copy" && a.From!.Env == "server" && a.From.Table == "GBHouse");
+        var clientCopy = template.Actions.FirstOrDefault(a =>
+            a.Action == "copy" && a.From!.Env == "client" && a.From.Table == "GBHouse");
+
+        serverCopy.ShouldNotBeNull();
+        clientCopy.ShouldNotBeNull();
+
+        // The two copies must use distinct internal table names to avoid a key collision
+        serverCopy!.To.ShouldNotBe(clientCopy!.To);
+
+        // The first env (server, since envOrder starts with "server") keeps the original name —
+        // no outputName override needed (it already builds to GBHouse.shn naturally)
+        serverCopy.To.ShouldBe("GBHouse");
+        serverCopy.OutputName.ShouldBeNull();
+
+        // The extra env (client) gets a unique internal name + outputName so it also builds to GBHouse.shn
+        clientCopy.To.ShouldBe("GBHouse__client");
+        clientCopy.OutputName.ShouldBe("GBHouse");
+    }
+
+    [Fact]
     public void GeneratesUniqueKeyForInxName()
     {
         var envTables = new Dictionary<(string table, string env), TableFile>
