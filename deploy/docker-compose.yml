@@ -1,11 +1,16 @@
 # Fiesta Online server — one container per process
 # All services communicate via Docker Compose DNS hostnames.
 #
-# Usage: see deploy/*.bat scripts
-#   start.bat        — start all containers
-#   stop.bat         — stop all containers
-#   rebuild-game.bat — rebuild game image + start (excludes SQL)
-#   rebuild-sql.bat  — wipe SQL data + restore from .bak (destructive!)
+# PROJECT_NAME env var controls volume mounts and (via COMPOSE_PROJECT_NAME) container naming.
+# Set automatically by deploy scripts. Defaults to 'test-project' if unset.
+#
+# Usage (from inside your project dir):
+#   mimir deploy start       — start all containers
+#   mimir deploy stop        — stop all containers
+#   mimir deploy update      — build + pack + snapshot + restart game servers
+#   mimir deploy restart     — snapshot + restart game servers (skip build)
+#   mimir deploy rebuild-game — rebuild game image + start (excludes SQL)
+#   mimir deploy rebuild-sql  — wipe SQL data + restore from .bak (destructive!)
 
 # Add KEEP_ALIVE=1 to any service's environment to keep the container alive after
 # the game process stops (disables auto-exit, lets you 'docker exec' to investigate).
@@ -23,14 +28,13 @@ x-gameserver: &gameserver
     context: .
     dockerfile: Dockerfile.server
   volumes:
-    - ../test-project/deployed/server/9Data:C:/server/9Data
+    - ../${PROJECT_NAME:-test-project}/deployed/server/9Data:C:/server/9Data
 
 services:
   sqlserver:
     build:
       context: .
       dockerfile: Dockerfile.sql
-    container_name: fiesta-sql
     ports:
       - "1433:1433"
     volumes:
@@ -49,7 +53,6 @@ services:
 
   account:
     <<: *gameserver
-    container_name: fiesta-account
     environment:
       - PROCESS_NAME=Account
       - PROCESS_EXE=Account.exe
@@ -59,7 +62,6 @@ services:
 
   accountlog:
     <<: *gameserver
-    container_name: fiesta-accountlog
     environment:
       - PROCESS_NAME=AccountLog
       - PROCESS_EXE=AccountLog.exe
@@ -69,7 +71,6 @@ services:
 
   character:
     <<: *gameserver
-    container_name: fiesta-character
     environment:
       - PROCESS_NAME=Character
       - PROCESS_EXE=Character.exe
@@ -79,7 +80,6 @@ services:
 
   gamelog:
     <<: *gameserver
-    container_name: fiesta-gamelog
     environment:
       - PROCESS_NAME=GameLog
       - PROCESS_EXE=GameLog.exe
@@ -91,7 +91,6 @@ services:
 
   login:
     <<: *gameserver
-    container_name: fiesta-login
     ports:
       - "9010:9010"    # Client connects here
     environment:
@@ -109,7 +108,6 @@ services:
 
   worldmanager:
     <<: *gameserver
-    container_name: fiesta-worldmanager
     ports:
       - "9013:9013"
     environment:
@@ -129,7 +127,6 @@ services:
 
   zone00:
     <<: *gameserver
-    container_name: fiesta-zone00
     ports:
       - "9016:9016"
     environment:
@@ -142,7 +139,6 @@ services:
 
   zone01:
     <<: *gameserver
-    container_name: fiesta-zone01
     ports:
       - "9019:9019"
     environment:
@@ -155,7 +151,6 @@ services:
 
   zone02:
     <<: *gameserver
-    container_name: fiesta-zone02
     ports:
       - "9022:9022"
     environment:
@@ -168,7 +163,6 @@ services:
 
   zone03:
     <<: *gameserver
-    container_name: fiesta-zone03
     ports:
       - "9025:9025"
     environment:
@@ -181,7 +175,6 @@ services:
 
   zone04:
     <<: *gameserver
-    container_name: fiesta-zone04
     ports:
       - "9028:9028"
     environment:
@@ -200,11 +193,10 @@ services:
       context: .
       dockerfile: Dockerfile.patch
     profiles: [patch]
-    container_name: fiesta-patch
     ports:
       - "8080:80"
     volumes:
-      - ../test-project/patches:C:/patches:ro
+      - ../${PROJECT_NAME:-test-project}/patches:C:/patches:ro
     restart: unless-stopped
 
 volumes:

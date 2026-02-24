@@ -1,8 +1,20 @@
 @echo off
-:: Start all containers (SQL + game servers). Builds game server image if needed.
+:: Rebuild the game server image and start all containers.
 :: SQL image is NOT rebuilt — use rebuild-sql.bat for that.
-cd /d "%~dp0"
+::
+:: Usage: mimir deploy rebuild-game          (from inside the project dir)
+::        rebuild-game.bat <project-name>    (direct call with explicit project name)
+if "%~1"=="" (
+    echo ERROR: Project name required.
+    echo   Run via: mimir deploy rebuild-game
+    echo   Or:      rebuild-game.bat ^<project-name^>
+    exit /b 1
+)
+set "PROJECT=%~1"
+set COMPOSE_PROJECT_NAME=%PROJECT%
+set PROJECT_NAME=%PROJECT%
 set DOCKER_BUILDKIT=0
+cd /d "%~dp0"
 docker compose --profile patch -f docker-compose.yml build account accountlog character gamelog login worldmanager zone00 zone01 zone02 zone03 zone04
 docker compose --profile patch -f docker-compose.yml up -d
 pause
