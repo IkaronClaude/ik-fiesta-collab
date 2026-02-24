@@ -142,8 +142,8 @@ initCommand.SetHandler((DirectoryInfo project, string mimirCmd) =>
             "Write-Host \"Latest version:  $latestVersion\"\r\n" +
             "$minIncrementalVersion = if ($null -ne $index.minIncrementalVersion) { [int]$index.minIncrementalVersion } else { 1 }\r\n" +
             "$masterPatch = $index.masterPatch\r\n" +
-            "if (($null -ne $masterPatch) -and ($currentVersion -lt $minIncrementalVersion)) {\r\n" +
-            "    Write-Host \"Version $currentVersion is below minimum incremental v$minIncrementalVersion. Downloading master patch...\"\r\n" +
+            "if (($null -ne $masterPatch) -and ($currentVersion -lt ($minIncrementalVersion - 1))) {\r\n" +
+            "    Write-Host \"Version $currentVersion is below minimum incremental v$minIncrementalVersion -- downloading full client...\"\r\n" +
             "    $masterUrl = $masterPatch.url\r\n" +
             "    if (-not ($masterUrl -match '^https?://') -and -not ($masterUrl -match '^file:///')) { $masterUrl = \"${patchUrl}${masterUrl}\" }\r\n" +
             "    Write-Host \"Master patch: $($masterPatch.fileCount) files, $([math]::Round($masterPatch.sizeBytes/1024,1)) KB\"\r\n" +

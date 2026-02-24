@@ -11,11 +11,7 @@ if not exist "%~dp0patch.bat" (
 )
 
 set "VERSION_FILE=%~dp0.mimir-version"
-if exist "%VERSION_FILE%" (
-    del "%VERSION_FILE%"
-    echo Version record cleared. Forcing full re-download...
-) else (
-    echo No version record found. Downloading full client...
-)
+echo -1 > "%VERSION_FILE%"
+echo Repair mode set. Forcing full client re-download...
 echo.
 call "%~dp0patch.bat"

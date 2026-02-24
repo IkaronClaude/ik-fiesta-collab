@@ -46,15 +46,15 @@ Write-Host "Latest version:  $latestVersion"
 $minVer = if ($null -ne $index.minIncrementalVersion) { [int]$index.minIncrementalVersion } else { 1 }
 $master = $index.masterPatch
 
-if (($null -ne $master) -and ($currentVersion -lt $minVer)) {
-    Write-Host "Version $currentVersion is below minimum v$minVer -- downloading full client patch..."
+if (($null -ne $master) -and ($currentVersion -lt ($minVer - 1))) {
+    Write-Host "Version $currentVersion is below minimum incremental v$minVer -- downloading full client..."
     $masterUrl = $master.url
     if ($masterUrl -notmatch '^https?://') { $masterUrl = "${patchUrl}${masterUrl}" }
     Write-Host "  $($master.fileCount) files  $([math]::Round($master.sizeBytes / 1MB, 1)) MB"
     $tmp = Join-Path $env:TEMP 'mimir-master.zip'
     try   { Invoke-WebRequest -Uri $masterUrl -OutFile $tmp -UseBasicParsing }
     catch { Write-Host "ERROR: Download failed: $_" -ForegroundColor Red; exit 1 }
-    if ((Get-FileHash $tmp SHA256).Hash.ToLower() -ne $master.sha256) {
+    if ((Get-FileHash $tmp -Algorithm SHA256).Hash.ToLower() -ne $master.sha256) {
         Write-Host 'ERROR: File is corrupted (hash mismatch). Try again or contact support.' -ForegroundColor Red
         Remove-Item $tmp -Force; exit 1
     }
@@ -82,7 +82,7 @@ foreach ($patch in $patches) {
     $tmp = Join-Path $env:TEMP "mimir-patch-$($patch.version).zip"
     try   { Invoke-WebRequest -Uri $url -OutFile $tmp -UseBasicParsing }
     catch { Write-Host "  ERROR: Download failed: $_" -ForegroundColor Red; exit 1 }
-    if ((Get-FileHash $tmp SHA256).Hash.ToLower() -ne $patch.sha256) {
+    if ((Get-FileHash $tmp -Algorithm SHA256).Hash.ToLower() -ne $patch.sha256) {
         Write-Host '  ERROR: Patch is corrupted (hash mismatch). Try again or contact support.' -ForegroundColor Red
         Remove-Item $tmp -Force; exit 1
     }
