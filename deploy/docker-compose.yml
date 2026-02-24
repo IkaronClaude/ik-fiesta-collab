@@ -40,10 +40,10 @@ services:
     volumes:
       - sql-data:C:/sql-data
     environment:
-      - SA_PASSWORD=V63WsdafLJT9NDAn
+      - SA_PASSWORD=${SA_PASSWORD:-V63WsdafLJT9NDAn}
       - ACCEPT_EULA=Y
     healthcheck:
-      test: ["CMD", "sqlcmd", "-S", ".\\SQLEXPRESS", "-U", "sa", "-P", "V63WsdafLJT9NDAn", "-C", "-Q", "SELECT 1"]
+      test: ["CMD", "sqlcmd", "-S", ".\\SQLEXPRESS", "-U", "sa", "-P", "${SA_PASSWORD:-V63WsdafLJT9NDAn}", "-C", "-Q", "SELECT 1"]
       interval: 10s
       timeout: 5s
       retries: 10

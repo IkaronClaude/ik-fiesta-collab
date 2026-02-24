@@ -6,7 +6,7 @@ exit /b %errorlevel%
 :deploy_cmd
 if "%2"=="" (
     echo Usage: mimir deploy ^<script^>
-    echo Available: update, deploy, restart-game, start, stop, logs, rebuild-game, rebuild-sql, reimport
+    echo Available: update, deploy, restart-game, start, stop, logs, rebuild-game, rebuild-sql, reimport, set
     exit /b 1
 )
 set "DEPLOY_BAT=%~dp0deploy\%2.bat"
@@ -29,5 +29,11 @@ goto :findproj
 :foundproj
 for %%N in ("%MIMIR_PROJ_DIR%") do set "MIMIR_PROJ_NAME=%%~nxN"
 
-call "%DEPLOY_BAT%" "%MIMIR_PROJ_NAME%"
+:: Load per-project deploy config into environment
+set "MIMIR_ENV_FILE=%MIMIR_PROJ_DIR%\.mimir-deploy.env"
+if exist "%MIMIR_ENV_FILE%" (
+    for /f "usebackq tokens=1* delims==" %%K in ("%MIMIR_ENV_FILE%") do set "%%K=%%L"
+)
+
+call "%DEPLOY_BAT%" "%MIMIR_PROJ_NAME%" %3 %4 %5 %6 %7 %8 %9
 exit /b %errorlevel%
