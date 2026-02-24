@@ -248,7 +248,7 @@ for ($i = 0; $i -lt $timeout; $i++) {
 }
 
 if ($logFiles.Count -eq 0) {
-    Write-Host "No log files found after ${timeout}s — $processName may have crashed at startup."
+    Write-Host "No log files found after ${timeout}s - $processName may have crashed at startup."
     if ($keepAlive) {
         Write-Host "KEEP_ALIVE=1: container staying alive. Use 'docker exec' to investigate." -ForegroundColor Cyan
         while ($true) { Start-Sleep -Seconds 60 }

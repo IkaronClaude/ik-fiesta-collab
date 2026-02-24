@@ -103,7 +103,7 @@ foreach ($db in $databases) {
 Write-Host "SQL Server setup complete. All databases ready."
 
 # Keep container alive by tailing the SQL error log
-# SQL Server 2025 = MSSQL17, 2022 = MSSQL16 — find whichever exists
+# SQL Server 2025 = MSSQL17, 2022 = MSSQL16 - find whichever exists
 $logFile = Get-ChildItem "C:\Program Files\Microsoft SQL Server\MSSQL*.SQLEXPRESS\MSSQL\Log\ERRORLOG" -ErrorAction SilentlyContinue | Select-Object -First 1
 $errorLog = if ($logFile) { $logFile.FullName } else { $null }
 if ($errorLog -and (Test-Path $errorLog)) {

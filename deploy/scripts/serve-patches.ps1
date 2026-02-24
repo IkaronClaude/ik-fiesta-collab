@@ -1,4 +1,4 @@
-# serve-patches.ps1 — Simple HTTP file server for Mimir patch files.
+# serve-patches.ps1 - Simple HTTP file server for Mimir patch files.
 # Serves everything under C:\patches\ on port 80.
 
 $port = 80
