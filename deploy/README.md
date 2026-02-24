@@ -11,9 +11,9 @@ Local Fiesta Online server running in Docker for end-to-end testing of Mimir bui
 - **login** — Login server (client entry point, port 9010)
 - **worldmanager** — World manager
 - **zone00–zone04** — Zone servers (5 zones)
-- **patchserver** — nginx serving `patches/` on port 8080 (started via `--profile patch`)
+- **patch-server** — nginx serving `patches/` on port 8080 (started via `--profile patch`)
 
-All game containers use the same Docker image. Each runs a single process specified by environment variables.
+All game containers use the same Docker image. Each runs a single process specified by environment variables. Container names and volume names are namespaced by project name (derived from the directory containing `mimir.json`) so two projects can run side by side without conflicts.
 
 ## Prerequisites
 
@@ -33,59 +33,81 @@ xcopy /E /I Z:\Server\GamigoZR deploy\server-files\GamigoZR
 
 ## First-Time Setup
 
-```bat
-cd deploy
+Run from inside your project directory (where `mimir.json` lives):
 
-:: 1. Build images (SQL + game server)
-set DOCKER_BUILDKIT=0
-rebuild-sql.bat        :: builds SQL image, starts SQL, restores .bak databases
-rebuild-game.bat       :: builds game server image, starts all game containers
+```bat
+cd my-server
+
+:: 1. Build SQL image, start SQL container, restore .bak databases
+mimir deploy rebuild-sql
+
+:: 2. Build game server image, start all game + patch containers
+mimir deploy rebuild-game
 ```
 
-Wait for SQL to become healthy before starting game containers. The `rebuild-sql.bat` script blocks until the healthcheck passes.
+SQL must be healthy before game containers start. `rebuild-sql` blocks until the healthcheck passes.
 
-## Scripts
+## Deploy Commands
 
-| Script | What it does |
-|--------|-------------|
-| `start.bat` | Start all containers (no rebuild) |
-| `stop.bat` | Stop all containers |
-| `update.bat` | **Iterative dev cycle**: `mimir build --all` → `mimir pack patches` → snapshot → restart game servers. No SQL touch, no Docker rebuild. Use this for day-to-day data changes. |
-| `deploy.bat` | **Full cycle**: stop all → `mimir build --all` → `mimir pack patches` → snapshot → start all. Use for first-time deploys or after config changes. |
-| `restart-game.bat` | Snapshot only → restart game containers. Use after a manual `mimir build` if you skipped pack. |
-| `reimport.bat` | Full reimport from source (slow — wipes data/, rebuilds, reseeds pack baseline) |
-| `rebuild-game.bat` | Rebuild game server Docker image + start (needed after server binary/script changes) |
-| `rebuild-sql.bat` | Wipe and restore SQL databases from `.bak` files (destructive) |
-| `logs.bat` | Stream logs from all containers (`docker compose logs -f`) |
+All commands are run from inside the project directory. Mimir finds the project automatically.
+
+| Command | What it does |
+|---------|-------------|
+| `mimir deploy start` | Start all containers (no rebuild) |
+| `mimir deploy stop` | Stop all containers |
+| `mimir deploy update` | **Iterative dev cycle**: `mimir build --all` → `mimir pack patches` → snapshot → restart game servers. No SQL touch, no Docker rebuild. Use this for day-to-day data changes. |
+| `mimir deploy deploy` | **Full cycle**: stop all → `mimir build --all` → `mimir pack patches` → snapshot → start all. Use for first-time deploys or after config changes. |
+| `mimir deploy restart-game` | Snapshot only → restart game containers. Use after a manual `mimir build` if you skipped pack. |
+| `mimir deploy reimport` | Full reimport from source (slow — wipes data/, rebuilds, reseeds pack baseline) |
+| `mimir deploy rebuild-game` | Rebuild game server Docker image + start (needed after server binary/script changes) |
+| `mimir deploy rebuild-sql` | Wipe and restore SQL databases from `.bak` files (destructive) |
+| `mimir deploy logs` | Stream logs from all game containers (`docker compose logs -f`) |
 
 ## Day-to-Day Workflow
 
 After editing data in Mimir:
 
 ```bat
-cd deploy
-update.bat
+cd my-server
+mimir deploy update
 ```
 
-Then patch your client and launch:
+Then patch your client:
 
 ```bat
-deploy\patcher\patch.bat C:\Fiesta\Client
+:: Copy deploy\player\patch.bat to your client folder (edit MIMIR_PATCH_URL first)
+:: Then double-click it — or run repair.bat to force a full re-download
 ```
 
-`update.bat` runs `mimir build --all`, generates an incremental client patch, snapshots `build/server/` → `deployed/server/`, and restarts the game processes. SQL is not touched. Typical turnaround under a minute.
+`mimir deploy update` runs `mimir build --all`, generates an incremental client patch (and refreshes the master patch), snapshots `build/server/` → `deployed/server/`, and restarts the game processes. SQL is not touched. Typical turnaround under a minute.
 
 ## Volume Mount Architecture
 
-Game containers mount `test-project/deployed/server/9Data` (read-write, not `build/server/` directly). This allows `mimir build` to write to `build/` while containers are running — no file locking conflicts.
+Game containers mount `<project>/deployed/server/9Data` (read-write). This allows `mimir build` to write to `build/` while containers are running — no file locking conflicts.
 
-`deploy.bat` and `restart-game.bat` both run a `robocopy build/server → deployed/server` snapshot before restarting containers, so the game always sees the latest built data.
+`mimir deploy update` and `mimir deploy restart-game` both robocopy `build/server → deployed/server` before restarting containers, so the game always sees the latest built data.
 
 Zone.exe opens `9Data/SubAbStateClass.txt` with write access at startup — the mount must be read-write.
 
+## Debugging a Crashed Container
+
+To keep a container alive after its game process exits (for `docker exec` investigation), add `KEEP_ALIVE=1` to the service's environment in `docker-compose.yml`:
+
+```yaml
+zone00:
+  <<: *gameserver
+  environment:
+    - PROCESS_NAME=Zone00
+    - PROCESS_EXE=Zone.exe
+    - ZONE_NUMBER=0
+    - KEEP_ALIVE=1
+```
+
+Without `KEEP_ALIVE`, containers exit automatically when their Windows service stops, so `docker ps` always reflects actual server health.
+
 ## Config
 
-The `deploy/config/ServerInfo/ServerInfo.txt` override (volume-mounted over the server's default) changes:
+The `deploy/docker-config/ServerInfo/ServerInfo.txt` override (baked into the image) changes:
 - **ODBC driver**: `{SQL Server}` → `{ODBC Driver 17 for SQL Server}`
 - **ODBC server**: `.\SQLEXPRESS` → `sqlserver` (Docker Compose hostname)
 - **Process IPs**: `127.0.0.1` → Docker Compose service hostnames (`login`, `worldmanager`, `zone00`, etc.)
@@ -96,11 +118,9 @@ The `deploy/config/ServerInfo/ServerInfo.txt` override (volume-mounted over the 
 
 **`docker compose build` hangs or fails**: Run `set DOCKER_BUILDKIT=0` first. BuildKit is incompatible with Windows containers.
 
-**SQL restore fails**: Check `docker logs fiesta-sql`. `.bak` files must be SQL Server 2025-compatible.
+**SQL restore fails**: Check `docker logs <project>-sqlserver-1`. `.bak` files must be SQL Server 2025-compatible.
 
 **Zone.exe crashes at startup**: GamigoZR must be present in `server-files/GamigoZR/` and started before Zone.exe. The startup script handles this automatically — check that GamigoZR was copied correctly.
-
-**"ItemInfo iteminfoserver Order not match[N]"**: Column order mismatch between ItemInfo.shn and ItemInfoServer.shn after merge+split. Investigate TableSplitter column ordering for split-strategy columns.
 
 **Can't connect from client**: Only port 9010 (Login) is exposed to the host. Configure the client to connect to `127.0.0.1:9010`.
 

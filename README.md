@@ -174,27 +174,22 @@ Mimir includes a self-contained patching system so game clients can update thems
 
 ### How it works
 
-1. `mimir pack patches --env client` — compares `build/client/` to previous state, writes a versioned zip + updates `patches/patch-index.json`
-2. A patch server (nginx or any HTTP server) serves the `patches/` directory
-3. `deploy\patcher\patch.bat <client-dir>` — checks `patch-index.json`, downloads and applies any new patches, verifies SHA-256
+1. `mimir pack patches --env client` — diffs `build/client/` against the previous pack state, writes a versioned incremental zip and a `patches/patch-master.zip` (full current snapshot), then updates `patches/patch-index.json`
+2. A patch server (any HTTP server) serves the `patches/` directory — the Docker setup includes nginx on port 8080
+3. Players run `patch.bat` from their game folder to download only what changed
 
-### Configure the patch URL
+### Player patch scripts
 
-Edit `deploy/patcher/patcher.config`:
+`deploy/player/` contains two scripts players copy to their game client folder:
 
-```
-PatchUrl=http://localhost:8080/
-```
+| Script | What it does |
+|--------|-------------|
+| `patch.bat` | Downloads and applies any new patches. If the client is too far out of date it automatically downloads the full master patch instead of chaining incrementals. |
+| `repair.bat` | Forces a full re-download of all client files — call this if the client is broken or corrupted. |
 
-Point this at wherever your patch server is running.
+Before distributing, edit the `MIMIR_PATCH_URL=` line near the top of `patch.bat` to point at your patch server.
 
-### Apply patches to your client
-
-```bat
-deploy\patcher\patch.bat C:\Fiesta\Client
-```
-
-The patcher stores `.mimir-version` in the client directory to track the current version and only download what's new.
+The patcher stores `.mimir-version` in the client folder to track the current version and only download what's new.
 
 ---
 
@@ -202,64 +197,59 @@ The patcher stores `.mimir-version` in the client directory to track the current
 
 See `deploy/` for Docker Compose configuration that runs a full Fiesta server stack locally (SQL Server + all 11 game processes + optional patch server).
 
-### Quick start
+All deploy commands are run from inside your project directory using `mimir deploy <script>`. Mimir finds your project automatically (same upward walk as `mimir build`) and namespaces all Docker containers and volumes under your project name so two projects can run side by side.
+
+### Quick start (first time)
 
 ```bat
-cd deploy
+cd my-server
 
-:: First time: build the image and restore SQL databases
-set DOCKER_BUILDKIT=0
-docker compose build
-docker compose up sqlserver -d
-:: (wait for SQL to be healthy, then restore .bak files)
+:: Build the SQL image and restore databases from .bak files
+mimir deploy rebuild-sql
 
-:: Start everything including the patch server
-start.bat
+:: Build the game server image and start everything
+mimir deploy rebuild-game
 ```
 
-### Included bat scripts
+### Deploy commands
 
-| Script | What it does |
-|--------|-------------|
-| `start.bat` | Start all containers (game servers + patch server on :8080) |
-| `stop.bat` | Stop all containers |
-| `update.bat` | **Iterative dev cycle**: `mimir build --all` → `mimir pack patches` → snapshot → restart game servers (no SQL touch, no Docker rebuild) |
-| `deploy.bat` | **Full cycle**: stop all → `mimir build --all` → `mimir pack patches` → snapshot → start all |
-| `restart-game.bat` | Snapshot only → restart game containers (use after a manual `mimir build`) |
-| `reimport.bat` | Full reimport from source files (slow — wipes data/, rebuilds everything) |
-| `rebuild-game.bat` | Rebuild game server Docker image + start (needed after server binary changes) |
-| `rebuild-sql.bat` | Wipe and restore SQL databases (destructive) |
-| `logs.bat` | Stream logs from all containers (`docker compose logs -f`) |
+| Command | What it does |
+|---------|-------------|
+| `mimir deploy start` | Start all containers (no rebuild) |
+| `mimir deploy stop` | Stop all containers |
+| `mimir deploy update` | **Iterative dev cycle**: `mimir build --all` → `mimir pack patches` → snapshot → restart game servers. No SQL touch, no Docker rebuild. |
+| `mimir deploy deploy` | **Full cycle**: stop all → build → pack → snapshot → start all |
+| `mimir deploy restart-game` | Snapshot + restart game containers (use after a manual `mimir build`) |
+| `mimir deploy reimport` | Full reimport from source (slow — wipes data/, rebuilds, reseeds pack baseline) |
+| `mimir deploy rebuild-game` | Rebuild game server Docker image + start (needed after server binary changes) |
+| `mimir deploy rebuild-sql` | Wipe and restore SQL databases from `.bak` files (destructive) |
+| `mimir deploy logs` | Stream logs from all game containers |
 
 ### Iterative data change workflow
 
-For day-to-day data changes while the server is running:
-
 ```bat
-cd deploy
-update.bat
+cd my-server
+mimir deploy update
 ```
 
-This builds data, generates an incremental client patch, snapshots to `deployed/server/`, and restarts only the game processes. SQL and Docker images are untouched. Typical turnaround is under a minute.
-
-Then apply client patches:
-
-```bat
-deploy\patcher\patch.bat C:\Fiesta\Client
-```
+Builds data, generates an incremental client patch, snapshots to `deployed/server/`, and restarts only the game processes. SQL and Docker images are untouched. Typical turnaround under a minute.
 
 ### Full deploy (first time or after binary/config changes)
 
 ```bat
-cd deploy
-deploy.bat
+cd my-server
+mimir deploy deploy
 ```
 
 Stops all containers, builds everything, packs patches, and starts fresh.
 
 ### Patch server
 
-The patch server is an nginx container serving `patches/` on port 8080. It starts automatically with `start.bat`. `deploy.bat` always runs `mimir pack` before starting containers so the patch server is immediately up to date.
+nginx container serving `patches/` on port 8080, started automatically with `mimir deploy start`. `mimir deploy deploy` and `mimir deploy update` both run `mimir pack` before restarting so the patch server is always current.
+
+### Debugging a crashed container
+
+Add `KEEP_ALIVE=1` to a service's environment in `docker-compose.yml` to keep the container alive after the game process exits. This lets you `docker exec` in to inspect logs, files, and service state.
 
 > **SQL Server SA password**: `V63WsdafLJT9NDAn`
 > Connect: `sqlcmd -S localhost\SQLEXPRESS -U sa -P V63WsdafLJT9NDAn -C`
@@ -281,14 +271,14 @@ my-server/
   build/
     server/               # built server output (SHN + txt)
     client/               # built client output
-  patches/                # incremental patch zips + patch-index.json
-  deploy/
-    reimport.bat          # wipe + reimport + rebuild
-    deploy.bat            # build + pack (no Docker assumed)
-    patcher/
-      patch.bat           # run this to patch your game client
-      patch.ps1           # patcher implementation
-      patcher.config      # set PatchUrl here
+  patches/                # incremental + master patch zips, patch-index.json
+  deployed/
+    server/               # robocopy snapshot of build/server (Docker mounts this)
+  deploy/                 # Docker Compose + deploy scripts (shared across projects)
+    docker-compose.yml
+    player/
+      patch.bat           # distribute to players — edit MIMIR_PATCH_URL at top
+      repair.bat          # forces full client re-download
 ```
 
 ---
