@@ -350,6 +350,15 @@ importCommand.SetHandler(async (DirectoryInfo? projectOpt, bool reimport) =>
                 }
             }
 
+            if (result.DuplicateJoinKeys.Count > 0)
+            {
+                logger.LogWarning("DUPLICATE JOIN KEYS in {Table}@{Env}: {Keys}",
+                    action.From.Table, action.From.Env,
+                    string.Join(", ", result.DuplicateJoinKeys.Take(10))
+                    + (result.DuplicateJoinKeys.Count > 10
+                        ? $" ... and {result.DuplicateJoinKeys.Count - 10} more" : ""));
+            }
+
             logger.LogInformation("Merge: {From}@{Env} → {Into} ({Conflicts} conflicts)",
                 action.From.Table, action.From.Env, action.Into, result.Conflicts.Count);
         }

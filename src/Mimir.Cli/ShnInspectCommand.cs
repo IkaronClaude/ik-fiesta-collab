@@ -281,8 +281,30 @@ public static class ShnInspectCommand
         using var reader = new BinaryReader(file);
         reader.ReadBytes(32);
         int dataLength = reader.ReadInt32() - 36;
-        var buf = reader.ReadBytes(Math.Min(dataLength, 8)); // only need 8 bytes
-        crypto.Crypt(buf, 0, buf.Length);
+        // Cipher runs backwards from position dataLength-1 to 0, initial key=(byte)dataLength.
+        // Key at each position depends only on position and previous key (not on data),
+        // so we can fast-forward the key schedule to position 7 without reading the bulk data.
+        byte key = (byte)dataLength;
+        for (int i = dataLength - 1; i >= 8; i--)
+        {
+            byte nk = (byte)(i & 0x0F);
+            nk = (byte)(nk + 0x55);
+            nk ^= (byte)((byte)(i) * 11);
+            nk ^= key;
+            nk ^= 0xAA;
+            key = nk;
+        }
+        var buf = reader.ReadBytes(8);
+        for (int i = 7; i >= 0; i--)
+        {
+            buf[i] ^= key;
+            byte nk = (byte)(i & 0x0F);
+            nk = (byte)(nk + 0x55);
+            nk ^= (byte)((byte)(i) * 11);
+            nk ^= key;
+            nk ^= 0xAA;
+            key = nk;
+        }
         using var ms = new MemoryStream(buf);
         using var r = new BinaryReader(ms);
         r.ReadUInt32(); // header

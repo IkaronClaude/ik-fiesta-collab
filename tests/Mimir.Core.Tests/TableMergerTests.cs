@@ -357,6 +357,68 @@ public class TableMergerTests
         serverKeys.ShouldNotContain("B");
     }
 
+    // --- Duplicate join key tests ---
+
+    [Fact]
+    public void DuplicateJoinKeys_IdenticalData_AllRowsShared()
+    {
+        // Reproduces the ItemInfo Q_ quest item bug:
+        // Source (server) and target (client) are identical and both contain duplicate
+        // join key values. Merge should produce only shared (null) rows — no source-only extras.
+        var cols = new ColumnDefinition[]
+        {
+            Col("InxName", ColumnType.String, 32),
+            Col("Value", ColumnType.UInt32)
+        };
+
+        var target = new TableFile
+        {
+            Header = new TableHeader { TableName = "ItemInfo", SourceFormat = "shn" },
+            Columns = cols,
+            Data = [
+                Row(("InxName", "UniqueA"), ("Value", (object?)(uint)1)),
+                Row(("InxName", "Q_Dup"),   ("Value", (uint)10)),  // first occurrence
+                Row(("InxName", "UniqueB"), ("Value", (uint)2)),
+                Row(("InxName", "Q_Dup"),   ("Value", (uint)10))   // second occurrence
+            ],
+            RowEnvironments = [["client"], ["client"], ["client"], ["client"]]
+        };
+
+        var source = MakeTable("ItemInfo", cols,
+            Row(("InxName", "UniqueA"), ("Value", (object?)(uint)1)),
+            Row(("InxName", "Q_Dup"),   ("Value", (uint)10)),
+            Row(("InxName", "UniqueB"), ("Value", (uint)2)),
+            Row(("InxName", "Q_Dup"),   ("Value", (uint)10)));
+
+        var join = new JoinClause { Source = "InxName", Target = "InxName" };
+        var result = TableMerger.Merge(target, source, join, "server", "auto", "report", "client");
+
+        result.Table.Data.Count.ShouldBe(4); // no extra source-only rows
+        result.Table.RowEnvironments.ShouldNotBeNull();
+        result.Table.RowEnvironments!.ShouldAllBe(re => re == null); // all shared
+    }
+
+    [Fact]
+    public void DuplicateJoinKeys_ReportedInResult()
+    {
+        // Duplicate join keys in the source should be surfaced as warnings in the result.
+        var cols = new ColumnDefinition[] { Col("ID", ColumnType.UInt32) };
+
+        var target = MakeTable("T", cols,
+            Row(("ID", (object?)(uint)1)),
+            Row(("ID", (uint)2)));
+
+        var source = MakeTable("T", cols,
+            Row(("ID", (object?)(uint)1)),
+            Row(("ID", (uint)1)),  // duplicate
+            Row(("ID", (uint)2)));
+
+        var join = new JoinClause { Source = "ID", Target = "ID" };
+        var result = TableMerger.Merge(target, source, join, "server", "auto");
+
+        result.DuplicateJoinKeys.ShouldContain("1");
+    }
+
     // --- Row order tests ---
 
     [Fact]

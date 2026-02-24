@@ -129,15 +129,30 @@ public static class TableMerger
         var mergedRows = new List<Dictionary<string, object?>>();
         var mergedRowEnvs = new List<List<string>?>();
 
-        // Build source join index
-        var sourceIndex = new Dictionary<string, int>();
+        // Build source join index.
+        // Use a queue per key so that duplicate join-key values in both tables are
+        // matched in order (FIFO) rather than the last occurrence overwriting previous ones.
+        var duplicateJoinKeys = new List<string>();
+        var sourceIndex = new Dictionary<string, Queue<int>>();
         for (int i = 0; i < source.Data.Count; i++)
         {
             var key = Stringify(source.Data[i].GetValueOrDefault(on.Source));
-            sourceIndex[key] = i;
+            if (!sourceIndex.TryGetValue(key, out var q))
+            {
+                q = new Queue<int>();
+                sourceIndex[key] = q;
+            }
+            else if (q.Count == 1)
+            {
+                // Track the first time a key appears more than once
+                duplicateJoinKeys.Add(key);
+            }
+            q.Enqueue(i);
         }
 
         var matchedSourceRows = new HashSet<int>();
+        // Maps merged-row index → source-row index for matched rows (used by conflict splitting).
+        var matchedSourceIdxByMergedRowIdx = new Dictionary<int, int>();
 
         // Process all target rows in their original order.
         // Each row is either matched (has a corresponding source row) or target-only.
@@ -148,10 +163,12 @@ public static class TableMerger
             var key = Stringify(targetRow.GetValueOrDefault(on.Target));
             var merged = new Dictionary<string, object?>();
 
-            if (sourceIndex.TryGetValue(key, out var sIdx))
+            if (sourceIndex.TryGetValue(key, out var queue) && queue.Count > 0)
             {
-                // Matched row — merge source columns in
+                // Matched row — dequeue the next available source occurrence
+                var sIdx = queue.Dequeue();
                 matchedSourceRows.Add(sIdx);
+                matchedSourceIdxByMergedRowIdx[mergedRows.Count] = sIdx;
                 var sourceRow = source.Data[sIdx];
 
                 foreach (var col in mergedColumns)
@@ -264,9 +281,8 @@ public static class TableMerger
                     var rowEnv = mergedRowEnvs[i];
                     if (rowEnv == null)
                     {
-                        // Matched (shared) row — look up source value via join key
-                        var jk = Stringify(mergedRows[i].GetValueOrDefault(on.Target));
-                        mergedRows[i][splitName] = sourceIndex.TryGetValue(jk, out var si)
+                        // Matched (shared) row — look up source row via the recorded match index
+                        mergedRows[i][splitName] = matchedSourceIdxByMergedRowIdx.TryGetValue(i, out var si)
                             ? source.Data[si].GetValueOrDefault(colName) : null;
                     }
                     else if (rowEnv.Contains(envName))
@@ -308,7 +324,8 @@ public static class TableMerger
         {
             Table = mergedTable,
             Conflicts = conflicts,
-            EnvMetadata = envMetadata
+            EnvMetadata = envMetadata,
+            DuplicateJoinKeys = duplicateJoinKeys
         };
     }
 
@@ -366,6 +383,12 @@ public sealed class MergeResult
     public required TableFile Table { get; init; }
     public required List<MergeConflict> Conflicts { get; init; }
     public required Dictionary<string, EnvMergeMetadata> EnvMetadata { get; init; }
+
+    /// <summary>
+    /// Join key values that appeared more than once in the source table.
+    /// Duplicate join keys are a data integrity issue and are surfaced as warnings during import.
+    /// </summary>
+    public required List<string> DuplicateJoinKeys { get; init; }
 }
 
 public sealed class MergeConflict
