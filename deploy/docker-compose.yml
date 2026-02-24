@@ -199,5 +199,20 @@ services:
       - ../${PROJECT_NAME:-test-project}/patches:C:/patches:ro
     restart: unless-stopped
 
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    ports:
+      - "5000:5000"
+    environment:
+      - ACCOUNT_CONN=Server=sqlserver\SQLEXPRESS;Database=Account;User Id=sa;Password=${SA_PASSWORD:-V63WsdafLJT9NDAn};TrustServerCertificate=True;
+      - CHARACTER_CONN=Server=sqlserver\SQLEXPRESS;Database=${WORLD_DB_NAME:-World00_Character};User Id=sa;Password=${SA_PASSWORD:-V63WsdafLJT9NDAn};TrustServerCertificate=True;
+      - JWT_SECRET=${JWT_SECRET:-dev-secret-change-in-prod-must-be-long-enough}
+      - ADMIN_KEY=${ADMIN_KEY:-dev-admin-key}
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+
 volumes:
   sql-data:

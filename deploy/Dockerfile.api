@@ -1,0 +1,6 @@
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-windowsservercore-ltsc2022
+WORKDIR /app
+EXPOSE 5000
+COPY api-publish/ .
+ENV ASPNETCORE_URLS=http://+:5000
+ENTRYPOINT ["dotnet", "Mimir.Api.dll"]
