@@ -28,6 +28,13 @@ public sealed class PatchIndex
 
     [JsonPropertyName("patches")]
     public List<PatchEntry> Patches { get; set; } = new();
+
+    [JsonPropertyName("masterPatch")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public MasterPatchEntry? MasterPatch { get; set; }
+
+    [JsonPropertyName("minIncrementalVersion")]
+    public int MinIncrementalVersion { get; set; } = 1;
 }
 
 public sealed class PatchEntry
@@ -46,6 +53,15 @@ public sealed class PatchEntry
 
     [JsonPropertyName("sizeBytes")]
     public long SizeBytes { get; set; }
+}
+
+public sealed class MasterPatchEntry
+{
+    [JsonPropertyName("version")]  public int Version   { get; set; }
+    [JsonPropertyName("url")]      public string Url    { get; set; } = "";
+    [JsonPropertyName("sha256")]   public string Sha256 { get; set; } = "";
+    [JsonPropertyName("fileCount")]public int FileCount { get; set; }
+    [JsonPropertyName("sizeBytes")]public long SizeBytes{ get; set; }
 }
 
 /// <summary>
@@ -139,6 +155,20 @@ public static class PackCommand
             }
         }
 
+        // Step 6b: Create/overwrite master patch (all current files, always at latest version)
+        var masterZipPath = Path.Combine(patchesDir, "patch-master.zip");
+        if (File.Exists(masterZipPath)) File.Delete(masterZipPath);
+        using (var masterZip = ZipFile.Open(masterZipPath, ZipArchiveMode.Create))
+        {
+            foreach (var relPath in currentFiles.Keys.OrderBy(f => f))
+                masterZip.CreateEntryFromFile(currentFiles[relPath].sourcePath, relPath);
+        }
+        var masterHash = await HashFileAsync(masterZipPath);
+        var masterSize = new FileInfo(masterZipPath).Length;
+        var masterUrl = "patches/patch-master.zip";
+        if (!string.IsNullOrEmpty(baseUrl))
+            masterUrl = (baseUrl.EndsWith('/') ? baseUrl : baseUrl + "/") + masterUrl;
+
         // Step 7: Hash the zip
         var zipHash = await HashFileAsync(zipPath);
         var zipSize = new FileInfo(zipPath).Length;
@@ -172,6 +202,34 @@ public static class PackCommand
             SizeBytes = zipSize
         });
         index.LatestVersion = nextVersion;
+
+        // Update master patch entry in index
+        index.MasterPatch = new MasterPatchEntry
+        {
+            Version   = nextVersion,
+            Url       = masterUrl,
+            Sha256    = masterHash,
+            FileCount = currentFiles.Count,
+            SizeBytes = masterSize
+        };
+
+        // Prune oldest incrementals while their cumulative size exceeds the master patch size.
+        // Clients below minIncrementalVersion fall back to master (always at latestVersion).
+        if (index.Patches.Count > 1)
+        {
+            index.Patches.Sort((a, b) => a.Version.CompareTo(b.Version)); // oldest first
+            while (index.Patches.Count > 1
+                   && index.Patches.Sum(p => p.SizeBytes) > masterSize)
+            {
+                var pruned = index.Patches[0];
+                index.Patches.RemoveAt(0);
+                var prunedZip = Path.Combine(patchesDir, $"patch-v{pruned.Version}.zip");
+                if (File.Exists(prunedZip)) File.Delete(prunedZip);
+            }
+        }
+        index.MinIncrementalVersion = index.Patches.Count > 0
+            ? index.Patches.Min(p => p.Version)
+            : nextVersion; // no incrementals remain — must use master for any client
 
         await File.WriteAllTextAsync(indexPath, JsonSerializer.Serialize(index, JsonOptions));
 

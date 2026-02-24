@@ -140,6 +140,24 @@ initCommand.SetHandler((DirectoryInfo project, string mimirCmd) =>
             "$index = $indexJson | ConvertFrom-Json\r\n" +
             "$latestVersion = $index.latestVersion\r\n" +
             "Write-Host \"Latest version:  $latestVersion\"\r\n" +
+            "$minIncrementalVersion = if ($null -ne $index.minIncrementalVersion) { [int]$index.minIncrementalVersion } else { 1 }\r\n" +
+            "$masterPatch = $index.masterPatch\r\n" +
+            "if (($null -ne $masterPatch) -and ($currentVersion -lt $minIncrementalVersion)) {\r\n" +
+            "    Write-Host \"Version $currentVersion is below minimum incremental v$minIncrementalVersion. Downloading master patch...\"\r\n" +
+            "    $masterUrl = $masterPatch.url\r\n" +
+            "    if (-not ($masterUrl -match '^https?://') -and -not ($masterUrl -match '^file:///')) { $masterUrl = \"${patchUrl}${masterUrl}\" }\r\n" +
+            "    Write-Host \"Master patch: $($masterPatch.fileCount) files, $([math]::Round($masterPatch.sizeBytes/1024,1)) KB\"\r\n" +
+            "    $tempMaster = Join-Path $env:TEMP 'mimir-patch-master.zip'\r\n" +
+            "    try { Invoke-WebRequest -Uri $masterUrl -OutFile $tempMaster -UseBasicParsing }\r\n" +
+            "    catch { Write-Host \"ERROR: Master patch download failed: $_\" -ForegroundColor Red; exit 1 }\r\n" +
+            "    $actualHash = (Get-FileHash -Path $tempMaster -Algorithm SHA256).Hash.ToLower()\r\n" +
+            "    if ($actualHash -ne $masterPatch.sha256) { Write-Host 'ERROR: Master patch SHA-256 mismatch!' -ForegroundColor Red; Remove-Item $tempMaster -Force; exit 1 }\r\n" +
+            "    Expand-Archive -Path $tempMaster -DestinationPath $ClientDir -Force\r\n" +
+            "    Set-Content -Path $versionFile -Value $masterPatch.version\r\n" +
+            "    Remove-Item $tempMaster -Force\r\n" +
+            "    Write-Host \"Applied master patch. Client is now at version $($masterPatch.version).\" -ForegroundColor Green\r\n" +
+            "    exit 0\r\n" +
+            "}\r\n" +
             "if ($currentVersion -ge $latestVersion) { Write-Host \"`nClient is up to date!\" -ForegroundColor Green; exit 0 }\r\n" +
             "$patches = $index.patches | Where-Object { $_.version -gt $currentVersion } | Sort-Object version\r\n" +
             "Write-Host \"`nApplying $($patches.Count) patch(es)...\"\r\n" +

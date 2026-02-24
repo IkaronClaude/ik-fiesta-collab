@@ -171,9 +171,10 @@ public class PackCommandTests : IAsyncLifetime
         var index = JsonSerializer.Deserialize<PatchIndex>(
             await File.ReadAllTextAsync(Path.Combine(_packOutputDir, "patch-index.json")))!;
         index.LatestVersion.ShouldBe(2);
-        index.Patches.Count.ShouldBe(2);
-        index.Patches[0].Version.ShouldBe(1);
-        index.Patches[1].Version.ShouldBe(2);
+        // v1 (all 3 files) + v2 (1 file) > master (3 files) => v1 pruned, only v2 survives.
+        // Clients below minIncrementalVersion fall back to master.
+        index.Patches.Count.ShouldBe(1);
+        index.Patches[0].Version.ShouldBe(2);
     }
 
     [Fact]
@@ -230,6 +231,106 @@ public class PackCommandTests : IAsyncLifetime
         var index = JsonSerializer.Deserialize<PatchIndex>(
             await File.ReadAllTextAsync(Path.Combine(_packOutputDir, "patch-index.json")))!;
         index.Patches[0].Url.ShouldBe("https://patches.example.com/patches/patch-v1.zip");
+    }
+
+    // ==================== Master Patch Tests ====================
+
+    [Fact]
+    public async Task Pack_CreatesMasterPatch()
+    {
+        await RunBuildClient();
+        await RunPack();
+
+        var masterZipPath = Path.Combine(_packOutputDir, "patches", "patch-master.zip");
+        File.Exists(masterZipPath).ShouldBeTrue("patch-master.zip should exist after first pack");
+
+        var index = JsonSerializer.Deserialize<PatchIndex>(
+            await File.ReadAllTextAsync(Path.Combine(_packOutputDir, "patch-index.json")))!;
+        index.MasterPatch.ShouldNotBeNull();
+        index.MasterPatch!.Version.ShouldBe(1);
+        index.MasterPatch.FileCount.ShouldBe(3);
+        index.MasterPatch.SizeBytes.ShouldBeGreaterThan(0);
+        index.MasterPatch.Sha256.ShouldNotBeNullOrEmpty();
+        index.MasterPatch.Url.ShouldBe("patches/patch-master.zip");
+    }
+
+    [Fact]
+    public async Task Pack_MasterPatchContainsAllCurrentFiles()
+    {
+        await RunBuildClient();
+        await RunPack();
+
+        var masterZipPath = Path.Combine(_packOutputDir, "patches", "patch-master.zip");
+        using var zip = ZipFile.OpenRead(masterZipPath);
+        var entries = zip.Entries.Select(e => e.FullName.Replace('\\', '/')).ToHashSet();
+        entries.ShouldContain("ressystem/ItemInfo.shn");
+        entries.ShouldContain("ressystem/MobInfo.shn");
+        entries.ShouldContain("ressystem/ColorInfo.shn");
+        entries.Count.ShouldBe(3);
+    }
+
+    [Fact]
+    public async Task Pack_MasterPatchUpdatesOnSubsequentPack()
+    {
+        await RunBuildClient();
+        await RunPack();
+
+        var indexPath = Path.Combine(_packOutputDir, "patch-index.json");
+        var index1 = JsonSerializer.Deserialize<PatchIndex>(await File.ReadAllTextAsync(indexPath))!;
+        var sha256v1 = index1.MasterPatch!.Sha256;
+
+        await RunEdit("UPDATE ColorInfo SET ColorR = 128 WHERE ID = 1");
+        await RunBuildClient();
+        await RunPack();
+
+        var index2 = JsonSerializer.Deserialize<PatchIndex>(await File.ReadAllTextAsync(indexPath))!;
+        index2.MasterPatch.ShouldNotBeNull();
+        index2.MasterPatch!.Version.ShouldBe(2);
+        index2.MasterPatch.Sha256.ShouldNotBe(sha256v1, "Master hash must change after data change");
+    }
+
+    [Fact]
+    public async Task Pack_PrunesOldIncrementals_WhenTotalExceedsMaster()
+    {
+        // Pack 1: all 3 files in incremental (no baseline => all files changed)
+        await RunBuildClient();
+        await RunPack();
+
+        // Pack 2: change all 3 files so v2 incremental also contains all files (≈ master size)
+        await RunEdit("UPDATE ItemInfo SET Name = 'Blade' WHERE ID = 1");
+        await RunEdit("UPDATE MobInfo SET Level = 20 WHERE ID = 1");
+        await RunEdit("UPDATE ColorInfo SET ColorR = 64 WHERE ID = 1");
+        await RunBuildClient();
+        await RunPack();
+
+        // sum(v1, v2) ≈ 2x master > master => v1 pruned, only v2 survives
+        File.Exists(Path.Combine(_packOutputDir, "patches", "patch-v1.zip")).ShouldBeFalse();
+        var index = JsonSerializer.Deserialize<PatchIndex>(
+            await File.ReadAllTextAsync(Path.Combine(_packOutputDir, "patch-index.json")))!;
+        index.Patches.Count.ShouldBe(1);
+        index.Patches[0].Version.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task Pack_MinIncrementalVersionUpdated()
+    {
+        // Pack 1: all 3 files
+        await RunBuildClient();
+        await RunPack();
+
+        var indexPath = Path.Combine(_packOutputDir, "patch-index.json");
+        var index1 = JsonSerializer.Deserialize<PatchIndex>(await File.ReadAllTextAsync(indexPath))!;
+        index1.MinIncrementalVersion.ShouldBe(1);
+
+        // Pack 2: change all 3 files => v1 pruned, minIncrementalVersion advances to 2
+        await RunEdit("UPDATE ItemInfo SET Name = 'Blade' WHERE ID = 1");
+        await RunEdit("UPDATE MobInfo SET Level = 20 WHERE ID = 1");
+        await RunEdit("UPDATE ColorInfo SET ColorR = 64 WHERE ID = 1");
+        await RunBuildClient();
+        await RunPack();
+
+        var index2 = JsonSerializer.Deserialize<PatchIndex>(await File.ReadAllTextAsync(indexPath))!;
+        index2.MinIncrementalVersion.ShouldBe(2);
     }
 
     // ==================== Override Tests ====================
