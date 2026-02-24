@@ -417,6 +417,34 @@ mimir edit-template --conflict-strategy split
 - **~1100 text tables** (shine tables + config tables)
 - Byte-identical round-trip for all formats
 
+---
+
+## Common Problems
+
+### `Fail to read ServerGroup.txt[0]` — Zone/WorldManager startup crash
+
+**Cause:** `_ServerGroup.txt` (and other plain non-table files under the server import path) are not copied to the build output unless `--passthrough server` was passed when generating the template.
+
+**Fix:** Regenerate with the passthrough flag:
+
+```bat
+mimir init-template --passthrough server
+```
+
+This adds `copyFile` actions for every non-table file in the server env (plain `.txt` configs, scripts, etc.) so they are copied verbatim to `build/server/` during `mimir build`.
+
+If you've already customised your template and don't want to regenerate it, add the entry manually to `mimir.template.json`:
+
+```json
+{
+  "action": "copyFile",
+  "env": "server",
+  "path": "9Data/ServerInfo/_ServerGroup.txt"
+}
+```
+
+---
+
 ## See Also
 
 - [TRACKER.md](TRACKER.md) — Detailed task tracker, architecture notes, and stretch goals
