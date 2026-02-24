@@ -3,7 +3,10 @@
 # Used by all 11 game containers (same image, different config).
 
 $processName = $env:PROCESS_NAME
-$processExe = $env:PROCESS_EXE
+$processExe  = $env:PROCESS_EXE
+# Set KEEP_ALIVE=1 on a service in docker-compose.yml to keep the container alive after
+# the game process stops (useful for docker exec debugging). Default: exit on process death.
+$keepAlive   = $env:KEEP_ALIVE -eq '1'
 
 if (-not $processName -or -not $processExe) {
     Write-Error "PROCESS_NAME and PROCESS_EXE environment variables must be set."
@@ -202,40 +205,55 @@ else {
 
 # Always fall through to log tailing - even on failure, logs show what went wrong.
 
-# --- Step 6: Tail all logs (DebugMessage/ + root-level Assert/ExitLog/Msg files) ---
+# --- Step 6: Delete old log files from previous run ---
 
 $logDir = "$processDir\DebugMessage"
-Write-Host "Watching for logs in $logDir and $processDir (root-level)..."
+$logPatterns = @('Assert*.txt','ExitLog*.txt','Msg_*.txt','Dbg.txt',
+                 'MapLoad*.txt','Message*.txt','Size*.txt','*CallStack.txt','5ZoneServer*.txt')
 
-# Collect initial log files from both DebugMessage/ and process root.
+if (Test-Path $logDir) {
+    Get-ChildItem "$logDir\*.txt" -ErrorAction SilentlyContinue |
+        ForEach-Object { Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue }
+}
+foreach ($pattern in $logPatterns) {
+    Get-ChildItem $processDir -Filter $pattern -ErrorAction SilentlyContinue |
+        ForEach-Object { Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue }
+}
+Write-Host "Old logs cleared."
+
+# --- Step 7: Wait for log files to appear, then tail them ---
 # Root-level patterns: Assert*.txt, ExitLog*.txt, Msg_*.txt
-$timeout = 60
+# Zone-specific: Dbg.txt, MapLoad.txt, Message.txt, Size.txt,
+#   "Zone.exe <date> CallStack.txt" (crash callstack), 5ZoneServerDumpStack<date>.txt
+
+function Get-LogFiles($processDir, $logDir) {
+    $files = @()
+    if (Test-Path $logDir) {
+        $files += @(Get-ChildItem "$logDir\*.txt" -ErrorAction SilentlyContinue)
+    }
+    foreach ($pat in @('Assert*.txt','ExitLog*.txt','Msg_*.txt','Dbg.txt',
+                       'MapLoad*.txt','Message*.txt','Size*.txt','*CallStack.txt','5ZoneServer*.txt')) {
+        $files += @(Get-ChildItem $processDir -Filter $pat -ErrorAction SilentlyContinue)
+    }
+    return $files
+}
+
+Write-Host "Waiting for log files in $logDir and $processDir..."
+$timeout  = 60
 $logFiles = @()
 for ($i = 0; $i -lt $timeout; $i++) {
-    $debugFiles = @()
-    $rootFiles  = @()
-    if (Test-Path $logDir) {
-        $debugFiles = @(Get-ChildItem ($logDir + '\*.txt') -ErrorAction SilentlyContinue)
-    }
-    $rootFiles = @(Get-ChildItem $processDir -Filter 'Assert*.txt'        -ErrorAction SilentlyContinue)
-    $rootFiles += @(Get-ChildItem $processDir -Filter 'ExitLog*.txt'       -ErrorAction SilentlyContinue)
-    $rootFiles += @(Get-ChildItem $processDir -Filter 'Msg_*.txt'          -ErrorAction SilentlyContinue)
-    # Zone-specific logs: Dbg.txt, MapLoad.txt, Message.txt, Size.txt (mostly noise),
-    # "Zone.exe <date> CallStack.txt" (crash call stack - matches the .mdmp), 5ZoneServerDumpStack<date>.txt
-    $rootFiles += @(Get-ChildItem $processDir -Filter 'Dbg.txt'            -ErrorAction SilentlyContinue)
-    $rootFiles += @(Get-ChildItem $processDir -Filter 'MapLoad*.txt'       -ErrorAction SilentlyContinue)
-    $rootFiles += @(Get-ChildItem $processDir -Filter 'Message*.txt'       -ErrorAction SilentlyContinue)
-    $rootFiles += @(Get-ChildItem $processDir -Filter 'Size*.txt'          -ErrorAction SilentlyContinue)
-    $rootFiles += @(Get-ChildItem $processDir -Filter '*CallStack.txt'    -ErrorAction SilentlyContinue)
-    $rootFiles += @(Get-ChildItem $processDir -Filter '5ZoneServer*.txt'   -ErrorAction SilentlyContinue)
-    $logFiles = $debugFiles + $rootFiles
+    $logFiles = Get-LogFiles $processDir $logDir
     if ($logFiles.Count -gt 0) { break }
     Start-Sleep -Seconds 1
 }
 
 if ($logFiles.Count -eq 0) {
-    Write-Host "No log files found after ${timeout}s. Keeping container alive..."
-    while ($true) { Start-Sleep -Seconds 60 }
+    Write-Host "No log files found after ${timeout}s — $processName may have crashed at startup."
+    if ($keepAlive) {
+        Write-Host "KEEP_ALIVE=1: container staying alive. Use 'docker exec' to investigate." -ForegroundColor Cyan
+        while ($true) { Start-Sleep -Seconds 60 }
+    }
+    exit 1
 }
 
 Write-Host ('Tailing {0} log file(s): {1}' -f $logFiles.Count, ($logFiles.Name -join ', '))
@@ -248,24 +266,17 @@ foreach ($lf in $logFiles) {
     } -ArgumentList $lf.FullName, $lf.BaseName
 }
 
-# Watch both DebugMessage/ and process root for newly appearing log files.
+# Watch for newly-appearing log files (crash dumps, late-init logs, etc.)
 $watcherJob = Start-Job -ScriptBlock {
     param($processDir, $logDir)
     $known = @{}
     while ($true) {
         $files = @()
-        if (Test-Path $logDir) {
-            $files += @(Get-ChildItem ($logDir + '\*.txt') -ErrorAction SilentlyContinue)
+        if (Test-Path $logDir) { $files += @(Get-ChildItem "$logDir\*.txt" -ErrorAction SilentlyContinue) }
+        foreach ($pat in @('Assert*.txt','ExitLog*.txt','Msg_*.txt','Dbg.txt',
+                           'MapLoad*.txt','Message*.txt','Size*.txt','*CallStack.txt','5ZoneServer*.txt')) {
+            $files += @(Get-ChildItem $processDir -Filter $pat -ErrorAction SilentlyContinue)
         }
-        $files += @(Get-ChildItem $processDir -Filter 'Assert*.txt'        -ErrorAction SilentlyContinue)
-        $files += @(Get-ChildItem $processDir -Filter 'ExitLog*.txt'       -ErrorAction SilentlyContinue)
-        $files += @(Get-ChildItem $processDir -Filter 'Msg_*.txt'          -ErrorAction SilentlyContinue)
-        $files += @(Get-ChildItem $processDir -Filter 'Dbg.txt'            -ErrorAction SilentlyContinue)
-        $files += @(Get-ChildItem $processDir -Filter 'MapLoad*.txt'       -ErrorAction SilentlyContinue)
-        $files += @(Get-ChildItem $processDir -Filter 'Message*.txt'       -ErrorAction SilentlyContinue)
-        $files += @(Get-ChildItem $processDir -Filter 'Size*.txt'          -ErrorAction SilentlyContinue)
-        $files += @(Get-ChildItem $processDir -Filter '*CallStack.txt'    -ErrorAction SilentlyContinue)
-        $files += @(Get-ChildItem $processDir -Filter '5ZoneServer*.txt'   -ErrorAction SilentlyContinue)
         foreach ($f in $files) {
             if (-not $known.ContainsKey($f.FullName)) {
                 $known[$f.FullName] = $true
@@ -276,24 +287,47 @@ $watcherJob = Start-Job -ScriptBlock {
     }
 } -ArgumentList $processDir, $logDir
 
+# --- Main loop: forward log output + exit when the service stops ---
+
+$svcSeenRunning = $false
+$svcCheckTick   = 0   # check service status every ~2.5s (5 x 500ms)
+
 while ($true) {
+    # Forward any new log output from tailing jobs
     $watcherOutput = Receive-Job -Job $watcherJob -ErrorAction SilentlyContinue
     foreach ($line in $watcherOutput) {
         if ($line -match '^NEW_LOG:(.+):(.+)$') {
-            $newPath = $Matches[1]
-            $newTag = $Matches[2]
-            Write-Host ('New log file detected: {0}' -f $newTag)
+            Write-Host ('New log file: {0}' -f $Matches[2])
             $jobs += Start-Job -ScriptBlock {
                 param($path, $tag)
                 Get-Content -Path $path -Wait | ForEach-Object { '[{0}] {1}' -f $tag, $_ }
-            } -ArgumentList $newPath, $newTag
+            } -ArgumentList $Matches[1], $Matches[2]
         }
     }
-
     foreach ($job in $jobs) {
-        $output = Receive-Job -Job $job -ErrorAction SilentlyContinue
-        foreach ($line in $output) {
-            Write-Host $line
+        Receive-Job -Job $job -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_ }
+    }
+
+    # Periodically check whether the Windows service is still running
+    $svcCheckTick++
+    if ($svcCheckTick -ge 5) {
+        $svcCheckTick = 0
+        $svc = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
+        if ($svc -and $svc.Status -eq 'Running') {
+            $svcSeenRunning = $true
+        } elseif ($svcSeenRunning) {
+            $exitCode = if ($svc) { $svc.ExitCode } else { -1 }
+            Write-Host ("=== $serviceName stopped (exit code: $exitCode) ===" ) -ForegroundColor Yellow
+            # Drain any final log output before exiting
+            Start-Sleep -Milliseconds 1500
+            foreach ($job in $jobs) {
+                Receive-Job -Job $job -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_ }
+            }
+            if ($keepAlive) {
+                Write-Host "KEEP_ALIVE=1: container staying alive. Use 'docker exec' to investigate." -ForegroundColor Cyan
+                while ($true) { Start-Sleep -Seconds 60 }
+            }
+            exit 1
         }
     }
 

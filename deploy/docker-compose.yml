@@ -7,6 +7,17 @@
 #   rebuild-game.bat — rebuild game image + start (excludes SQL)
 #   rebuild-sql.bat  — wipe SQL data + restore from .bak (destructive!)
 
+# Add KEEP_ALIVE=1 to any service's environment to keep the container alive after
+# the game process stops (disables auto-exit, lets you 'docker exec' to investigate).
+# Example:
+#   zone00:
+#     <<: *gameserver
+#     environment:
+#       - PROCESS_NAME=Zone00
+#       - PROCESS_EXE=Zone.exe
+#       - ZONE_NUMBER=0
+#       - KEEP_ALIVE=1
+
 x-gameserver: &gameserver
   build:
     context: .
