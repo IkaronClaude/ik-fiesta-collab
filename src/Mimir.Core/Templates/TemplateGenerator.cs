@@ -32,12 +32,19 @@ public static class TemplateGenerator
             var firstEnv = envsPresent[0];
             var firstTable = envVersions[firstEnv];
 
+            // When ReadAllTables assigns an internal name (e.g. "View.ActionViewInfo") that differs
+            // from the source table name in the SHN header ("ActionViewInfo"), set OutputName so
+            // the build produces the correct filename.
+            var sourceTableName = firstTable.Header.TableName;
+            var outputName = tableName != sourceTableName ? sourceTableName : (string?)null;
+
             // Copy from first environment
             actions.Add(new TemplateAction
             {
                 Action = "copy",
                 From = new TableRef { Table = tableName, Env = firstEnv },
-                To = tableName
+                To = tableName,
+                OutputName = outputName
             });
 
             // Merge from additional environments

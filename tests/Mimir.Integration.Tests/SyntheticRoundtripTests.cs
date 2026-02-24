@@ -911,7 +911,8 @@ public class SyntheticRoundtripTests : IAsyncLifetime
         manifest.Tables.Clear();
         foreach (var (tableName, tableFile) in mergedTables.OrderBy(kv => kv.Key))
         {
-            var relativePath = $"data/{tableFile.Header.SourceFormat}/{tableFile.Header.TableName}.json";
+            // Use internal tableName (not source TableName) to keep paths unique for multi-path tables
+            var relativePath = $"data/{tableFile.Header.SourceFormat}/{tableName}.json";
 
             if (allEnvMetadata.TryGetValue(tableName, out var envMetas) && envMetas.Count > 0)
             {
@@ -1121,7 +1122,9 @@ public class SyntheticRoundtripTests : IAsyncLifetime
     private static async Task<Dictionary<string, (TableFile file, string relDir)>> ReadAllTables(
         DirectoryInfo sourceDir, List<IDataProvider> providers, ILogger logger)
     {
-        var tables = new Dictionary<string, (TableFile file, string relDir)>();
+        // Pass 1: collect all entries
+        var allEntries = new List<(string sourceName, string relDir, TableFile tableFile)>();
+
         foreach (var file in sourceDir.EnumerateFiles("*", SearchOption.AllDirectories))
         {
             var provider = providers.FirstOrDefault(p => p.CanHandle(file.FullName));
@@ -1133,7 +1136,7 @@ public class SyntheticRoundtripTests : IAsyncLifetime
 
             foreach (var entry in entries)
             {
-                var tableFile = new TableFile
+                allEntries.Add((entry.Schema.TableName, relDir, new TableFile
                 {
                     Header = new TableHeader
                     {
@@ -1143,11 +1146,46 @@ public class SyntheticRoundtripTests : IAsyncLifetime
                     },
                     Columns = entry.Schema.Columns,
                     Data = entry.Rows
-                };
-                tables[entry.Schema.TableName] = (tableFile, relDir);
+                }));
             }
         }
-        return tables;
+
+        // Pass 2: group by source name; shallower path keeps original name,
+        // deeper copies get a prefix derived from extra path components.
+        var result = new Dictionary<string, (TableFile file, string relDir)>();
+
+        foreach (var group in allEntries.GroupBy(e => e.sourceName))
+        {
+            var ordered = group
+                .OrderBy(e => e.relDir.Count(c => c == '/'))
+                .ThenBy(e => e.relDir)
+                .ToList();
+
+            for (int i = 0; i < ordered.Count; i++)
+            {
+                var (sourceName, relDir, tableFile) = ordered[i];
+                string internalName;
+
+                if (i == 0)
+                {
+                    internalName = sourceName;
+                }
+                else
+                {
+                    var primaryParts = ordered[0].relDir.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                    var deeperParts = relDir.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                    var extraParts = deeperParts.Length > primaryParts.Length
+                        ? deeperParts.Skip(primaryParts.Length).ToArray()
+                        : new[] { deeperParts.LastOrDefault() ?? "dup" };
+                    var prefix = string.Join(".", extraParts);
+                    internalName = $"{prefix}.{sourceName}";
+                }
+
+                result[internalName] = (tableFile, relDir);
+            }
+        }
+
+        return result;
     }
 
     private static int GetSectionIdx(IDictionary<string, object>? metadata)

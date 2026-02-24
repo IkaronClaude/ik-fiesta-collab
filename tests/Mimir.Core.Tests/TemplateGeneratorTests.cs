@@ -173,6 +173,49 @@ public class TemplateGeneratorTests
     }
 
     [Fact]
+    public void InternalName_DiffersFromSourceName_SetsOutputName()
+    {
+        // Simulates the View.ActionViewInfo scenario: ReadAllTables assigns internal name
+        // "View.ActionViewInfo" to the deeper copy, but the SHN header still reads "ActionViewInfo".
+        // TemplateGenerator must set OutputName = "ActionViewInfo" so the build produces
+        // ActionViewInfo.shn (not View.ActionViewInfo.shn).
+        var envTables = new Dictionary<(string table, string env), TableFile>
+        {
+            [("View.ActionViewInfo", "server")] = MakeTable("ActionViewInfo",
+                [Col("ID", ColumnType.UInt32), Col("InxName", ColumnType.String, 64)])
+        };
+
+        var template = TemplateGenerator.Generate(envTables, ["server", "client"]);
+
+        var copyAction = template.Actions.FirstOrDefault(a =>
+            a.Action == "copy" && a.To == "View.ActionViewInfo");
+        copyAction.ShouldNotBeNull("Expected copy action for View.ActionViewInfo");
+        copyAction!.From!.Table.ShouldBe("View.ActionViewInfo");
+        copyAction.From.Env.ShouldBe("server");
+        // OutputName must override the output filename to match the source table name
+        copyAction.OutputName.ShouldBe("ActionViewInfo");
+    }
+
+    [Fact]
+    public void InternalName_MatchesSourceName_OutputNameNull()
+    {
+        // When the internal name matches the source table name, OutputName must be null
+        // (no override needed, the table builds to its own name naturally).
+        var envTables = new Dictionary<(string table, string env), TableFile>
+        {
+            [("ActionViewInfo", "server")] = MakeTable("ActionViewInfo",
+                [Col("ID", ColumnType.UInt32), Col("InxName", ColumnType.String, 64)])
+        };
+
+        var template = TemplateGenerator.Generate(envTables, ["server", "client"]);
+
+        var copyAction = template.Actions.FirstOrDefault(a =>
+            a.Action == "copy" && a.To == "ActionViewInfo");
+        copyAction.ShouldNotBeNull();
+        copyAction!.OutputName.ShouldBeNull();
+    }
+
+    [Fact]
     public void GeneratesUniqueKeyForInxName()
     {
         var envTables = new Dictionary<(string table, string env), TableFile>

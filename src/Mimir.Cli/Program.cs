@@ -443,8 +443,11 @@ importCommand.SetHandler(async (DirectoryInfo? projectOpt, bool reimport) =>
 
     foreach (var (tableName, tableFile) in mergedTables.OrderBy(kv => kv.Key))
     {
-        // Determine relative path from source format
-        var relativePath = $"data/{tableFile.Header.SourceFormat}/{tableFile.Header.TableName}.json";
+        // Determine relative path from source format.
+        // Use the internal name (tableName) as the JSON file key — not the source TableName —
+        // so same-filename tables at different paths (e.g. "View.ActionViewInfo" vs "ActionViewInfo")
+        // get distinct JSON files and don't overwrite each other.
+        var relativePath = $"data/{tableFile.Header.SourceFormat}/{tableName}.json";
 
         // Enrich metadata with env info
         if (allEnvMetadata.TryGetValue(tableName, out var envMetas) && envMetas.Count > 0)
@@ -1534,13 +1537,12 @@ return await rootCommand.InvokeAsync(args);
 async Task<Dictionary<string, (TableFile file, string relDir)>> ReadAllTables(
     DirectoryInfo sourceDir, List<IDataProvider> providers, ILogger logger)
 {
-    var tables = new Dictionary<string, (TableFile file, string relDir)>();
-    var files = sourceDir.EnumerateFiles("*", SearchOption.AllDirectories);
+    // Pass 1: collect all entries with their source paths
+    var allEntries = new List<(string sourceName, string relDir, TableFile tableFile)>();
 
-    foreach (var file in files)
+    foreach (var file in sourceDir.EnumerateFiles("*", SearchOption.AllDirectories))
     {
         var provider = providers.FirstOrDefault(p => p.CanHandle(file.FullName));
-
         if (provider is null) continue;
 
         try
@@ -1551,7 +1553,7 @@ async Task<Dictionary<string, (TableFile file, string relDir)>> ReadAllTables(
 
             foreach (var entry in entries)
             {
-                var tableFile = new TableFile
+                allEntries.Add((entry.Schema.TableName, relDir, new TableFile
                 {
                     Header = new TableHeader
                     {
@@ -1561,9 +1563,7 @@ async Task<Dictionary<string, (TableFile file, string relDir)>> ReadAllTables(
                     },
                     Columns = entry.Schema.Columns,
                     Data = entry.Rows
-                };
-
-                tables[entry.Schema.TableName] = (tableFile, relDir);
+                }));
             }
         }
         catch (Exception ex)
@@ -1571,7 +1571,48 @@ async Task<Dictionary<string, (TableFile file, string relDir)>> ReadAllTables(
             logger.LogError(ex, "Failed to read {File}", file.Name);
         }
     }
-    return tables;
+
+    // Pass 2: assign unique internal names — same-source-name files at different paths
+    // get a namespace prefix derived from the extra path components (e.g. "View.ActionViewInfo").
+    // The shallower (fewer path separators) occurrence keeps the original name.
+    var result = new Dictionary<string, (TableFile file, string relDir)>();
+
+    foreach (var group in allEntries.GroupBy(e => e.sourceName))
+    {
+        var ordered = group
+            .OrderBy(e => e.relDir.Count(c => c == '/'))
+            .ThenBy(e => e.relDir)
+            .ToList();
+
+        for (int i = 0; i < ordered.Count; i++)
+        {
+            var (sourceName, relDir, tableFile) = ordered[i];
+            string internalName;
+
+            if (i == 0)
+            {
+                internalName = sourceName;
+            }
+            else
+            {
+                var primaryRelDir = ordered[0].relDir;
+                var primaryParts = primaryRelDir.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                var deeperParts = relDir.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                var extraParts = deeperParts.Length > primaryParts.Length
+                    ? deeperParts.Skip(primaryParts.Length).ToArray()
+                    : new[] { deeperParts.LastOrDefault() ?? "dup" };
+                var prefix = string.Join(".", extraParts);
+                internalName = $"{prefix}.{sourceName}";
+                logger.LogWarning(
+                    "Same table name '{Name}' at multiple paths in env. '{Primary}' is primary; '{Rel}' mapped to internal name '{Internal}'",
+                    sourceName, ordered[0].relDir, relDir, internalName);
+            }
+
+            result[internalName] = (tableFile, relDir);
+        }
+    }
+
+    return result;
 }
 
 // --- shared helpers ---
