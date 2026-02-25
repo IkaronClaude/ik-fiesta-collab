@@ -25,7 +25,7 @@ public class AccountService
         using var tx = conn.BeginTransaction();
 
         // Create game account via stored procedure.
-        // NOTE: Parameter names may vary by server version — adjust @userID / @email if needed.
+        int userNo;
         await using (var insertCmd = new SqlCommand("usp_User_insert", conn, tx)
         {
             CommandType = CommandType.StoredProcedure
@@ -33,22 +33,24 @@ public class AccountService
         {
             insertCmd.Parameters.AddWithValue("@userID", req.Username);
             insertCmd.Parameters.AddWithValue("@userPW", passwordMd5);
-            insertCmd.Parameters.AddWithValue("@email", req.Email ?? string.Empty);
+            insertCmd.Parameters.AddWithValue("@userName", req.Username);
+            insertCmd.Parameters.AddWithValue("@userIP", "127.0.0.1");
+            insertCmd.Parameters.AddWithValue("@eMail", req.Email ?? string.Empty);
+            var outParam = insertCmd.Parameters.Add("@userNo", SqlDbType.Int);
+            outParam.Direction = ParameterDirection.Output;
             await insertCmd.ExecuteNonQueryAsync();
+            userNo = (int)outParam.Value;
         }
 
-        // Retrieve the newly created user record.
-        int userNo;
+        // Retrieve the created timestamp for the response.
         DateTime created;
         await using (var idCmd = new SqlCommand(
-            "SELECT nUserNo, dCreated FROM tUser WHERE sUserID = @id", conn, tx))
+            "SELECT dCreated FROM tUser WHERE nUserNo = @id", conn, tx))
         {
-            idCmd.Parameters.AddWithValue("@id", req.Username);
-            await using var idReader = await idCmd.ExecuteReaderAsync();
-            if (!await idReader.ReadAsync())
-                throw new InvalidOperationException("User creation failed: record not found.");
-            userNo = idReader.GetInt32(idReader.GetOrdinal("nUserNo"));
-            created = idReader.GetDateTime(idReader.GetOrdinal("dCreated"));
+            idCmd.Parameters.AddWithValue("@id", userNo);
+            var result = await idCmd.ExecuteScalarAsync()
+                ?? throw new InvalidOperationException("User creation failed: record not found.");
+            created = (DateTime)result;
         }
 
         // Insert web credential for API login.

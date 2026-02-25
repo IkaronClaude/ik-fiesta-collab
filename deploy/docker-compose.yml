@@ -22,9 +22,8 @@ x-gameserver: &gameserver
     dockerfile: Dockerfile.server
   volumes:
     - ${MIMIR_PROJ_DIR}/deployed/server:C:/server/9Data
-  environment:
-    - "SA_PASSWORD=${SA_PASSWORD:?SA_PASSWORD not set. Run: mimir deploy set SA_PASSWORD YourStrongPassword1}"
-    - "KEEP_ALIVE=${KEEP_ALIVE:-0}"
+  # NOTE: 'environment' is overridden per-service because YAML merge is shallow.
+  # SA_PASSWORD and KEEP_ALIVE must be included in each service's environment list.
 
 services:
   sqlserver:
@@ -50,6 +49,8 @@ services:
   account:
     <<: *gameserver
     environment:
+      - "SA_PASSWORD=${SA_PASSWORD:?SA_PASSWORD not set. Run: mimir deploy set SA_PASSWORD YourStrongPassword1}"
+      - "KEEP_ALIVE=${KEEP_ALIVE:-0}"
       - PROCESS_NAME=Account
       - PROCESS_EXE=Account.exe
     depends_on:
@@ -59,6 +60,8 @@ services:
   accountlog:
     <<: *gameserver
     environment:
+      - "SA_PASSWORD=${SA_PASSWORD:?SA_PASSWORD not set. Run: mimir deploy set SA_PASSWORD YourStrongPassword1}"
+      - "KEEP_ALIVE=${KEEP_ALIVE:-0}"
       - PROCESS_NAME=AccountLog
       - PROCESS_EXE=AccountLog.exe
     depends_on:
@@ -68,6 +71,8 @@ services:
   character:
     <<: *gameserver
     environment:
+      - "SA_PASSWORD=${SA_PASSWORD:?SA_PASSWORD not set. Run: mimir deploy set SA_PASSWORD YourStrongPassword1}"
+      - "KEEP_ALIVE=${KEEP_ALIVE:-0}"
       - PROCESS_NAME=Character
       - PROCESS_EXE=Character.exe
     depends_on:
@@ -77,6 +82,8 @@ services:
   gamelog:
     <<: *gameserver
     environment:
+      - "SA_PASSWORD=${SA_PASSWORD:?SA_PASSWORD not set. Run: mimir deploy set SA_PASSWORD YourStrongPassword1}"
+      - "KEEP_ALIVE=${KEEP_ALIVE:-0}"
       - PROCESS_NAME=GameLog
       - PROCESS_EXE=GameLog.exe
     depends_on:
@@ -90,6 +97,8 @@ services:
     ports:
       - "9010:9010"    # Client connects here
     environment:
+      - "SA_PASSWORD=${SA_PASSWORD:?SA_PASSWORD not set. Run: mimir deploy set SA_PASSWORD YourStrongPassword1}"
+      - "KEEP_ALIVE=${KEEP_ALIVE:-0}"
       - PROCESS_NAME=Login
       - PROCESS_EXE=Login.exe
     depends_on:
@@ -107,6 +116,8 @@ services:
     ports:
       - "9013:9013"
     environment:
+      - "SA_PASSWORD=${SA_PASSWORD:?SA_PASSWORD not set. Run: mimir deploy set SA_PASSWORD YourStrongPassword1}"
+      - "KEEP_ALIVE=${KEEP_ALIVE:-0}"
       - PROCESS_NAME=WorldManager
       - PROCESS_EXE=WorldManager.exe
     depends_on:
@@ -126,6 +137,8 @@ services:
     ports:
       - "9016:9016"
     environment:
+      - "SA_PASSWORD=${SA_PASSWORD:?SA_PASSWORD not set. Run: mimir deploy set SA_PASSWORD YourStrongPassword1}"
+      - "KEEP_ALIVE=${KEEP_ALIVE:-0}"
       - PROCESS_NAME=Zone00
       - PROCESS_EXE=Zone.exe
       - ZONE_NUMBER=0
@@ -138,6 +151,8 @@ services:
     ports:
       - "9019:9019"
     environment:
+      - "SA_PASSWORD=${SA_PASSWORD:?SA_PASSWORD not set. Run: mimir deploy set SA_PASSWORD YourStrongPassword1}"
+      - "KEEP_ALIVE=${KEEP_ALIVE:-0}"
       - PROCESS_NAME=Zone01
       - PROCESS_EXE=Zone.exe
       - ZONE_NUMBER=1
@@ -150,6 +165,8 @@ services:
     ports:
       - "9022:9022"
     environment:
+      - "SA_PASSWORD=${SA_PASSWORD:?SA_PASSWORD not set. Run: mimir deploy set SA_PASSWORD YourStrongPassword1}"
+      - "KEEP_ALIVE=${KEEP_ALIVE:-0}"
       - PROCESS_NAME=Zone02
       - PROCESS_EXE=Zone.exe
       - ZONE_NUMBER=2
@@ -162,6 +179,8 @@ services:
     ports:
       - "9025:9025"
     environment:
+      - "SA_PASSWORD=${SA_PASSWORD:?SA_PASSWORD not set. Run: mimir deploy set SA_PASSWORD YourStrongPassword1}"
+      - "KEEP_ALIVE=${KEEP_ALIVE:-0}"
       - PROCESS_NAME=Zone03
       - PROCESS_EXE=Zone.exe
       - ZONE_NUMBER=3
@@ -174,6 +193,8 @@ services:
     ports:
       - "9028:9028"
     environment:
+      - "SA_PASSWORD=${SA_PASSWORD:?SA_PASSWORD not set. Run: mimir deploy set SA_PASSWORD YourStrongPassword1}"
+      - "KEEP_ALIVE=${KEEP_ALIVE:-0}"
       - PROCESS_NAME=Zone04
       - PROCESS_EXE=Zone.exe
       - ZONE_NUMBER=4
