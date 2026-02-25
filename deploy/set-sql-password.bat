@@ -18,7 +18,7 @@ if "%~2"=="" (
     echo   If SA_PASSWORD is already in .mimir-deploy.env, applies the change
     echo   to the running SQL container via ALTER LOGIN.
     echo   If no old password exists ^(first run^), only saves to env file.
-    echo   Run 'mimir deploy restart-game' afterwards to pick up the new password.
+    echo   Run 'mimir deploy rebuild-game' afterwards to pick up the new password.
     exit /b 1
 )
 
@@ -66,4 +66,4 @@ echo SA_PASSWORD=%NEW_PASSWORD%>>"%TMP_FILE%"
 move /y "%TMP_FILE%" "%ENV_FILE%" > nul
 
 echo SA_PASSWORD saved to deploy config.
-echo Run 'mimir deploy restart-game' to apply the new password to game servers.
+echo Run 'mimir deploy rebuild-game' to apply the new password to game servers.

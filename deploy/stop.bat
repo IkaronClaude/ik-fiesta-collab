@@ -1,4 +1,5 @@
 @echo off
+setlocal
 :: Stop all containers. Data is preserved in the sql-data volume.
 ::
 :: Usage: mimir deploy stop          (from inside the project dir)
@@ -10,7 +11,8 @@ if "%~1"=="" (
     exit /b 1
 )
 set "PROJECT=%~1"
-set COMPOSE_PROJECT_NAME=%PROJECT%
+if not defined MIMIR_PROJ_DIR set "MIMIR_PROJ_DIR=%~dp0..\%PROJECT%"
+for /f "usebackq" %%L in (`powershell -NoProfile -Command "'%PROJECT%'.ToLower()"`) do set "COMPOSE_PROJECT_NAME=%%L"
 set PROJECT_NAME=%PROJECT%
 cd /d "%~dp0"
 docker compose --profile patch -f docker-compose.yml down

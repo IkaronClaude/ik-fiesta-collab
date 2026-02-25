@@ -1,4 +1,5 @@
 @echo off
+setlocal
 :: Rebuild the SQL image and wipe the database volume for a clean restore.
 :: WARNING: This deletes all database data. Only use for initial setup or after .bak changes.
 ::
@@ -11,7 +12,8 @@ if "%~1"=="" (
     exit /b 1
 )
 set "PROJECT=%~1"
-set COMPOSE_PROJECT_NAME=%PROJECT%
+if not defined MIMIR_PROJ_DIR set "MIMIR_PROJ_DIR=%~dp0..\%PROJECT%"
+for /f "usebackq" %%L in (`powershell -NoProfile -Command "'%PROJECT%'.ToLower()"`) do set "COMPOSE_PROJECT_NAME=%%L"
 set PROJECT_NAME=%PROJECT%
 set DOCKER_BUILDKIT=0
 cd /d "%~dp0"
