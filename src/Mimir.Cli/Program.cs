@@ -57,7 +57,7 @@ initCommand.SetHandler((DirectoryInfo project, string mimirCmd) =>
 
     Directory.CreateDirectory(project.FullName);
     Directory.CreateDirectory(Path.Combine(project.FullName, "deploy"));
-    Directory.CreateDirectory(Path.Combine(project.FullName, "deploy", "patcher"));
+    Directory.CreateDirectory(Path.Combine(project.FullName, "deploy", "player"));
     EnvironmentStore.EnsureEnvDir(project.FullName);
 
     var manifest = new MimirProject();
@@ -100,82 +100,138 @@ initCommand.SetHandler((DirectoryInfo project, string mimirCmd) =>
             "echo Done! Patches written to patches/\r\n" +
             "pause\r\n");
 
-        // deploy/patcher/patcher.config
-        WriteIfMissing(Path.Combine(project.FullName, "deploy", "patcher", "patcher.config"),
+        // deploy/player/patcher.config
+        WriteIfMissing(Path.Combine(project.FullName, "deploy", "player", "patcher.config"),
             "PatchUrl=http://localhost:8080/\r\n");
 
-        // deploy/patcher/patch.bat
-        WriteIfMissing(Path.Combine(project.FullName, "deploy", "patcher", "patch.bat"),
+        // deploy/player/patch.bat — single-file patcher with embedded PowerShell
+        WriteIfMissing(Path.Combine(project.FullName, "deploy", "player", "patch.bat"),
             "@echo off\r\n" +
-            "REM Mimir Client Patcher\r\n" +
-            "REM Usage: patch.bat [client-dir]\r\n" +
-            "set CLIENT_DIR=%~1\r\n" +
-            "if \"%CLIENT_DIR%\"==\"\" set CLIENT_DIR=%CD%\r\n" +
-            "powershell -ExecutionPolicy Bypass -File \"%~dp0patch.ps1\" -ClientDir \"%CLIENT_DIR%\"\r\n" +
-            "pause\r\n");
-
-        // deploy/patcher/patch.ps1 — full patcher implementation
-        WriteIfMissing(Path.Combine(project.FullName, "deploy", "patcher", "patch.ps1"),
-            "param(\r\n" +
-            "    [Parameter(Mandatory=$true)]\r\n" +
-            "    [string]$ClientDir\r\n" +
+            "setlocal\r\n" +
+            ":: ================================================================\r\n" +
+            ":: Mimir Client Patcher  --  double-click to update your client.\r\n" +
+            ":: Edit patcher.config to set your patch server URL.\r\n" +
+            ":: ================================================================\r\n" +
+            "set \"MIMIR_SELF=%~f0\"\r\n" +
+            "set \"MIMIR_CLIENT=%~dp0\"\r\n" +
+            "if \"%MIMIR_CLIENT:~-1%\"==\"\\\" set \"MIMIR_CLIENT=%MIMIR_CLIENT:~0,-1%\"\r\n" +
+            "\r\n" +
+            "powershell -NoProfile -ExecutionPolicy Bypass -Command ^\r\n" +
+            "    \"$s=[IO.File]::ReadAllText($env:MIMIR_SELF);\" ^\r\n" +
+            "    \"$p=$s.Substring($s.LastIndexOf('<#')+2);\" ^\r\n" +
+            "    \"$p=$p.Substring(0,$p.IndexOf('#>'));\" ^\r\n" +
+            "    \"Invoke-Expression $p\"\r\n" +
+            "if %errorlevel% neq 0 (\r\n" +
+            "    echo.\r\n" +
+            "    echo Patching failed. See the error above.\r\n" +
             ")\r\n" +
+            "pause\r\n" +
+            "exit /b\r\n" +
+            "\r\n" +
+            "<#\r\n" +
             "$ErrorActionPreference = 'Stop'\r\n" +
-            "# Trim stray quotes that batch quoting adds when a path ends with a backslash\r\n" +
-            "$ClientDir = $ClientDir.Trim('\"')\r\n" +
-            "$configPath = Join-Path $PSScriptRoot 'patcher.config'\r\n" +
-            "if (-not (Test-Path $configPath)) { Write-Host 'ERROR: patcher.config not found' -ForegroundColor Red; exit 1 }\r\n" +
+            "$configPath = Join-Path (Split-Path -Parent $env:MIMIR_SELF) 'patcher.config'\r\n" +
+            "if (-not (Test-Path $configPath)) {\r\n" +
+            "    Write-Host \"ERROR: patcher.config not found at $configPath\" -ForegroundColor Red; exit 1\r\n" +
+            "}\r\n" +
             "$patchUrl = $null\r\n" +
-            "foreach ($line in Get-Content $configPath) { if ($line -match '^PatchUrl=(.+)$') { $patchUrl = $Matches[1].Trim() } }\r\n" +
-            "if (-not $patchUrl) { Write-Host 'ERROR: PatchUrl not found in patcher.config' -ForegroundColor Red; exit 1 }\r\n" +
-            "if (-not $patchUrl.EndsWith('/')) { $patchUrl += '/' }\r\n" +
-            "Write-Host \"Mimir Client Patcher`n  Patch server: $patchUrl`n  Client dir:   $ClientDir`n\"\r\n" +
-            "if (-not (Test-Path $ClientDir)) { New-Item -ItemType Directory -Path $ClientDir -Force | Out-Null }\r\n" +
-            "$versionFile = Join-Path $ClientDir '.mimir-version'\r\n" +
+            "foreach ($line in Get-Content $configPath) {\r\n" +
+            "    if ($line -match '^PatchUrl=(.+)$') { $patchUrl = $Matches[1].Trim() }\r\n" +
+            "}\r\n" +
+            "if (-not $patchUrl) {\r\n" +
+            "    Write-Host \"ERROR: PatchUrl not set in patcher.config\" -ForegroundColor Red; exit 1\r\n" +
+            "}\r\n" +
+            "$patchUrl = $patchUrl.TrimEnd('/') + '/'\r\n" +
+            "$clientDir = $env:MIMIR_CLIENT\r\n" +
+            "\r\n" +
+            "Write-Host 'Mimir Client Patcher'\r\n" +
+            "Write-Host \"  Server: $patchUrl\"\r\n" +
+            "Write-Host \"  Folder: $clientDir\"\r\n" +
+            "Write-Host ''\r\n" +
+            "\r\n" +
+            "if (-not (Test-Path $clientDir)) { New-Item -ItemType Directory $clientDir -Force | Out-Null }\r\n" +
+            "$versionFile = Join-Path $clientDir '.mimir-version'\r\n" +
             "$currentVersion = 0\r\n" +
             "if (Test-Path $versionFile) { $currentVersion = [int](Get-Content $versionFile -Raw).Trim() }\r\n" +
             "Write-Host \"Current version: $currentVersion\"\r\n" +
-            "try { $indexJson = (Invoke-WebRequest -Uri \"${patchUrl}patch-index.json\" -UseBasicParsing).Content }\r\n" +
-            "catch { Write-Host \"ERROR: Failed to download patch index: $_\" -ForegroundColor Red; exit 1 }\r\n" +
+            "\r\n" +
+            "try   { $indexJson = (Invoke-WebRequest -Uri \"${patchUrl}patch-index.json\" -UseBasicParsing).Content }\r\n" +
+            "catch { Write-Host \"ERROR: Cannot reach patch server: $_\" -ForegroundColor Red; exit 1 }\r\n" +
             "$index = $indexJson | ConvertFrom-Json\r\n" +
-            "$latestVersion = $index.latestVersion\r\n" +
+            "$latestVersion = [int]$index.latestVersion\r\n" +
             "Write-Host \"Latest version:  $latestVersion\"\r\n" +
-            "$minIncrementalVersion = if ($null -ne $index.minIncrementalVersion) { [int]$index.minIncrementalVersion } else { 1 }\r\n" +
-            "$masterPatch = $index.masterPatch\r\n" +
-            "if (($null -ne $masterPatch) -and ($currentVersion -lt ($minIncrementalVersion - 1))) {\r\n" +
-            "    Write-Host \"Version $currentVersion is below minimum incremental v$minIncrementalVersion -- downloading full client...\"\r\n" +
-            "    $masterUrl = $masterPatch.url\r\n" +
-            "    if (-not ($masterUrl -match '^https?://') -and -not ($masterUrl -match '^file:///')) { $masterUrl = \"${patchUrl}${masterUrl}\" }\r\n" +
-            "    Write-Host \"Master patch: $($masterPatch.fileCount) files, $([math]::Round($masterPatch.sizeBytes/1024,1)) KB\"\r\n" +
-            "    $tempMaster = Join-Path $env:TEMP 'mimir-patch-master.zip'\r\n" +
-            "    try { Invoke-WebRequest -Uri $masterUrl -OutFile $tempMaster -UseBasicParsing }\r\n" +
-            "    catch { Write-Host \"ERROR: Master patch download failed: $_\" -ForegroundColor Red; exit 1 }\r\n" +
-            "    $actualHash = (Get-FileHash -Path $tempMaster -Algorithm SHA256).Hash.ToLower()\r\n" +
-            "    if ($actualHash -ne $masterPatch.sha256) { Write-Host 'ERROR: Master patch SHA-256 mismatch!' -ForegroundColor Red; Remove-Item $tempMaster -Force; exit 1 }\r\n" +
-            "    Expand-Archive -Path $tempMaster -DestinationPath $ClientDir -Force\r\n" +
-            "    Set-Content -Path $versionFile -Value $masterPatch.version\r\n" +
-            "    Remove-Item $tempMaster -Force\r\n" +
-            "    Write-Host \"Applied master patch. Client is now at version $($masterPatch.version).\" -ForegroundColor Green\r\n" +
+            "\r\n" +
+            "$minVer = if ($null -ne $index.minIncrementalVersion) { [int]$index.minIncrementalVersion } else { 1 }\r\n" +
+            "$master = $index.masterPatch\r\n" +
+            "\r\n" +
+            "if (($null -ne $master) -and ($currentVersion -lt ($minVer - 1))) {\r\n" +
+            "    Write-Host \"Version $currentVersion is below minimum incremental v$minVer -- downloading full client...\"\r\n" +
+            "    $masterUrl = $master.url\r\n" +
+            "    if ($masterUrl -notmatch '^https?://') { $masterUrl = \"${patchUrl}${masterUrl}\" }\r\n" +
+            "    Write-Host \"  $($master.fileCount) files  $([math]::Round($master.sizeBytes / 1MB, 1)) MB\"\r\n" +
+            "    $tmp = Join-Path $env:TEMP 'mimir-master.zip'\r\n" +
+            "    try   { Invoke-WebRequest -Uri $masterUrl -OutFile $tmp -UseBasicParsing }\r\n" +
+            "    catch { Write-Host \"ERROR: Download failed: $_\" -ForegroundColor Red; exit 1 }\r\n" +
+            "    if ((Get-FileHash $tmp -Algorithm SHA256).Hash.ToLower() -ne $master.sha256) {\r\n" +
+            "        Write-Host 'ERROR: File is corrupted (hash mismatch). Try again or contact support.' -ForegroundColor Red\r\n" +
+            "        Remove-Item $tmp -Force; exit 1\r\n" +
+            "    }\r\n" +
+            "    Expand-Archive $tmp $clientDir -Force\r\n" +
+            "    Set-Content $versionFile $master.version\r\n" +
+            "    Remove-Item $tmp -Force\r\n" +
+            "    Write-Host ''\r\n" +
+            "    Write-Host \"Done! Client is now at version $($master.version).\" -ForegroundColor Green\r\n" +
             "    exit 0\r\n" +
             "}\r\n" +
-            "if ($currentVersion -ge $latestVersion) { Write-Host \"`nClient is up to date!\" -ForegroundColor Green; exit 0 }\r\n" +
-            "$patches = $index.patches | Where-Object { $_.version -gt $currentVersion } | Sort-Object version\r\n" +
-            "Write-Host \"`nApplying $($patches.Count) patch(es)...\"\r\n" +
+            "\r\n" +
+            "if ($currentVersion -ge $latestVersion) {\r\n" +
+            "    Write-Host ''\r\n" +
+            "    Write-Host 'Your client is up to date!' -ForegroundColor Green\r\n" +
+            "    exit 0\r\n" +
+            "}\r\n" +
+            "\r\n" +
+            "$patches = @($index.patches | Where-Object { $_.version -gt $currentVersion } | Sort-Object version)\r\n" +
+            "Write-Host ''\r\n" +
+            "Write-Host \"Applying $($patches.Count) patch(es)...\"\r\n" +
             "foreach ($patch in $patches) {\r\n" +
             "    $url = $patch.url\r\n" +
-            "    if (-not ($url -match '^https?://') -and -not ($url -match '^file:///')) { $url = \"${patchUrl}${url}\" }\r\n" +
-            "    Write-Host \"Patch v$($patch.version): $($patch.fileCount) files, $([math]::Round($patch.sizeBytes/1024,1)) KB\"\r\n" +
-            "    $tempZip = Join-Path $env:TEMP \"mimir-patch-v$($patch.version).zip\"\r\n" +
-            "    try { Invoke-WebRequest -Uri $url -OutFile $tempZip -UseBasicParsing }\r\n" +
+            "    if ($url -notmatch '^https?://') { $url = \"${patchUrl}${url}\" }\r\n" +
+            "    Write-Host \"  v$($patch.version): $($patch.fileCount) files  $([math]::Round($patch.sizeBytes / 1KB, 1)) KB\"\r\n" +
+            "    $tmp = Join-Path $env:TEMP \"mimir-patch-$($patch.version).zip\"\r\n" +
+            "    try   { Invoke-WebRequest -Uri $url -OutFile $tmp -UseBasicParsing }\r\n" +
             "    catch { Write-Host \"  ERROR: Download failed: $_\" -ForegroundColor Red; exit 1 }\r\n" +
-            "    $actualHash = (Get-FileHash -Path $tempZip -Algorithm SHA256).Hash.ToLower()\r\n" +
-            "    if ($actualHash -ne $patch.sha256) { Write-Host '  ERROR: SHA-256 mismatch!' -ForegroundColor Red; Remove-Item $tempZip -Force; exit 1 }\r\n" +
-            "    Expand-Archive -Path $tempZip -DestinationPath $ClientDir -Force\r\n" +
-            "    Set-Content -Path $versionFile -Value $patch.version\r\n" +
-            "    Remove-Item $tempZip -Force\r\n" +
-            "    Write-Host \"  Applied v$($patch.version).\" -ForegroundColor Green\r\n" +
+            "    if ((Get-FileHash $tmp -Algorithm SHA256).Hash.ToLower() -ne $patch.sha256) {\r\n" +
+            "        Write-Host '  ERROR: Patch is corrupted (hash mismatch). Try again or contact support.' -ForegroundColor Red\r\n" +
+            "        Remove-Item $tmp -Force; exit 1\r\n" +
+            "    }\r\n" +
+            "    Expand-Archive $tmp $clientDir -Force\r\n" +
+            "    Set-Content $versionFile $patch.version\r\n" +
+            "    Remove-Item $tmp -Force\r\n" +
+            "    Write-Host '  OK' -ForegroundColor Green\r\n" +
             "}\r\n" +
-            "Write-Host \"`nPatching complete! Client is now at version $latestVersion.\" -ForegroundColor Green\r\n");
+            "Write-Host ''\r\n" +
+            "Write-Host \"All done! Client is now at version $latestVersion.\" -ForegroundColor Green\r\n" +
+            "#>\r\n");
+
+        // deploy/player/repair.bat
+        WriteIfMissing(Path.Combine(project.FullName, "deploy", "player", "repair.bat"),
+            "@echo off\r\n" +
+            ":: ================================================================\r\n" +
+            ":: Mimir Client Repair  --  re-downloads all client files.\r\n" +
+            ":: Use this if your client is broken, corrupted, or too old to patch.\r\n" +
+            ":: Requires patch.bat in the same folder.\r\n" +
+            ":: ================================================================\r\n" +
+            "if not exist \"%~dp0patch.bat\" (\r\n" +
+            "    echo ERROR: patch.bat not found in this folder.\r\n" +
+            "    pause\r\n" +
+            "    exit /b 1\r\n" +
+            ")\r\n" +
+            "\r\n" +
+            "set \"VERSION_FILE=%~dp0.mimir-version\"\r\n" +
+            "echo -1 > \"%VERSION_FILE%\"\r\n" +
+            "echo Repair mode set. Forcing full client re-download...\r\n" +
+            "echo.\r\n" +
+            "call \"%~dp0patch.bat\"\r\n");
 
         logger.LogInformation("Created project at {Dir}", project.FullName);
         logger.LogInformation("Next steps:");
