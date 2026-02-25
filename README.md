@@ -57,8 +57,8 @@ This creates inside `my-server/`:
 - `mimir.bat` — local mimir resolver (all generated scripts call this; edit if mimir isn't in PATH)
 - `.gitignore` — excludes `build/` and `patches/`
 - `deploy/reimport.bat` — wipe + reimport + rebuild
-- `deploy/deploy.bat` — build + pack client patches
-- `deploy/patcher/` — client patch scripts
+- `deploy/server.bat` — build + pack + start all containers
+- `deploy/player/` — client patch scripts
 
 > Pass `--mimir <cmd>` to bake a specific path into `mimir.bat` (e.g. `--mimir C:\Tools\mimir.bat`). Default assumes `mimir` is in PATH.
 
