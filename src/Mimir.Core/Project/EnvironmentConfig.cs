@@ -32,6 +32,16 @@ public sealed class EnvironmentConfig
     public string? DeployPath { get; set; }
 
     /// <summary>
+    /// When true, <c>mimir init-template</c> treats this environment as a passthrough
+    /// source: all non-table files (binaries, config files, etc.) found under
+    /// <c>importPath</c> are added as <c>copyFile</c> actions in the template so they
+    /// are copied verbatim to build output. Automatically set for <c>--type server</c>.
+    /// </summary>
+    [JsonPropertyName("passthrough")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool Passthrough { get; set; }
+
+    /// <summary>
     /// When true, <c>mimir import</c> seeds the pack baseline manifest from this
     /// environment's importPath after each import, so that <c>mimir pack</c> only
     /// distributes files that differ from the stock source. Set this on client envs;

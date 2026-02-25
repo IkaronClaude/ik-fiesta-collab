@@ -34,6 +34,16 @@ public static class EnvCommand
             c => c.DeployPath,
             (c, v) => c.DeployPath = v),
 
+        new("passthrough",
+            "true/false. When true, mimir init-template adds copyFile actions for all non-table files under import-path. Automatically enabled for --type server.",
+            c => c.Passthrough ? "true" : "false",
+            (c, v) =>
+            {
+                if (!bool.TryParse(v, out var b))
+                    throw new ArgumentException($"Value for passthrough must be true or false, got: {v}");
+                c.Passthrough = b;
+            }),
+
         new("seed-pack-baseline",
             "true/false. Hash importable source files after import to establish the pack diff baseline. Enable for packable (client) envs; leave false for server envs.",
             c => c.SeedPackBaseline ? "true" : "false",
@@ -123,6 +133,7 @@ public static class EnvCommand
         string? importPath = null;
         string? type = null;
         bool patchable = false;
+        bool passthrough = false;
         for (var i = 0; i < args.Count; i++)
         {
             var arg = args[i];
@@ -144,6 +155,7 @@ public static class EnvCommand
                     deployPath = importPath;
                     importPath = importPath.TrimEnd('/', '\\') + "/9Data";
                 }
+                passthrough = true;
                 break;
             case "client":
                 // Client envs are always patchable.
@@ -162,6 +174,7 @@ public static class EnvCommand
             BuildPath = $"build/{envName}",
             OverridesPath = $"overrides/{envName}",
             DeployPath = deployPath,
+            Passthrough = passthrough,
             SeedPackBaseline = patchable
         };
         EnvironmentStore.Save(projectDir, envName, config);
@@ -172,6 +185,8 @@ public static class EnvCommand
         logger.LogInformation("  import-path       = {V}", importPath ?? "(unset — use: mimir env {N} set import-path <path>)");
         logger.LogInformation("  build-path        = {V}", config.BuildPath);
         logger.LogInformation("  overrides-path    = {V}", config.OverridesPath);
+        if (passthrough)
+            logger.LogInformation("  passthrough       = true");
         logger.LogInformation("  seed-pack-baseline= {V}", patchable ? "true" : "false");
     }
 

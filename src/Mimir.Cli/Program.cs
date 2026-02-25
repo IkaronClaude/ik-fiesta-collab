@@ -182,7 +182,7 @@ initCommand.SetHandler((DirectoryInfo project, string mimirCmd) =>
         logger.LogInformation("  cd {Dir}", project.FullName);
         logger.LogInformation("  mimir env server init Z:/Server --type server");
         logger.LogInformation("  mimir env client init Z:/ClientSource/ressystem --type client");
-        logger.LogInformation("  mimir init-template --passthrough server");
+        logger.LogInformation("  mimir init-template");
         logger.LogInformation("  mimir import");
         logger.LogInformation("  mimir build --all");
     });
@@ -1239,9 +1239,13 @@ initTemplateCommand.SetHandler(async (DirectoryInfo? projectOpt, string[] passth
         logger.LogInformation("Found {Count} tables in {Env}", tables.Count, envName);
     }
 
-    // Detect passthrough files for envs opted-in via --passthrough
+    // Detect passthrough files: envs with Passthrough=true in config, plus any explicit --passthrough flags.
     var passthroughFiles = new List<(string env, string path)>();
-    var passthroughEnvSet = passthroughEnvs.ToHashSet(StringComparer.OrdinalIgnoreCase);
+    var passthroughEnvSet = allEnvs
+        .Where(kvp => kvp.Value.Passthrough)
+        .Select(kvp => kvp.Key)
+        .Concat(passthroughEnvs)
+        .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
     foreach (var (envName, envConfig) in allEnvs)
     {
