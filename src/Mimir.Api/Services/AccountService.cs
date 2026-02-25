@@ -36,6 +36,7 @@ public class AccountService
             insertCmd.Parameters.AddWithValue("@userName", req.Username);
             insertCmd.Parameters.AddWithValue("@userIP", "127.0.0.1");
             insertCmd.Parameters.AddWithValue("@eMail", req.Email ?? string.Empty);
+            insertCmd.Parameters.AddWithValue("@isMail", false);
             var outParam = insertCmd.Parameters.Add("@userNo", SqlDbType.Int);
             outParam.Direction = ParameterDirection.Output;
             await insertCmd.ExecuteNonQueryAsync();
