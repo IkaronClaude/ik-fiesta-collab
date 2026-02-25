@@ -95,6 +95,13 @@ if (-not (Test-Path $serverInfoTemplate)) {
 $content = [System.IO.File]::ReadAllText($serverInfoTemplate)
 Write-Host ('Template loaded: {0} chars' -f $content.Length)
 
+$saPassword = $env:SA_PASSWORD
+if (-not $saPassword) {
+    Write-Error "SA_PASSWORD is not set — cannot substitute into ServerInfo.txt connection strings."
+    exit 1
+}
+$content = $content -replace '\{\{SA_PASSWORD\}\}', $saPassword
+
 Write-Host "Resolving Docker hostnames to IPs..."
 foreach ($hostname in $hostnames) {
     try {
@@ -162,7 +169,23 @@ if ($processName -match '^Zone(\d+)$') {
     }
 }
 
-# --- Step 5: Register and start Windows service ---
+# --- Step 5: Delete old log files before starting service ---
+
+$logDir = "$processDir\DebugMessage"
+$logPatterns = @('Assert*.txt','ExitLog*.txt','Msg_*.txt','Dbg.txt',
+                 'MapLoad*.txt','Message*.txt','Size*.txt','*CallStack.txt','5ZoneServer*.txt')
+
+if (Test-Path $logDir) {
+    Get-ChildItem "$logDir\*.txt" -ErrorAction SilentlyContinue |
+        ForEach-Object { Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue }
+}
+foreach ($pattern in $logPatterns) {
+    Get-ChildItem $processDir -Filter $pattern -ErrorAction SilentlyContinue |
+        ForEach-Object { Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue }
+}
+Write-Host "Old logs cleared."
+
+# --- Step 6: Register and start Windows service ---
 # Don't run the exe directly - it calls StartServiceCtrlDispatcher() which blocks forever.
 # Register the service with sc.exe create, then Start-Service starts it properly via SCM.
 
@@ -204,22 +227,6 @@ else {
 }
 
 # Always fall through to log tailing - even on failure, logs show what went wrong.
-
-# --- Step 6: Delete old log files from previous run ---
-
-$logDir = "$processDir\DebugMessage"
-$logPatterns = @('Assert*.txt','ExitLog*.txt','Msg_*.txt','Dbg.txt',
-                 'MapLoad*.txt','Message*.txt','Size*.txt','*CallStack.txt','5ZoneServer*.txt')
-
-if (Test-Path $logDir) {
-    Get-ChildItem "$logDir\*.txt" -ErrorAction SilentlyContinue |
-        ForEach-Object { Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue }
-}
-foreach ($pattern in $logPatterns) {
-    Get-ChildItem $processDir -Filter $pattern -ErrorAction SilentlyContinue |
-        ForEach-Object { Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue }
-}
-Write-Host "Old logs cleared."
 
 # --- Step 7: Wait for log files to appear, then tail them ---
 # Root-level patterns: Assert*.txt, ExitLog*.txt, Msg_*.txt

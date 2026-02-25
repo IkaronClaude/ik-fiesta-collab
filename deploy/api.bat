@@ -9,6 +9,11 @@ if "%~1"=="" (
 
 set "PROJECT=%~1"
 if not defined MIMIR_PROJ_DIR set "MIMIR_PROJ_DIR=%~dp0..\%PROJECT%"
+:: Load deploy config (SA_PASSWORD etc.) from project env file
+set "MIMIR_ENV_FILE=%MIMIR_PROJ_DIR%\.mimir-deploy.env"
+if exist "%MIMIR_ENV_FILE%" (
+    for /f "usebackq tokens=1* delims==" %%K in ("%MIMIR_ENV_FILE%") do set "%%K=%%L"
+)
 for /f "usebackq" %%L in (`powershell -NoProfile -Command "'%PROJECT%'.ToLower()"`) do set "COMPOSE_PROJECT_NAME=%%L"
 set PROJECT_NAME=%PROJECT%
 set DOCKER_BUILDKIT=0

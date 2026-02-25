@@ -29,6 +29,8 @@ x-gameserver: &gameserver
     dockerfile: Dockerfile.server
   volumes:
     - ${MIMIR_PROJ_DIR}/deployed/server:C:/server/9Data
+  environment:
+    - SA_PASSWORD=${SA_PASSWORD:?SA_PASSWORD not set. Run: mimir deploy set SA_PASSWORD=YourStrongPassword1}
 
 services:
   sqlserver:
