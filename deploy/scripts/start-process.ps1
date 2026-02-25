@@ -97,7 +97,7 @@ Write-Host ('Template loaded: {0} chars' -f $content.Length)
 
 $saPassword = $env:SA_PASSWORD
 if (-not $saPassword) {
-    Write-Error "SA_PASSWORD is not set — cannot substitute into ServerInfo.txt connection strings."
+    Write-Error "SA_PASSWORD is not set - cannot substitute into ServerInfo.txt connection strings."
     exit 1
 }
 $content = $content -replace '\{\{SA_PASSWORD\}\}', $saPassword
