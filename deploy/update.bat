@@ -45,7 +45,7 @@ if errorlevel 8 (
 
 echo.
 echo === Restarting game server containers ===
-set COMPOSE_PROJECT_NAME=%PROJECT%
+for /f "usebackq" %%L in (`powershell -NoProfile -Command "'%PROJECT%'.ToLower()"`) do set "COMPOSE_PROJECT_NAME=%%L"
 set PROJECT_NAME=%PROJECT%
 docker compose -f docker-compose.yml restart account accountlog character gamelog login worldmanager zone00 zone01 zone02 zone03 zone04
 

@@ -13,7 +13,7 @@ if "%~1"=="" (
 )
 set "PROJECT=%~1"
 if not defined MIMIR_PROJ_DIR set "MIMIR_PROJ_DIR=%~dp0..\%PROJECT%"
-set COMPOSE_PROJECT_NAME=%PROJECT%
+for /f "usebackq" %%L in (`powershell -NoProfile -Command "'%PROJECT%'.ToLower()"`) do set "COMPOSE_PROJECT_NAME=%%L"
 set PROJECT_NAME=%PROJECT%
 cd /d "%~dp0"
 
