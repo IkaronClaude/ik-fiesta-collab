@@ -6,9 +6,14 @@ $sqlInstance = ".\SQLEXPRESS"
 $saPassword = $env:SA_PASSWORD
 if (-not $saPassword) {
     Write-Host "ERROR: SA_PASSWORD is not set." -ForegroundColor Red
-    Write-Host "  Run: mimir deploy set SA_PASSWORD=YourStrongPassword1" -ForegroundColor Yellow
+    Write-Host "  Run: mimir deploy set SA_PASSWORD YourStrongPassword1" -ForegroundColor Yellow
     exit 1
 }
+# Password baked into the Docker image at install time (Dockerfile.sql /SAPWD=...).
+# If the user changes SA_PASSWORD via deploy config, we detect the mismatch and
+# ALTER LOGIN on startup so rebuild-sql is never needed just for a password change.
+$installPassword = 'V63WsdafLJT9NDAn'
+
 $backupDir = "C:\backups"
 $dataDir = "C:\sql-data"
 
@@ -22,16 +27,46 @@ Write-Host "Starting SQL Server Express..."
 Start-Service MSSQL`$SQLEXPRESS
 Start-Sleep -Seconds 5
 
-# Wait for SQL to be ready
+# Wait for SQL to be ready -- try the configured password first, fall back to install password
 Write-Host "Waiting for SQL Server to accept connections..."
 $maxRetries = 30
+$connectPassword = $saPassword
+$ready = $false
 for ($i = 0; $i -lt $maxRetries; $i++) {
-    $result = sqlcmd -S $sqlInstance -U sa -P $saPassword -C -Q "SELECT 1" 2>&1
+    $result = sqlcmd -S $sqlInstance -U sa -P $connectPassword -C -Q "SELECT 1" 2>&1
     if ($LASTEXITCODE -eq 0) {
-        Write-Host "SQL Server is ready."
+        $ready = $true
         break
     }
+    # On first failure, also try the install password in case it hasn't been changed yet
+    if ($i -eq 2 -and $connectPassword -ne $installPassword) {
+        $result2 = sqlcmd -S $sqlInstance -U sa -P $installPassword -C -Q "SELECT 1" 2>&1
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "Connected with install password -- will update to configured SA_PASSWORD."
+            $connectPassword = $installPassword
+            $ready = $true
+            break
+        }
+    }
     Start-Sleep -Seconds 2
+}
+
+if (-not $ready) {
+    Write-Host "ERROR: SQL Server did not become ready after $maxRetries retries." -ForegroundColor Red
+    exit 1
+}
+
+Write-Host "SQL Server is ready."
+
+# If we connected with the install password, change it to the configured one
+if ($connectPassword -ne $saPassword) {
+    Write-Host "Changing sa password to match SA_PASSWORD from deploy config..."
+    sqlcmd -S $sqlInstance -U sa -P $connectPassword -C -Q "ALTER LOGIN sa WITH PASSWORD = '$saPassword'"
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "ERROR: Failed to change sa password." -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "sa password updated."
 }
 
 # Enable remote access
