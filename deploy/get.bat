@@ -25,7 +25,7 @@ if not exist "%ENV_FILE%" (
 )
 for /f "usebackq tokens=1* delims==" %%K in ("%ENV_FILE%") do (
     if /i "%%K"=="%CFG_KEY%" (
-        echo %%L
+        echo(%%L
         exit /b 0
     )
 )
