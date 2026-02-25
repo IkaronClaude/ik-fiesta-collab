@@ -1,7 +1,7 @@
 @echo off
 setlocal
 :: ================================================================
-:: mimir deploy set-sa-password NEW_PASSWORD
+:: mimir deploy set-sql-password NEW_PASSWORD
 :: Sets the sa password and saves it to .mimir-deploy.env.
 :: If SA_PASSWORD is already set in .mimir-deploy.env, it is used
 :: to authenticate an ALTER LOGIN in the running SQL container.
@@ -9,11 +9,11 @@ setlocal
 :: ================================================================
 if "%~1"=="" (
     echo ERROR: Project name required.
-    echo   Run via: mimir deploy set-sa-password NEW_PASSWORD
+    echo   Run via: mimir deploy set-sql-password NEW_PASSWORD
     exit /b 1
 )
 if "%~2"=="" (
-    echo Usage: mimir deploy set-sa-password NEW_PASSWORD
+    echo Usage: mimir deploy set-sql-password NEW_PASSWORD
     echo   Sets the sa password and saves it to .mimir-deploy.env.
     echo   If SA_PASSWORD is already in .mimir-deploy.env, applies the change
     echo   to the running SQL container via ALTER LOGIN.
