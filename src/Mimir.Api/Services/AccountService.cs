@@ -130,7 +130,7 @@ public class AccountService
     {
         await using var conn = await _db.OpenAccountAsync();
         await using var cmd = new SqlCommand(
-            "SELECT nCash FROM tUser WHERE nUserNo = @userNo", conn);
+            "SELECT ISNULL(SUM(cash), 0) FROM tCash WHERE userNo = @userNo", conn);
         cmd.Parameters.AddWithValue("@userNo", userNo);
 
         var result = await cmd.ExecuteScalarAsync();
@@ -142,11 +142,11 @@ public class AccountService
     {
         await using var conn = await _db.OpenAccountAsync();
         await using var cmd = new SqlCommand("""
-            UPDATE tUser SET nCash = nCash + @amount WHERE nUserNo = @userNo;
-            SELECT nCash FROM tUser WHERE nUserNo = @userNo;
+            INSERT INTO tCash (userNo, cash, cashtype, status) VALUES (@userNo, @amount, 0, 0);
+            SELECT ISNULL(SUM(cash), 0) FROM tCash WHERE userNo = @userNo;
             """, conn);
-        cmd.Parameters.AddWithValue("@amount", amount);
         cmd.Parameters.AddWithValue("@userNo", userNo);
+        cmd.Parameters.AddWithValue("@amount", amount);
 
         var result = await cmd.ExecuteScalarAsync();
         if (result is null || result == DBNull.Value) return null;
