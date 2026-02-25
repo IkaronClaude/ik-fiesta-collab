@@ -56,7 +56,7 @@ All commands are run from inside the project directory. Mimir finds the project 
 | `mimir deploy start` | Start all containers (no rebuild) |
 | `mimir deploy stop` | Stop all containers |
 | `mimir deploy update` | **Iterative dev cycle**: `mimir build --all` → `mimir pack patches` → snapshot → restart game servers. No SQL touch, no Docker rebuild. Use this for day-to-day data changes. |
-| `mimir deploy deploy` | **Full cycle**: stop all → `mimir build --all` → `mimir pack patches` → snapshot → start all. Use for first-time deploys or after config changes. |
+| `mimir deploy server` | **Full cycle**: stop all → `mimir build --all` → `mimir pack patches` → snapshot → start all. Use for first-time deploys or after config changes. |
 | `mimir deploy restart-game` | Snapshot only → restart game containers. Use after a manual `mimir build` if you skipped pack. |
 | `mimir deploy reimport` | Full reimport from source (slow — wipes data/, rebuilds, reseeds pack baseline) |
 | `mimir deploy rebuild-game` | Rebuild game server Docker image + start (needed after server binary/script changes) |
@@ -107,17 +107,19 @@ Without `KEEP_ALIVE`, containers exit automatically when their Windows service s
 
 ## Config
 
-Per-project deploy variables (SQL password, etc.) are stored in `<project>/.mimir-deploy.env` and loaded automatically before every deploy command. Set them with:
+Per-project deploy variables are stored in `<project>/.mimir-deploy.env` and loaded automatically before every deploy command. The file is a plain `KEY=VALUE` list covered by `*.env` in `.gitignore` — do not commit it.
 
-```bat
-mimir deploy set SA_PASSWORD=MyStrongPassword1
-```
+| Command | What it does |
+|---------|-------------|
+| `mimir deploy set KEY VALUE` | Write a variable to `.mimir-deploy.env` |
+| `mimir deploy get KEY` | Read a single variable |
+| `mimir deploy list` | Print all variables |
+| `mimir deploy get-connection-string` | Print SQL connection strings (for copy-paste) |
+| `mimir deploy set-sql-password NEW_PASSWORD` | Change the `sa` password in the running SQL container and update `.mimir-deploy.env`. Run `mimir deploy rebuild-game` afterwards to recreate game containers with the new password. |
 
-The file is a plain `KEY=VALUE` list (no comments). It is covered by `*.env` in `.gitignore` — do not commit it.
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `SA_PASSWORD` | `V63WsdafLJT9NDAn` | SQL Server `sa` password used by the `sqlserver` container and all game processes |
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `SA_PASSWORD` | Yes — no default | SQL Server `sa` password used by the `sqlserver` container and all game processes. Set before first start with `mimir deploy set-sql-password YourStrongPassword1`. |
 
 The `deploy/docker-config/ServerInfo/ServerInfo.txt` override (baked into the image) changes:
 - **ODBC driver**: `{SQL Server}` → `{ODBC Driver 17 for SQL Server}`
@@ -136,5 +138,5 @@ The `deploy/docker-config/ServerInfo/ServerInfo.txt` override (baked into the im
 
 **Can't connect from client**: Only port 9010 (Login) is exposed to the host. Configure the client to connect to `127.0.0.1:9010`.
 
-**SQL password**: Default is `V63WsdafLJT9NDAn`. Override with `mimir deploy set SA_PASSWORD=...`.
+**SQL password not set**: Run `mimir deploy set-sql-password YourStrongPassword1` before first start, then `mimir deploy rebuild-sql`.
 Connect: `sqlcmd -S localhost\SQLEXPRESS -U sa -P <your-password> -C`

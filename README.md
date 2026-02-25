@@ -187,7 +187,7 @@ Mimir includes a self-contained patching system so game clients can update thems
 | `patch.bat` | Downloads and applies any new patches. If the client is too far out of date it automatically downloads the full master patch instead of chaining incrementals. |
 | `repair.bat` | Forces a full re-download of all client files — call this if the client is broken or corrupted. |
 
-Before distributing, edit the `MIMIR_PATCH_URL=` line near the top of `patch.bat` to point at your patch server.
+Before distributing, edit `patcher.config` in the same folder and set `PatchUrl=` to point at your patch server.
 
 The patcher stores `.mimir-version` in the client folder to track the current version and only download what's new.
 
@@ -218,7 +218,7 @@ mimir deploy rebuild-game
 | `mimir deploy start` | Start all containers (no rebuild) |
 | `mimir deploy stop` | Stop all containers |
 | `mimir deploy update` | **Iterative dev cycle**: `mimir build --all` → `mimir pack patches` → snapshot → restart game servers. No SQL touch, no Docker rebuild. |
-| `mimir deploy deploy` | **Full cycle**: stop all → build → pack → snapshot → start all |
+| `mimir deploy server` | **Full cycle**: stop all → build → pack → snapshot → start all |
 | `mimir deploy restart-game` | Snapshot + restart game containers (use after a manual `mimir build`) |
 | `mimir deploy reimport` | Full reimport from source (slow — wipes data/, rebuilds, reseeds pack baseline) |
 | `mimir deploy rebuild-game` | Rebuild game server Docker image + start (needed after server binary changes) |
@@ -238,7 +238,7 @@ Builds data, generates an incremental client patch, snapshots to `deployed/serve
 
 ```bat
 cd my-server
-mimir deploy deploy
+mimir deploy server
 ```
 
 Stops all containers, builds everything, packs patches, and starts fresh.
@@ -251,8 +251,8 @@ nginx container serving `patches/` on port 8080, started automatically with `mim
 
 Add `KEEP_ALIVE=1` to a service's environment in `docker-compose.yml` to keep the container alive after the game process exits. This lets you `docker exec` in to inspect logs, files, and service state.
 
-> **SQL Server SA password**: `V63WsdafLJT9NDAn`
-> Connect: `sqlcmd -S localhost\SQLEXPRESS -U sa -P V63WsdafLJT9NDAn -C`
+> **SQL Server SA password**: set with `mimir deploy set-sql-password YourPassword` before first start.
+> Connect: `sqlcmd -S localhost\SQLEXPRESS -U sa -P <your-password> -C`
 
 ---
 
