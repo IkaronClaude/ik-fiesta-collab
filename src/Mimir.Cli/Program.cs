@@ -180,8 +180,8 @@ initCommand.SetHandler((DirectoryInfo project, string mimirCmd) =>
         logger.LogInformation("Created project at {Dir}", project.FullName);
         logger.LogInformation("Next steps:");
         logger.LogInformation("  cd {Dir}", project.FullName);
-        logger.LogInformation("  mimir env server init Z:/Server");
-        logger.LogInformation("  mimir env client init Z:/ClientSource/ressystem --patchable");
+        logger.LogInformation("  mimir env server init Z:/Server --type server");
+        logger.LogInformation("  mimir env client init Z:/ClientSource/ressystem --type client");
         logger.LogInformation("  mimir init-template --passthrough server");
         logger.LogInformation("  mimir import");
         logger.LogInformation("  mimir build --all");
