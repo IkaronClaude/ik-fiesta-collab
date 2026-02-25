@@ -1,4 +1,5 @@
 @echo off
+setlocal
 :: Quick data update cycle: build -> pack -> snapshot -> restart game servers.
 :: Does NOT stop/start SQL or rebuild Docker images.
 :: Use this for iterative data changes. Use deploy.bat for first-time or full deploys.

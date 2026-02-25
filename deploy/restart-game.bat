@@ -1,4 +1,5 @@
 @echo off
+setlocal
 :: Restart game server containers after a `mimir build` data update.
 :: Copies build/server -> deployed/server snapshot, then restarts containers.
 :: Does NOT rebuild the image or touch SQL.

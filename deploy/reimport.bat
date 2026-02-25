@@ -1,4 +1,5 @@
 @echo off
+setlocal
 :: Re-import all server and client data into the project, then rebuild.
 :: WARNING: Wipes existing data/ and build/ directories first.
 :: NOTE: mimir.template.json is preserved — run init-template manually if you need to regenerate it.

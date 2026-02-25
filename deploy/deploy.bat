@@ -1,4 +1,5 @@
 @echo off
+setlocal
 :: Full deploy cycle: stop containers => mimir build => mimir pack => start containers
 :: Run this after editing data or after a reimport to push changes to the running server
 :: and make the patch server serve fresh client patches.
