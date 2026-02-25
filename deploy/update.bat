@@ -12,10 +12,11 @@ if "%~1"=="" (
     exit /b 1
 )
 set "PROJECT=%~1"
+if not defined MIMIR_PROJ_DIR set "MIMIR_PROJ_DIR=%~dp0..\%PROJECT%"
 cd /d "%~dp0"
 
 echo === Building Mimir project [%PROJECT%] ===
-cd /d "%~dp0..\%PROJECT%"
+cd /d "%MIMIR_PROJ_DIR%"
 call mimir build --all
 if errorlevel 1 (
     echo ERROR: mimir build failed.
@@ -35,7 +36,7 @@ if errorlevel 1 (
 echo.
 echo === Copying build to deployed snapshot ===
 cd /d "%~dp0"
-robocopy "..\%PROJECT%\build\server" "..\%PROJECT%\deployed\server" /E /PURGE /NFL /NDL /NJH /NJS
+robocopy "%MIMIR_PROJ_DIR%\build\server" "%MIMIR_PROJ_DIR%\deployed\server" /E /PURGE /NFL /NDL /NJH /NJS
 if errorlevel 8 (
     echo ERROR: robocopy failed.
     pause

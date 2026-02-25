@@ -18,6 +18,7 @@ if "%~2"=="" (
 )
 
 set "PROJECT=%~1"
+if not defined MIMIR_PROJ_DIR set "MIMIR_PROJ_DIR=%~dp0..\%PROJECT%"
 for /f "tokens=1* delims==" %%K in ("%~2") do (
     set "CFG_KEY=%%K"
     set "CFG_VAL=%%L"
@@ -27,7 +28,7 @@ if "%CFG_KEY%"=="" (
     exit /b 1
 )
 
-set "ENV_FILE=%~dp0..\%PROJECT%\.mimir-deploy.env"
+set "ENV_FILE=%MIMIR_PROJ_DIR%\.mimir-deploy.env"
 set "TMP_FILE=%TEMP%\mimir-deploy-set-tmp.txt"
 
 if exist "%ENV_FILE%" (

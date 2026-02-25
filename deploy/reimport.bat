@@ -12,5 +12,6 @@ if "%~1"=="" (
     exit /b 1
 )
 set "PROJECT=%~1"
-cd /d "%~dp0..\%PROJECT%"
+if not defined MIMIR_PROJ_DIR set "MIMIR_PROJ_DIR=%~dp0..\%PROJECT%"
+cd /d "%MIMIR_PROJ_DIR%"
 call mimir reimport
