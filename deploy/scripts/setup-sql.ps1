@@ -121,13 +121,22 @@ foreach ($db in $databases) {
         }
     }
 
+    # Use REPLACE if .mdf files exist on disk but the database is not registered
+    # (orphaned files from a previous container that was stopped uncleanly).
+    # Safe here because we already confirmed the database does not exist in sys.databases.
+    $replaceClause = ''
+    if (Get-ChildItem "$dataDir\$db*.mdf" -ErrorAction SilentlyContinue) {
+        Write-Host "  Orphaned data files found for $db -- using WITH REPLACE."
+        $replaceClause = ', REPLACE'
+    }
+
     if ($moveClause -eq "") {
         Write-Host "WARNING: Could not parse file list for $db, attempting restore without MOVE..."
         $restoreResult = sqlcmd -S $sqlInstance -U sa -P $saPassword -C -Q "RESTORE DATABASE [$db] FROM DISK = '$bakFile'" 2>&1
     }
     else {
         $moveClause = $moveClause.TrimEnd(", ")
-        $sql = "RESTORE DATABASE [$db] FROM DISK = '$bakFile' WITH $moveClause"
+        $sql = "RESTORE DATABASE [$db] FROM DISK = '$bakFile' WITH $moveClause$replaceClause"
         Write-Host "SQL: $sql"
         $restoreResult = sqlcmd -S $sqlInstance -U sa -P $saPassword -C -Q $sql 2>&1
     }

@@ -6,7 +6,7 @@ exit /b %errorlevel%
 :deploy_cmd
 if "%2"=="" (
     echo Usage: mimir deploy ^<script^>
-    echo Available: server, update, restart-game, start, stop, logs, rebuild-game, rebuild-sql, reimport, set, get, list, get-connection-string, set-sql-password, api
+    echo Available: server, update, restart-game, start, stop, logs, rebuild-game, rebuild-sql, wipe-sql, reimport, set, get, list, get-connection-string, set-sql-password, api
     exit /b 1
 )
 set "DEPLOY_BAT=%~dp0deploy\%2.bat"

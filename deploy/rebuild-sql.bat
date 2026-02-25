@@ -1,7 +1,8 @@
 @echo off
 setlocal
-:: Rebuild the SQL image and wipe the database volume for a clean restore.
-:: WARNING: This deletes all database data. Only use for initial setup or after .bak changes.
+:: Rebuild the SQL image and restart the SQL container.
+:: Database data is PRESERVED (stored in the sql-data volume).
+:: Use wipe-sql to destroy all data and restore from .bak files.
 ::
 :: Usage: mimir deploy rebuild-sql          (from inside the project dir)
 ::        rebuild-sql.bat <project-name>    (direct call with explicit project name)
@@ -17,14 +18,6 @@ for /f "usebackq" %%L in (`powershell -NoProfile -Command "'%PROJECT%'.ToLower()
 set PROJECT_NAME=%PROJECT%
 set DOCKER_BUILDKIT=0
 cd /d "%~dp0"
-echo WARNING: This will delete all SQL data for project '%PROJECT%' and restore from .bak files.
-set /p CONFIRM="Are you sure? (y/N): "
-if /i not "%CONFIRM%"=="y" (
-    echo Cancelled.
-    pause
-    exit /b 0
-)
-docker compose -f docker-compose.yml down -v
 docker compose -f docker-compose.yml build sqlserver
 docker compose -f docker-compose.yml up -d sqlserver
 pause
