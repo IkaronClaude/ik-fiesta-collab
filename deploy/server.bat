@@ -8,8 +8,8 @@ setlocal
 ::        server.bat <project-name>    (direct call with explicit project name)
 if "%~1"=="" (
     echo ERROR: Project name required.
-    echo   Run via: mimir deploy deploy
-    echo   Or:      deploy.bat ^<project-name^>
+    echo   Run via: mimir deploy server
+    echo   Or:      server.bat ^<project-name^>
     exit /b 1
 )
 set "PROJECT=%~1"
@@ -49,6 +49,11 @@ if errorlevel 8 (
     pause
     exit /b 1
 )
+
+echo.
+echo === Ensuring required directories exist ===
+if not exist "%MIMIR_PROJ_DIR%\patches" mkdir "%MIMIR_PROJ_DIR%\patches"
+if not exist "%MIMIR_PROJ_DIR%\deployed\server" mkdir "%MIMIR_PROJ_DIR%\deployed\server"
 
 echo.
 echo === Starting containers ===
