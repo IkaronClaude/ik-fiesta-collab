@@ -28,7 +28,7 @@ x-gameserver: &gameserver
     context: .
     dockerfile: Dockerfile.server
   volumes:
-    - ../${PROJECT_NAME:-test-project}/deployed/server/9Data:C:/server/9Data
+    - ../${PROJECT_NAME:-test-project}/deployed/server:C:/server/9Data
 
 services:
   sqlserver:

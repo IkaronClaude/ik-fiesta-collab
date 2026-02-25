@@ -29,6 +29,11 @@ public static class EnvCommand
             c => c.OverridesPath,
             (c, v) => c.OverridesPath = v),
 
+        new("deploy-path",
+            "Path to server binaries (exes, DLLs, GamigoZR, etc.) outside the data directory. Set to the server root (e.g. Z:/Server) while build-path targets the 9Data subdir. Used by deploy scripts to locate binaries separately from game data.",
+            c => c.DeployPath,
+            (c, v) => c.DeployPath = v),
+
         new("seed-pack-baseline",
             "true/false. Hash importable source files after import to establish the pack diff baseline. Enable for packable (client) envs; leave false for server envs.",
             c => c.SeedPackBaseline ? "true" : "false",
@@ -116,13 +121,39 @@ public static class EnvCommand
         }
 
         string? importPath = null;
+        string? type = null;
         bool patchable = false;
-        foreach (var arg in args)
+        for (var i = 0; i < args.Count; i++)
         {
+            var arg = args[i];
             if (arg.Equals("--patchable", StringComparison.OrdinalIgnoreCase))
                 patchable = true;
+            else if (arg.Equals("--type", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Count)
+                type = args[++i];
             else if (!arg.StartsWith('-'))
                 importPath = arg;
+        }
+
+        string? deployPath = null;
+        switch (type?.ToLowerInvariant())
+        {
+            case "server":
+                // The provided path is the server root. Deploy path = root, import path = root/9Data.
+                if (importPath != null)
+                {
+                    deployPath = importPath;
+                    importPath = importPath.TrimEnd('/', '\\') + "/9Data";
+                }
+                break;
+            case "client":
+                // Client envs are always patchable.
+                patchable = true;
+                break;
+            case null:
+                break;
+            default:
+                logger.LogError("Unknown type '{Type}'. Valid types: server, client", type);
+                return;
         }
 
         var config = new EnvironmentConfig
@@ -130,11 +161,14 @@ public static class EnvCommand
             ImportPath = importPath,
             BuildPath = $"build/{envName}",
             OverridesPath = $"overrides/{envName}",
+            DeployPath = deployPath,
             SeedPackBaseline = patchable
         };
         EnvironmentStore.Save(projectDir, envName, config);
 
-        logger.LogInformation("Created environment '{Name}'", envName);
+        logger.LogInformation("Created environment '{Name}'{Type}", envName, type != null ? $" (type: {type})" : "");
+        if (deployPath != null)
+            logger.LogInformation("  deploy-path       = {V}", deployPath);
         logger.LogInformation("  import-path       = {V}", importPath ?? "(unset — use: mimir env {N} set import-path <path>)");
         logger.LogInformation("  build-path        = {V}", config.BuildPath);
         logger.LogInformation("  overrides-path    = {V}", config.OverridesPath);
@@ -235,7 +269,10 @@ public static class EnvCommand
         Console.WriteLine("Usage: mimir env <name|all> <verb> [args]");
         Console.WriteLine();
         Console.WriteLine("Verbs:");
-        Console.WriteLine("  init [importPath] [--patchable]   Create environment (init only, not all)");
+        Console.WriteLine("  init [path] [--type server|client]  Create environment (init only, not all)");
+        Console.WriteLine("    --type server  deploy-path=path, import-path=path/9Data");
+        Console.WriteLine("    --type client  import-path=path, seed-pack-baseline=true");
+        Console.WriteLine("    --patchable    alias for --type client (legacy)");
         Console.WriteLine("  set <key> <value>                 Set a property");
         Console.WriteLine("  get <key>                         Print a single property value");
         Console.WriteLine("  list                              List all properties with descriptions");

@@ -21,6 +21,17 @@ public sealed class EnvironmentConfig
     public string? OverridesPath { get; set; }
 
     /// <summary>
+    /// Optional path to server binary files (exes, DLLs, GamigoZR, etc.) that live
+    /// outside the data directory. Separates "data Mimir builds" from "binaries Mimir
+    /// doesn't touch". Used by deploy scripts to locate binaries for the server image.
+    /// Typically set to the server root (e.g. Z:/Server) while <c>buildPath</c> targets
+    /// the 9Data subdir (e.g. build/server/9Data).
+    /// </summary>
+    [JsonPropertyName("deployPath")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? DeployPath { get; set; }
+
+    /// <summary>
     /// When true, <c>mimir import</c> seeds the pack baseline manifest from this
     /// environment's importPath after each import, so that <c>mimir pack</c> only
     /// distributes files that differ from the stock source. Set this on client envs;

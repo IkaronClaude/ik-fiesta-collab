@@ -46,9 +46,11 @@ foreach ($db in $databases) {
         continue
     }
 
-    # Check if database already exists (persisted via volume)
-    $exists = sqlcmd -S $sqlInstance -U sa -P $saPassword -C -Q "SELECT name FROM sys.databases WHERE name = '$db'" -h -1 -W 2>&1
-    if ($exists -match $db) {
+    # Check if database already exists (persisted via volume).
+    # Use a COUNT query and match the numeric result to avoid false matches on error text.
+    $dbCount = sqlcmd -S $sqlInstance -U sa -P $saPassword -C -Q "SET NOCOUNT ON; SELECT COUNT(*) FROM sys.databases WHERE name = N'$db'" -h -1 -W 2>&1 |
+               Where-Object { $_ -match '^\s*\d+\s*$' } | Select-Object -First 1
+    if ($dbCount -and $dbCount.Trim() -eq '1') {
         Write-Host "Database '$db' already exists, skipping restore."
         continue
     }
@@ -81,11 +83,11 @@ foreach ($db in $databases) {
 
     if ($moveClause -eq "") {
         Write-Host "WARNING: Could not parse file list for $db, attempting restore without MOVE..."
-        $restoreResult = sqlcmd -S $sqlInstance -U sa -P $saPassword -C -Q "RESTORE DATABASE [$db] FROM DISK = '$bakFile' WITH REPLACE" 2>&1
+        $restoreResult = sqlcmd -S $sqlInstance -U sa -P $saPassword -C -Q "RESTORE DATABASE [$db] FROM DISK = '$bakFile'" 2>&1
     }
     else {
         $moveClause = $moveClause.TrimEnd(", ")
-        $sql = "RESTORE DATABASE [$db] FROM DISK = '$bakFile' WITH REPLACE, $moveClause"
+        $sql = "RESTORE DATABASE [$db] FROM DISK = '$bakFile' WITH $moveClause"
         Write-Host "SQL: $sql"
         $restoreResult = sqlcmd -S $sqlInstance -U sa -P $saPassword -C -Q $sql 2>&1
     }
