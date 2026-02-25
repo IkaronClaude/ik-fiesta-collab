@@ -15,9 +15,9 @@ if errorlevel 1 (
     exit /b 1
 )
 
-set COMPOSE_PROJECT_NAME=%PROJECT%
+for /f "usebackq" %%L in (`powershell -NoProfile -Command "'%PROJECT%'.ToLower()"`) do set "COMPOSE_PROJECT_NAME=%%L"
 set PROJECT_NAME=%PROJECT%
 set DOCKER_BUILDKIT=0
 
-docker compose -f "%~dp0docker-compose.yml" build api
-docker compose -f "%~dp0docker-compose.yml" up -d api
+docker compose -f "%~dp0docker-compose.yml" --profile api build api
+docker compose -f "%~dp0docker-compose.yml" --profile api up -d api
