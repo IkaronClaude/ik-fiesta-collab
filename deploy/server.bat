@@ -4,8 +4,8 @@ setlocal
 :: Run this after editing data or after a reimport to push changes to the running server
 :: and make the patch server serve fresh client patches.
 ::
-:: Usage: mimir deploy deploy          (from inside the project dir)
-::        deploy.bat <project-name>    (direct call with explicit project name)
+:: Usage: mimir deploy server          (from inside the project dir)
+::        server.bat <project-name>    (direct call with explicit project name)
 if "%~1"=="" (
     echo ERROR: Project name required.
     echo   Run via: mimir deploy deploy
