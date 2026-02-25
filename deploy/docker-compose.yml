@@ -40,10 +40,10 @@ services:
     volumes:
       - sql-data:C:/sql-data
     environment:
-      - SA_PASSWORD=${SA_PASSWORD:-V63WsdafLJT9NDAn}
+      - SA_PASSWORD=${SA_PASSWORD:?SA_PASSWORD not set. Run: mimir deploy set SA_PASSWORD=YourStrongPassword1}
       - ACCEPT_EULA=Y
     healthcheck:
-      test: ["CMD", "sqlcmd", "-S", ".\\SQLEXPRESS", "-U", "sa", "-P", "${SA_PASSWORD:-V63WsdafLJT9NDAn}", "-C", "-Q", "SELECT 1"]
+      test: ["CMD", "sqlcmd", "-S", ".\\SQLEXPRESS", "-U", "sa", "-P", "${SA_PASSWORD:?SA_PASSWORD not set. Run: mimir deploy set SA_PASSWORD=YourStrongPassword1}", "-C", "-Q", "SELECT 1"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -207,8 +207,8 @@ services:
     ports:
       - "5000:5000"
     environment:
-      - ACCOUNT_CONN=Server=sqlserver\SQLEXPRESS;Database=Account;User Id=sa;Password=${SA_PASSWORD:-V63WsdafLJT9NDAn};TrustServerCertificate=True;
-      - CHARACTER_CONN=Server=sqlserver\SQLEXPRESS;Database=${WORLD_DB_NAME:-World00_Character};User Id=sa;Password=${SA_PASSWORD:-V63WsdafLJT9NDAn};TrustServerCertificate=True;
+      - ACCOUNT_CONN=Server=sqlserver\SQLEXPRESS;Database=Account;User Id=sa;Password=${SA_PASSWORD:?SA_PASSWORD not set. Run: mimir deploy set SA_PASSWORD=YourStrongPassword1};TrustServerCertificate=True;
+      - CHARACTER_CONN=Server=sqlserver\SQLEXPRESS;Database=${WORLD_DB_NAME:-World00_Character};User Id=sa;Password=${SA_PASSWORD:?SA_PASSWORD not set. Run: mimir deploy set SA_PASSWORD=YourStrongPassword1};TrustServerCertificate=True;
       - JWT_SECRET=${JWT_SECRET:-dev-secret-change-in-prod-must-be-long-enough}
       - ADMIN_KEY=${ADMIN_KEY:-dev-admin-key}
     depends_on:

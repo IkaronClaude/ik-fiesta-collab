@@ -4,6 +4,11 @@
 
 $sqlInstance = ".\SQLEXPRESS"
 $saPassword = $env:SA_PASSWORD
+if (-not $saPassword) {
+    Write-Host "ERROR: SA_PASSWORD is not set." -ForegroundColor Red
+    Write-Host "  Run: mimir deploy set SA_PASSWORD=YourStrongPassword1" -ForegroundColor Yellow
+    exit 1
+}
 $backupDir = "C:\backups"
 $dataDir = "C:\sql-data"
 
