@@ -43,16 +43,7 @@ public class AccountService
             userNo = (int)outParam.Value;
         }
 
-        // Retrieve the created timestamp for the response.
-        DateTime created;
-        await using (var idCmd = new SqlCommand(
-            "SELECT dCreated FROM tUser WHERE nUserNo = @id", conn, tx))
-        {
-            idCmd.Parameters.AddWithValue("@id", userNo);
-            var result = await idCmd.ExecuteScalarAsync()
-                ?? throw new InvalidOperationException("User creation failed: record not found.");
-            created = (DateTime)result;
-        }
+        var created = DateTime.UtcNow;
 
         // Insert web credential for API login.
         await using (var credCmd = new SqlCommand(
