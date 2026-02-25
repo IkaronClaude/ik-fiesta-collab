@@ -91,16 +91,18 @@ Zone.exe opens `9Data/SubAbStateClass.txt` with write access at startup — the 
 
 ## Debugging a Crashed Container
 
-To keep a container alive after its game process exits (for `docker exec` investigation), add `KEEP_ALIVE=1` to the service's environment in `docker-compose.yml`:
+To keep containers alive after their game process exits (for `docker exec` investigation):
 
-```yaml
-zone00:
-  <<: *gameserver
-  environment:
-    - PROCESS_NAME=Zone00
-    - PROCESS_EXE=Zone.exe
-    - ZONE_NUMBER=0
-    - KEEP_ALIVE=1
+```bat
+mimir deploy set KEEP_ALIVE 1
+mimir deploy rebuild-game
+```
+
+This applies to all game containers. Containers will stay running after the Windows service stops, letting you `docker exec` in to inspect logs and state. Unset it when done:
+
+```bat
+mimir deploy set KEEP_ALIVE 0
+mimir deploy rebuild-game
 ```
 
 Without `KEEP_ALIVE`, containers exit automatically when their Windows service stops, so `docker ps` always reflects actual server health.
@@ -120,6 +122,7 @@ Per-project deploy variables are stored in `<project>/.mimir-deploy.env` and loa
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `SA_PASSWORD` | Yes — no default | SQL Server `sa` password used by the `sqlserver` container and all game processes. Set before first start with `mimir deploy set-sql-password YourStrongPassword1`. |
+| `KEEP_ALIVE` | No (default `0`) | Set to `1` to keep all game containers running after their process exits. Useful for debugging. Run `mimir deploy rebuild-game` after changing. |
 
 The `deploy/docker-config/ServerInfo/ServerInfo.txt` override (baked into the image) changes:
 - **ODBC driver**: `{SQL Server}` → `{ODBC Driver 17 for SQL Server}`

@@ -12,16 +12,9 @@
 #   mimir deploy rebuild-game — rebuild game image + start (excludes SQL)
 #   mimir deploy rebuild-sql  — wipe SQL data + restore from .bak (destructive!)
 
-# Add KEEP_ALIVE=1 to any service's environment to keep the container alive after
-# the game process stops (disables auto-exit, lets you 'docker exec' to investigate).
-# Example:
-#   zone00:
-#     <<: *gameserver
-#     environment:
-#       - PROCESS_NAME=Zone00
-#       - PROCESS_EXE=Zone.exe
-#       - ZONE_NUMBER=0
-#       - KEEP_ALIVE=1
+# Set KEEP_ALIVE=1 in .mimir-deploy.env to keep all game containers alive after
+# their process stops (disables auto-exit, lets you 'docker exec' to investigate).
+# Usage: mimir deploy set KEEP_ALIVE 1 && mimir deploy rebuild-game
 
 x-gameserver: &gameserver
   build:
@@ -31,6 +24,7 @@ x-gameserver: &gameserver
     - ${MIMIR_PROJ_DIR}/deployed/server:C:/server/9Data
   environment:
     - "SA_PASSWORD=${SA_PASSWORD:?SA_PASSWORD not set. Run: mimir deploy set SA_PASSWORD YourStrongPassword1}"
+    - "KEEP_ALIVE=${KEEP_ALIVE:-0}"
 
 services:
   sqlserver:
