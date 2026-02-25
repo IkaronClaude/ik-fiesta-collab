@@ -2,9 +2,8 @@
 setlocal
 :: ================================================================
 :: Mimir Client Patcher  --  double-click to update your client.
-:: Edit PatchUrl= below for your server before distributing.
+:: Edit patcher.config to set your patch server URL.
 :: ================================================================
-set "MIMIR_PATCH_URL=http://your-patch-server.com/"
 set "MIMIR_SELF=%~f0"
 set "MIMIR_CLIENT=%~dp0"
 if "%MIMIR_CLIENT:~-1%"=="\" set "MIMIR_CLIENT=%MIMIR_CLIENT:~0,-1%"
@@ -23,7 +22,19 @@ exit /b
 
 <#
 $ErrorActionPreference = 'Stop'
-$patchUrl = $env:MIMIR_PATCH_URL.TrimEnd('/') + '/'
+$patcherDir = Split-Path -Parent $env:MIMIR_SELF
+$configPath = Join-Path $patcherDir 'patcher.config'
+if (-not (Test-Path $configPath)) {
+    Write-Host "ERROR: patcher.config not found at $configPath" -ForegroundColor Red; exit 1
+}
+$patchUrl = $null
+foreach ($line in Get-Content $configPath) {
+    if ($line -match '^PatchUrl=(.+)$') { $patchUrl = $Matches[1].Trim() }
+}
+if (-not $patchUrl) {
+    Write-Host "ERROR: PatchUrl not set in patcher.config" -ForegroundColor Red; exit 1
+}
+$patchUrl = $patchUrl.TrimEnd('/') + '/'
 $clientDir = $env:MIMIR_CLIENT
 
 Write-Host 'Mimir Client Patcher'
