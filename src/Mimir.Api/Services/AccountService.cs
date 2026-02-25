@@ -63,19 +63,18 @@ public class AccountService
     {
         await using var conn = await _db.OpenAccountAsync();
         await using var cmd = new SqlCommand(
-            "SELECT nUserNo, sUserID, sEmail, dCreated FROM tUser WHERE nUserNo = @userNo",
+            "SELECT nUserNo, sUserID, dDate FROM tUser WHERE nUserNo = @userNo",
             conn);
         cmd.Parameters.AddWithValue("@userNo", userNo);
 
         await using var reader = await cmd.ExecuteReaderAsync();
         if (!await reader.ReadAsync()) return null;
 
-        int emailOrd = reader.GetOrdinal("sEmail");
         return new AccountResponse(
             reader.GetInt32(reader.GetOrdinal("nUserNo")),
             reader.GetString(reader.GetOrdinal("sUserID")),
-            reader.IsDBNull(emailOrd) ? null : reader.GetString(emailOrd),
-            reader.GetDateTime(reader.GetOrdinal("dCreated"))
+            null,
+            reader.GetDateTime(reader.GetOrdinal("dDate"))
         );
     }
 
