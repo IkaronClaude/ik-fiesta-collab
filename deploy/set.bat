@@ -38,6 +38,6 @@ if exist "%ENV_FILE%" (
 ) else (
     type nul > "%TMP_FILE%"
 )
-echo %CFG_KEY%=%CFG_VAL%>>"%TMP_FILE%"
+(echo %CFG_KEY%=%CFG_VAL%)>>"%TMP_FILE%"
 move /y "%TMP_FILE%" "%ENV_FILE%" > nul
 echo Set %CFG_KEY% in %PROJECT% deploy config (%ENV_FILE%).
