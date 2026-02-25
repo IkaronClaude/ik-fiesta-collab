@@ -1,8 +1,8 @@
 # Fiesta Online server — one container per process
 # All services communicate via Docker Compose DNS hostnames.
 #
-# PROJECT_NAME env var controls volume mounts and (via COMPOSE_PROJECT_NAME) container naming.
-# Set automatically by deploy scripts. Defaults to 'test-project' if unset.
+# MIMIR_PROJ_DIR env var controls volume mount paths (set automatically by mimir.bat).
+# COMPOSE_PROJECT_NAME controls container naming (set by deploy scripts, must be lowercase).
 #
 # Usage (from inside your project dir):
 #   mimir deploy start       — start all containers
@@ -28,7 +28,7 @@ x-gameserver: &gameserver
     context: .
     dockerfile: Dockerfile.server
   volumes:
-    - ../${PROJECT_NAME:-test-project}/deployed/server:C:/server/9Data
+    - ${MIMIR_PROJ_DIR}/deployed/server:C:/server/9Data
 
 services:
   sqlserver:
@@ -196,7 +196,7 @@ services:
     ports:
       - "8080:80"
     volumes:
-      - ../${PROJECT_NAME:-test-project}/patches:C:/patches:ro
+      - ${MIMIR_PROJ_DIR}/patches:C:/patches:ro
     restart: unless-stopped
 
   api:
