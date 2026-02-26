@@ -4,11 +4,6 @@ using Mimir.Api.Models;
 
 namespace Mimir.Api.Services;
 
-/// <summary>
-/// Reads premium shop items from the Account database.
-/// NOTE: Table name 'tMallGoods' may need adjustment to match the actual server schema
-///       (common names: tCashShop, tMallItem, tGoodsInfo).
-/// </summary>
 public class ShopService
 {
     private readonly DbConnectionFactory _db;
@@ -19,7 +14,7 @@ public class ShopService
     {
         await using var conn = await _db.OpenAccountAsync();
         await using var cmd = new SqlCommand(
-            "SELECT nGoodsNo, sName, nPrice, nItemNo FROM tMallGoods ORDER BY nGoodsNo",
+            "SELECT goodsNo, name, price, unit FROM tItem WHERE isSell = 1 ORDER BY goodsNo",
             conn);
 
         var results = new List<ShopItemResponse>();
@@ -34,7 +29,7 @@ public class ShopService
     {
         await using var conn = await _db.OpenAccountAsync();
         await using var cmd = new SqlCommand(
-            "SELECT nGoodsNo, sName, nPrice, nItemNo FROM tMallGoods WHERE nGoodsNo = @goodsNo",
+            "SELECT goodsNo, name, price, unit FROM tItem WHERE goodsNo = @goodsNo AND isSell = 1",
             conn);
         cmd.Parameters.AddWithValue("@goodsNo", goodsNo);
 
@@ -44,9 +39,9 @@ public class ShopService
     }
 
     private static ShopItemResponse MapItem(SqlDataReader r) => new(
-        GoodsNo: r.GetInt32(r.GetOrdinal("nGoodsNo")),
-        Name:    r.GetString(r.GetOrdinal("sName")),
-        Price:   r.GetInt32(r.GetOrdinal("nPrice")),
-        ItemNo:  r.GetInt32(r.GetOrdinal("nItemNo"))
+        GoodsNo: r.GetInt32(r.GetOrdinal("goodsNo")),
+        Name:    r.GetString(r.GetOrdinal("name")),
+        Price:   r.GetInt32(r.GetOrdinal("price")),
+        Unit:    r.GetInt32(r.GetOrdinal("unit"))
     );
 }

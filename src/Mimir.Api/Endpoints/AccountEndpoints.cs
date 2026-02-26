@@ -75,7 +75,7 @@ public static class AccountEndpoints
             async (GiveItemRequest req, HttpContext ctx, AccountService accounts) =>
             {
                 int userNo = GetUserNo(ctx);
-                await accounts.GiveItemAsync(userNo, req.ItemNo, req.Amount);
+                await accounts.GiveItemAsync(userNo, req.GoodsNo, req.Amount);
                 return Results.NoContent();
             })
             .RequireAuthorization("admin");
@@ -84,7 +84,7 @@ public static class AccountEndpoints
         app.MapPost("/api/accounts/{id:int}/inventory",
             async (int id, GiveItemRequest req, AccountService accounts) =>
             {
-                await accounts.GiveItemAsync(id, req.ItemNo, req.Amount);
+                await accounts.GiveItemAsync(id, req.GoodsNo, req.Amount);
                 return Results.NoContent();
             })
             .RequireAuthorization("admin");

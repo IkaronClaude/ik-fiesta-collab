@@ -153,20 +153,15 @@ public class AccountService
         return new CashResponse(userNo, Convert.ToInt32(result));
     }
 
-    /// <summary>
-    /// Grants a premium/cash item to the account's item storage.
-    /// NOTE: Table name 'tAccountItem' may need adjustment to match the actual server schema
-    ///       (common names: tCashItem, tPremiumItem, tAccountInventory).
-    /// </summary>
-    public async Task GiveItemAsync(int userNo, int itemNo, int amount)
+    public async Task GiveItemAsync(int userNo, int goodsNo, int amount)
     {
         await using var conn = await _db.OpenAccountAsync();
         await using var cmd = new SqlCommand("""
-            INSERT INTO tAccountItem (nUserNo, nItemNo, nCount)
-            VALUES (@userNo, @itemNo, @amount)
+            INSERT INTO tChargeItem (userNo, orderNo, goodsNo, amount, registerDate, isDraw)
+            VALUES (@userNo, 0, @goodsNo, @amount, GETDATE(), 0)
             """, conn);
         cmd.Parameters.AddWithValue("@userNo", userNo);
-        cmd.Parameters.AddWithValue("@itemNo", itemNo);
+        cmd.Parameters.AddWithValue("@goodsNo", goodsNo);
         cmd.Parameters.AddWithValue("@amount", amount);
         await cmd.ExecuteNonQueryAsync();
     }
