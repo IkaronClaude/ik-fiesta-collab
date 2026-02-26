@@ -67,3 +67,4 @@ move /y "%TMP_FILE%" "%ENV_FILE%" > nul
 
 echo SA_PASSWORD saved to deploy config.
 echo Run 'mimir deploy rebuild-game' to apply the new password to game servers.
+echo Run 'mimir deploy api' as well if the API container is running.
