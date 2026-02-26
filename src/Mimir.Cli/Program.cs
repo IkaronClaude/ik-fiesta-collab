@@ -1048,7 +1048,7 @@ editCommand.SetHandler(async (DirectoryInfo? projectOpt, string sql) =>
         var tableFile = await projectService.ReadTableFileAsync(project.FullName, entryPath);
         var schema = new TableSchema
         {
-            TableName = tableFile.Header.TableName,
+            TableName = name,   // use manifest key — header TableName may collide across envs
             SourceFormat = tableFile.Header.SourceFormat,
             Columns = tableFile.Columns,
             Metadata = tableFile.Header.Metadata
@@ -1118,7 +1118,7 @@ shellCommand.SetHandler(async (DirectoryInfo? projectOpt) =>
         var tableFile = await projectService.ReadTableFileAsync(project.FullName, entryPath);
         var schema = new TableSchema
         {
-            TableName = tableFile.Header.TableName,
+            TableName = name,   // use manifest key — header TableName may collide across envs
             SourceFormat = tableFile.Header.SourceFormat,
             Columns = tableFile.Columns,
             Metadata = tableFile.Header.Metadata
@@ -1722,7 +1722,7 @@ async Task LoadTablesWithConstraints(
         {
             Schema = new TableSchema
             {
-                TableName = tableFile.Header.TableName,
+                TableName = tableName,  // use manifest key — header TableName may collide across envs
                 SourceFormat = tableFile.Header.SourceFormat,
                 Columns = tableFile.Columns,
                 Metadata = tableFile.Header.Metadata
