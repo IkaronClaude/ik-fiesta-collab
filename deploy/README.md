@@ -117,7 +117,7 @@ Per-project deploy variables are stored in `<project>/.mimir-deploy.env` and loa
 | `mimir deploy get KEY` | Read a single variable |
 | `mimir deploy list` | Print all variables |
 | `mimir deploy get-connection-string` | Print SQL connection strings (for copy-paste) |
-| `mimir deploy set-sql-password NEW_PASSWORD` | Change the `sa` password in the running SQL container and update `.mimir-deploy.env`. Run `mimir deploy rebuild-game` afterwards to recreate game containers with the new password. |
+| `mimir deploy set-sql-password NEW_PASSWORD` | Change the `sa` password in the running SQL container and update `.mimir-deploy.env`. Run `mimir deploy rebuild-game` afterwards to recreate game containers with the new password. If the API is running, also run `mimir deploy api`. |
 
 | Variable | Required | Description |
 |----------|----------|-------------|
