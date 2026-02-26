@@ -58,14 +58,14 @@ public class CharacterService
         return new CharacterResponse(
             CharNo:        r.GetInt32(r.GetOrdinal("nCharNo")),
             Name:          r.GetString(r.GetOrdinal("sID")),
-            Level:         r.GetInt32(r.GetOrdinal("nLevel")),
+            Level:         Convert.ToInt32(r.GetValue(r.GetOrdinal("nLevel"))),
             Exp:           Convert.ToInt64(r.GetValue(r.GetOrdinal("nExp"))),
             Money:         Convert.ToInt64(r.GetValue(r.GetOrdinal("nMoney"))),
             LoginZone:     r.GetString(r.GetOrdinal("sLoginZone")),
             LastLoginDate: r.IsDBNull(lastLoginOrd) ? null : r.GetDateTime(lastLoginOrd),
-            Class:         r.IsDBNull(nClassOrd)  ? 0 : r.GetInt32(nClassOrd),
-            Race:          r.IsDBNull(nRaceOrd)   ? 0 : r.GetInt32(nRaceOrd),
-            Gender:        r.IsDBNull(nGenderOrd) ? 0 : r.GetInt32(nGenderOrd)
+            Class:         r.IsDBNull(nClassOrd)  ? 0 : Convert.ToInt32(r.GetValue(nClassOrd)),
+            Race:          r.IsDBNull(nRaceOrd)   ? 0 : Convert.ToInt32(r.GetValue(nRaceOrd)),
+            Gender:        r.IsDBNull(nGenderOrd) ? 0 : Convert.ToInt32(r.GetValue(nGenderOrd))
         );
     }
 }
