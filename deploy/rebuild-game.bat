@@ -18,5 +18,5 @@ set PROJECT_NAME=%PROJECT%
 set DOCKER_BUILDKIT=0
 cd /d "%~dp0"
 docker compose --profile patch -f docker-compose.yml build account accountlog character gamelog login worldmanager zone00 zone01 zone02 zone03 zone04
-docker compose --profile patch -f docker-compose.yml up -d
+docker compose --profile patch -f docker-compose.yml up -d account accountlog character gamelog login worldmanager zone00 zone01 zone02 zone03 zone04 patch-server
 pause

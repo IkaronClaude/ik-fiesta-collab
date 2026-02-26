@@ -95,7 +95,29 @@ foreach ($db in $databases) {
         continue
     }
 
-    Write-Host "Restoring database '$db'..."
+    # Data files exist on disk but the database is not registered — container was recreated
+    # while the volume was preserved. Attach the existing files instead of restoring from
+    # backup, which would overwrite live data.
+    $mdfFile = "$dataDir\$db.mdf"
+    $ldfFile = "$dataDir\${db}_log.ldf"
+    if (Test-Path $mdfFile) {
+        Write-Host "Data files found for '$db' -- attaching instead of restoring from backup."
+        $attachSql = "CREATE DATABASE [$db] ON (FILENAME = '$mdfFile')"
+        if (Test-Path $ldfFile) { $attachSql += ", (FILENAME = '$ldfFile')" }
+        $attachSql += ' FOR ATTACH_REBUILD_LOG'
+        $attachResult = sqlcmd -S $sqlInstance -U sa -P $saPassword -C -Q $attachSql 2>&1
+        $attachStr = $attachResult | Out-String
+        if ($attachStr -match 'Msg \d+, Level 1[6-9]') {
+            Write-Host "ERROR: Failed to attach '$db':"
+            Write-Host $attachStr
+        }
+        else {
+            Write-Host "Database '$db' attached successfully."
+        }
+        continue
+    }
+
+    Write-Host "Restoring database '$db' from backup..."
 
     # Get logical file names from backup
     $fileList = sqlcmd -S $sqlInstance -U sa -P $saPassword -C -Q "RESTORE FILELISTONLY FROM DISK = '$bakFile'" -s "|" -W -h -1 2>&1
@@ -121,22 +143,13 @@ foreach ($db in $databases) {
         }
     }
 
-    # Use REPLACE if .mdf files exist on disk but the database is not registered
-    # (orphaned files from a previous container that was stopped uncleanly).
-    # Safe here because we already confirmed the database does not exist in sys.databases.
-    $replaceClause = ''
-    if (Get-ChildItem "$dataDir\$db*.mdf" -ErrorAction SilentlyContinue) {
-        Write-Host "  Orphaned data files found for $db -- using WITH REPLACE."
-        $replaceClause = ', REPLACE'
-    }
-
     if ($moveClause -eq "") {
         Write-Host "WARNING: Could not parse file list for $db, attempting restore without MOVE..."
         $restoreResult = sqlcmd -S $sqlInstance -U sa -P $saPassword -C -Q "RESTORE DATABASE [$db] FROM DISK = '$bakFile'" 2>&1
     }
     else {
         $moveClause = $moveClause.TrimEnd(", ")
-        $sql = "RESTORE DATABASE [$db] FROM DISK = '$bakFile' WITH $moveClause$replaceClause"
+        $sql = "RESTORE DATABASE [$db] FROM DISK = '$bakFile' WITH $moveClause"
         Write-Host "SQL: $sql"
         $restoreResult = sqlcmd -S $sqlInstance -U sa -P $saPassword -C -Q $sql 2>&1
     }
