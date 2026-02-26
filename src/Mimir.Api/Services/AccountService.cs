@@ -100,7 +100,7 @@ public class AccountService
         {
             if (!await reader.ReadAsync()) return null;
             userNo  = reader.GetInt32(reader.GetOrdinal("nUserNo"));
-            isAdmin = reader.GetInt32(reader.GetOrdinal("nAuthID")) == 9;
+            isAdmin = Convert.ToInt32(reader.GetValue(reader.GetOrdinal("nAuthID"))) == 9;
             hash    = reader.GetString(reader.GetOrdinal("sPasswordHash"));
         }
 

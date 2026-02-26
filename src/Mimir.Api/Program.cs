@@ -91,8 +91,8 @@ var app = builder.Build();
 await DbInit.EnsureCreatedAsync(app.Services);
 
 // --- Middleware order ---
-app.UseRateLimiter();
 if (corsOrigins.Length > 0) app.UseCors();
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 
