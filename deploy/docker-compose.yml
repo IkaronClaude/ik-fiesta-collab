@@ -254,9 +254,6 @@ services:
       - "HTTPS_CERT_PASSWORD=${HTTPS_CERT_PASSWORD:-}"
     volumes:
       - ${CERT_DIR:-./certs}:C:/certs
-    depends_on:
-      api:
-        condition: service_started
 
 volumes:
   sql-data:
