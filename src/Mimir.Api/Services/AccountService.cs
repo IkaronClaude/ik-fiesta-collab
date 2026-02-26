@@ -115,6 +115,17 @@ public class AccountService
         return (userNo, isAdmin);
     }
 
+    public async Task SetWebPasswordAsync(int userNo, string newPassword)
+    {
+        var passwordHash = BCrypt.Net.BCrypt.HashPassword(newPassword);
+        await using var conn = await _db.OpenAccountAsync();
+        await using var cmd = new SqlCommand(
+            "UPDATE tWebCredential SET sPasswordHash = @hash WHERE nUserNo = @userNo", conn);
+        cmd.Parameters.AddWithValue("@hash", passwordHash);
+        cmd.Parameters.AddWithValue("@userNo", userNo);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
     public async Task SetIngamePasswordAsync(int userNo, string newPassword)
     {
         var passwordMd5 = Md5Hex(newPassword);

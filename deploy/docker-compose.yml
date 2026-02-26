@@ -228,9 +228,35 @@ services:
       - "CHARACTER_CONN=Server=sqlserver\\SQLEXPRESS;Database=${WORLD_DB_NAME:-World00_Character};User Id=sa;Password=${SA_PASSWORD:?SA_PASSWORD not set. Run: mimir deploy set SA_PASSWORD YourStrongPassword1};TrustServerCertificate=True;"
       - "JWT_SECRET=${JWT_SECRET:-dev-secret-change-in-prod-must-be-long-enough}"
       - "ADMIN_KEY=${ADMIN_KEY:-dev-admin-key}"
+      - "CORS_ORIGINS=${CORS_ORIGINS:-}"
+      - "TURNSTILE_SECRET=${TURNSTILE_SECRET:-}"
+      - "TURNSTILE_SITE_KEY=${TURNSTILE_SITE_KEY:-}"
+      - "RECAPTCHA_SECRET=${RECAPTCHA_SECRET:-}"
+      - "RECAPTCHA_SITE_KEY=${RECAPTCHA_SITE_KEY:-}"
+      - "HTTPS_CERT_PATH=${HTTPS_CERT_PATH:-}"
+      - "HTTPS_CERT_PASSWORD=${HTTPS_CERT_PASSWORD:-}"
+    volumes:
+      - ${CERT_DIR:-./certs}:C:/certs
     depends_on:
       sqlserver:
         condition: service_healthy
+
+  webapp:
+    build:
+      context: ${WEBAPP_CONTEXT:-.}
+      dockerfile: ${WEBAPP_DOCKERFILE:-Dockerfile.webapp}
+    profiles: [webapp]
+    ports:
+      - "8080:8080"
+    environment:
+      - "API_URL=${API_URL:-http://api:5000}"
+      - "HTTPS_CERT_PATH=${HTTPS_CERT_PATH:-}"
+      - "HTTPS_CERT_PASSWORD=${HTTPS_CERT_PASSWORD:-}"
+    volumes:
+      - ${CERT_DIR:-./certs}:C:/certs
+    depends_on:
+      api:
+        condition: service_started
 
 volumes:
   sql-data:

@@ -8,9 +8,13 @@ public static class AccountEndpoints
 {
     public static void MapAccountEndpoints(this WebApplication app)
     {
-        // POST /api/accounts — create account (no auth required)
-        app.MapPost("/api/accounts", async (CreateAccountRequest req, AccountService accounts) =>
+        // POST /api/accounts — create account (no auth required, captcha verified if provider configured)
+        app.MapPost("/api/accounts", async (CreateAccountRequest req, AccountService accounts, CaptchaService captcha) =>
         {
+            if (!await captcha.VerifyAsync(req.CaptchaToken))
+                return Results.Json(new { error = "Captcha verification failed." },
+                    statusCode: StatusCodes.Status400BadRequest);
+
             try
             {
                 var account = await accounts.CreateAccountAsync(req);
@@ -18,10 +22,10 @@ public static class AccountEndpoints
             }
             catch (SqlException ex) when (ex.Number == 2627 || ex.Number == 2601)
             {
-                // Unique constraint violation — username already taken.
                 return Results.Conflict(new { error = "Username already exists." });
             }
-        });
+        })
+        .RequireRateLimiting("register");
 
         // GET /api/accounts/me — own account info (JWT required)
         app.MapGet("/api/accounts/me", async (HttpContext ctx, AccountService accounts) =>

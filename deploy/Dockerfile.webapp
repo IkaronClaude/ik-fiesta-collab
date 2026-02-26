@@ -1,0 +1,9 @@
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-windowsservercore-ltsc2022
+WORKDIR /app
+EXPOSE 8080
+COPY webapp-publish/ .
+ENV ASPNETCORE_URLS=http://+:8080
+ENTRYPOINT ["dotnet", "Mimir.StaticServer.dll"]
+# wwwroot is baked in from webapp-publish/.
+# To serve a Vite/Next.js SPA instead, replace this Dockerfile and set
+# WEBAPP_CONTEXT + WEBAPP_DOCKERFILE in docker-compose.yml.

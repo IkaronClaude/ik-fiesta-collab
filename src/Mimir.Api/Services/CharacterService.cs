@@ -31,6 +31,27 @@ public class CharacterService
         return results;
     }
 
+    public async Task<List<CharacterResponse>> GetLeaderboardAsync()
+    {
+        await using var conn = await _db.OpenCharacterAsync();
+        await using var cmd = new SqlCommand("""
+            SELECT TOP 100
+                c.nCharNo, c.sID, c.nLevel, c.nExp, c.nMoney, c.sLoginZone, c.dLastLoginDate,
+                s.nClass, s.nRace, s.nGender
+            FROM   tCharacter c
+            LEFT JOIN tCharacterShape s ON s.nCharNo = c.nCharNo
+            WHERE  c.bDeleted = 0
+            ORDER BY c.nExp DESC
+            """, conn);
+
+        var results = new List<CharacterResponse>();
+        await using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+            results.Add(MapCharacter(reader));
+
+        return results;
+    }
+
     public async Task<CharacterResponse?> GetCharacterByCharNoAsync(int charNo)
     {
         await using var conn = await _db.OpenCharacterAsync();
