@@ -65,5 +65,3 @@ echo === Done ===
 echo  Game server:  running
 echo  Patch server: http://localhost:8080
 echo  Run player\patch.bat to update your client before launching the game.
-echo.
-pause

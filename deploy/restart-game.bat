@@ -26,6 +26,5 @@ if errorlevel 8 (
     exit /b 1
 )
 
-echo === Restarting containers ===
-docker compose -f docker-compose.yml restart account accountlog character gamelog login worldmanager zone00 zone01 zone02 zone03 zone04
-pause
+echo === Starting/restarting game containers ===
+docker compose -f docker-compose.yml up -d --force-recreate account accountlog character gamelog login worldmanager zone00 zone01 zone02 zone03 zone04
