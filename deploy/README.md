@@ -208,7 +208,7 @@ Install a GitHub Actions runner directly on your server. On push, GitHub trigger
 
 **Setup:**
 1. In your project repo: **Settings → Actions → Runners → New self-hosted runner → Windows**
-2. Follow GitHub's install steps. When running `config.cmd`, add `--work "C:\path\to\your-project"` so the runner's workspace is your project directory.
+2. Follow GitHub's install steps. Leave `--work` as default — the runner maintains its own clean workspace separate from your local copy of the project.
 3. Add `.github/workflows/deploy.yml` to your project repo:
 
 ```yaml
