@@ -252,11 +252,9 @@ jobs:
         shell: cmd
         working-directory: ${{ github.workspace }}
     steps:
-      - name: Disable GCM interactive prompts
-        run: git config --global credential.interactive never
-
       - name: Update repository
         run: |
+          git remote set-url origin git@github.com:your-org/your-repo.git
           git fetch origin
           git reset --hard origin/master
 
@@ -314,7 +312,7 @@ jobs:
         run: mimir deploy webapp
 ```
 
-> `git config --global credential.interactive never` prevents Windows Git Credential Manager from showing an account-picker popup in the CI context.
+> `git remote set-url` ensures SSH is used for fetch — HTTPS fetch fails on self-hosted runners without stored credentials. Use your repo's SSH URL (e.g. `git@github.com:org/repo.git`). If you have a multi-account SSH config alias (e.g. `Host claude` → `github.com`), use that form instead: `git@claude:org/repo.git`.
 >
 > `git fetch + git reset --hard` is used instead of `actions/checkout` to preserve gitignored files (secrets, deployed server snapshot) and avoid a Windows runner bug where Node.js fails to clean up a temp directory.
 >
