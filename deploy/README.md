@@ -209,7 +209,16 @@ Install a GitHub Actions runner directly on your server. On push, GitHub trigger
 **Setup:**
 1. In your project repo: **Settings → Actions → Runners → New self-hosted runner → Windows**
 2. Follow GitHub's install steps. Leave `--work` as default — the runner maintains its own clean workspace separate from your local copy of the project.
-3. Add `.github/workflows/deploy.yml` to your project repo:
+3. Add GitHub Actions **Variables** and **Secrets** for this project repo (Settings → Secrets and variables → Actions):
+
+   | Type | Name | Example | Description |
+   |------|------|---------|-------------|
+   | Secret | `SA_PASSWORD` | `MyPassword1` | SQL Server sa password |
+   | Secret | `JWT_SECRET` | `<random 32+ chars>` | JWT signing key (if API enabled) |
+   | Variable | `COMPOSE_PROJECT_NAME` | `my-server-ci` | Container namespace — must differ from your local instance |
+   | Variable | `PORT_OFFSET` | `-1000` | Shifts all game ports (e.g. -1000 → 8010 instead of 9010) |
+
+4. Add `.github/workflows/deploy.yml` to your project repo:
 
 ```yaml
 name: Deploy
@@ -227,20 +236,51 @@ jobs:
         shell: cmd
         working-directory: ${{ github.workspace }}
     steps:
+      - name: Disable GCM interactive prompts
+        run: git config --global credential.interactive never
+
       - uses: actions/checkout@v3
         continue-on-error: true   # checkout succeeds; ignore Windows temp dir cleanup error
 
+      - name: Remove local mimir.bat
+        run: del mimir.bat
+
+      - name: Write deploy config from GitHub variables/secrets
+        shell: powershell
+        env:
+          SA_PASSWORD: ${{ secrets.SA_PASSWORD }}
+          COMPOSE_PROJECT_NAME: ${{ vars.COMPOSE_PROJECT_NAME }}
+          PORT_OFFSET: ${{ vars.PORT_OFFSET }}
+        run: |
+          $o = if ($env:PORT_OFFSET) { [int]$env:PORT_OFFSET } else { 0 }
+          @(
+            "COMPOSE_PROJECT_NAME=$($env:COMPOSE_PROJECT_NAME)"
+            "LOGIN_PORT=$($o + 9010)"
+            "WM_PORT=$($o + 9013)"
+            "ZONE00_PORT=$($o + 9016)"
+            "ZONE01_PORT=$($o + 9019)"
+            "ZONE02_PORT=$($o + 9022)"
+            "ZONE03_PORT=$($o + 9025)"
+            "ZONE04_PORT=$($o + 9028)"
+            "SQL_PORT=$($o + 1433)"
+          ) | Set-Content .mimir-deploy.env -Encoding ascii
+          @(
+            "SA_PASSWORD=$($env:SA_PASSWORD)"
+          ) | Set-Content .mimir-deploy.secrets -Encoding ascii
+
       - name: Build data
-        run: mimir.bat build --all
+        run: mimir build --all
       - name: Pack patches
-        run: mimir.bat pack patches --env client
+        run: mimir pack patches --env client
       - name: Snapshot and restart
-        run: mimir.bat deploy restart-game
+        run: mimir deploy restart-game
 ```
 
 > `continue-on-error: true` on checkout works around a known Windows runner bug where Node.js fails to clean up a temp directory after a successful checkout.
+>
+> `del mimir.bat` removes the project's local mimir resolver so the system PATH version is used instead (the project's `mimir.bat` contains a local path that won't exist on the runner).
 
-One-time setup: run `mimir deploy rebuild-sql` from the runner's work directory to seed the databases. Every push after that rebuilds and restarts automatically.
+One-time setup: run `mimir deploy rebuild-sql` from the runner's work directory to seed the databases. Every push after that rebuilds and restarts automatically. No files need to be created on the server — all config comes from GitHub.
 
 ---
 

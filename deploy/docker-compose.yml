@@ -31,7 +31,7 @@ services:
       context: .
       dockerfile: Dockerfile.sql
     ports:
-      - "1433:1433"
+      - "${SQL_PORT:-1433}:1433"
     volumes:
       - sql-data:C:/sql-data
     environment:
@@ -95,7 +95,7 @@ services:
   login:
     <<: *gameserver
     ports:
-      - "9010:9010"    # Client connects here
+      - "${LOGIN_PORT:-9010}:9010"    # Client connects here
     environment:
       - "SA_PASSWORD=${SA_PASSWORD:?SA_PASSWORD not set. Run: mimir deploy set SA_PASSWORD YourStrongPassword1}"
       - "KEEP_ALIVE=${KEEP_ALIVE:-0}"
@@ -114,7 +114,7 @@ services:
   worldmanager:
     <<: *gameserver
     ports:
-      - "9013:9013"
+      - "${WM_PORT:-9013}:9013"
     environment:
       - "SA_PASSWORD=${SA_PASSWORD:?SA_PASSWORD not set. Run: mimir deploy set SA_PASSWORD YourStrongPassword1}"
       - "KEEP_ALIVE=${KEEP_ALIVE:-0}"
@@ -135,7 +135,7 @@ services:
   zone00:
     <<: *gameserver
     ports:
-      - "9016:9016"
+      - "${ZONE00_PORT:-9016}:9016"
     environment:
       - "SA_PASSWORD=${SA_PASSWORD:?SA_PASSWORD not set. Run: mimir deploy set SA_PASSWORD YourStrongPassword1}"
       - "KEEP_ALIVE=${KEEP_ALIVE:-0}"
@@ -149,7 +149,7 @@ services:
   zone01:
     <<: *gameserver
     ports:
-      - "9019:9019"
+      - "${ZONE01_PORT:-9019}:9019"
     environment:
       - "SA_PASSWORD=${SA_PASSWORD:?SA_PASSWORD not set. Run: mimir deploy set SA_PASSWORD YourStrongPassword1}"
       - "KEEP_ALIVE=${KEEP_ALIVE:-0}"
@@ -163,7 +163,7 @@ services:
   zone02:
     <<: *gameserver
     ports:
-      - "9022:9022"
+      - "${ZONE02_PORT:-9022}:9022"
     environment:
       - "SA_PASSWORD=${SA_PASSWORD:?SA_PASSWORD not set. Run: mimir deploy set SA_PASSWORD YourStrongPassword1}"
       - "KEEP_ALIVE=${KEEP_ALIVE:-0}"
@@ -177,7 +177,7 @@ services:
   zone03:
     <<: *gameserver
     ports:
-      - "9025:9025"
+      - "${ZONE03_PORT:-9025}:9025"
     environment:
       - "SA_PASSWORD=${SA_PASSWORD:?SA_PASSWORD not set. Run: mimir deploy set SA_PASSWORD YourStrongPassword1}"
       - "KEEP_ALIVE=${KEEP_ALIVE:-0}"
@@ -191,7 +191,7 @@ services:
   zone04:
     <<: *gameserver
     ports:
-      - "9028:9028"
+      - "${ZONE04_PORT:-9028}:9028"
     environment:
       - "SA_PASSWORD=${SA_PASSWORD:?SA_PASSWORD not set. Run: mimir deploy set SA_PASSWORD YourStrongPassword1}"
       - "KEEP_ALIVE=${KEEP_ALIVE:-0}"

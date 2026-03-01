@@ -29,16 +29,18 @@ goto :findproj
 :foundproj
 for %%N in ("%MIMIR_PROJ_DIR%") do set "MIMIR_PROJ_NAME=%%~nxN"
 
-:: Load per-project deploy config into environment
+:: Load per-project deploy config into environment.
+:: Environment variables already set (e.g. from GitHub Actions) take precedence over the file.
 set "MIMIR_ENV_FILE=%MIMIR_PROJ_DIR%\.mimir-deploy.env"
 if exist "%MIMIR_ENV_FILE%" (
-    for /f "usebackq tokens=1* delims==" %%K in ("%MIMIR_ENV_FILE%") do set "%%K=%%L"
+    for /f "usebackq tokens=1* delims==" %%K in ("%MIMIR_ENV_FILE%") do if not defined %%K set "%%K=%%L"
 )
 
-:: Load per-project secrets into environment (gitignored, never committed)
+:: Load per-project secrets into environment (gitignored, never committed).
+:: Environment variables already set (e.g. from GitHub Actions secrets) take precedence.
 set "MIMIR_SECRETS_FILE=%MIMIR_PROJ_DIR%\.mimir-deploy.secrets"
 if exist "%MIMIR_SECRETS_FILE%" (
-    for /f "usebackq tokens=1* delims==" %%K in ("%MIMIR_SECRETS_FILE%") do set "%%K=%%L"
+    for /f "usebackq tokens=1* delims==" %%K in ("%MIMIR_SECRETS_FILE%") do if not defined %%K set "%%K=%%L"
 )
 
 call "%DEPLOY_BAT%" "%MIMIR_PROJ_NAME%" %3 %4 %5 %6 %7 %8 %9
