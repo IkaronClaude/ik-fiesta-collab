@@ -263,6 +263,8 @@ jobs:
             "ZONE03_PORT=$($o + 9025)"
             "ZONE04_PORT=$($o + 9028)"
             "SQL_PORT=$($o + 1433)"
+            "PATCH_PORT=$($o + 8080)"
+            "API_PORT=$($o + 5000)"
           ) | Set-Content .mimir-deploy.env -Encoding ascii
           @(
             "SA_PASSWORD=$($env:SA_PASSWORD)"
