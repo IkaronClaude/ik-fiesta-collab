@@ -443,3 +443,7 @@ types.txt
 
 # Docker deploy — server binaries (copyrighted, not in repo)
 deploy/server-files/
+
+# Mimir deploy secrets (local secret values — never commit)
+# .mimir-deploy.secret-keys IS committed (lists which secrets are required)
+.mimir-deploy.secrets

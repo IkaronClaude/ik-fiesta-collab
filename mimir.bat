@@ -6,7 +6,7 @@ exit /b %errorlevel%
 :deploy_cmd
 if "%2"=="" (
     echo Usage: mimir deploy ^<script^>
-    echo Available: server, update, restart-game, start, stop, logs, rebuild-game, rebuild-sql, wipe-sql, reimport, set, get, clear, list, get-connection-string, set-sql-password, api, webapp, ci
+    echo Available: server, update, restart-game, start, stop, logs, rebuild-game, rebuild-sql, wipe-sql, reimport, set, get, clear, list, get-connection-string, set-sql-password, api, webapp, ci, secret
     exit /b 1
 )
 set "DEPLOY_BAT=%~dp0deploy\%2.bat"
@@ -33,6 +33,12 @@ for %%N in ("%MIMIR_PROJ_DIR%") do set "MIMIR_PROJ_NAME=%%~nxN"
 set "MIMIR_ENV_FILE=%MIMIR_PROJ_DIR%\.mimir-deploy.env"
 if exist "%MIMIR_ENV_FILE%" (
     for /f "usebackq tokens=1* delims==" %%K in ("%MIMIR_ENV_FILE%") do set "%%K=%%L"
+)
+
+:: Load per-project secrets into environment (gitignored, never committed)
+set "MIMIR_SECRETS_FILE=%MIMIR_PROJ_DIR%\.mimir-deploy.secrets"
+if exist "%MIMIR_SECRETS_FILE%" (
+    for /f "usebackq tokens=1* delims==" %%K in ("%MIMIR_SECRETS_FILE%") do set "%%K=%%L"
 )
 
 call "%DEPLOY_BAT%" "%MIMIR_PROJ_NAME%" %3 %4 %5 %6 %7 %8 %9
