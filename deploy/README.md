@@ -251,20 +251,30 @@ jobs:
           SA_PASSWORD: ${{ secrets.SA_PASSWORD }}
           COMPOSE_PROJECT_NAME: ${{ vars.COMPOSE_PROJECT_NAME }}
           PORT_OFFSET: ${{ vars.PORT_OFFSET }}
+          # Optional: override specific ports individually (takes precedence over PORT_OFFSET)
+          WEBAPP_PORT: ${{ vars.WEBAPP_PORT }}
+          PATCH_PORT: ${{ vars.PATCH_PORT }}
+          API_PORT: ${{ vars.API_PORT }}
         run: |
           $o = if ($env:PORT_OFFSET) { [int]$env:PORT_OFFSET } else { 0 }
+          function Port($base) { $base + $o }
+          function Var($envName, $base) {
+            $v = [Environment]::GetEnvironmentVariable($envName)
+            if ($v) { "$envName=$v" } else { "$envName=$(Port $base)" }
+          }
           @(
             "COMPOSE_PROJECT_NAME=$($env:COMPOSE_PROJECT_NAME)"
-            "LOGIN_PORT=$($o + 9010)"
-            "WM_PORT=$($o + 9013)"
-            "ZONE00_PORT=$($o + 9016)"
-            "ZONE01_PORT=$($o + 9019)"
-            "ZONE02_PORT=$($o + 9022)"
-            "ZONE03_PORT=$($o + 9025)"
-            "ZONE04_PORT=$($o + 9028)"
-            "SQL_PORT=$($o + 1433)"
-            "PATCH_PORT=$($o + 8080)"
-            "API_PORT=$($o + 5000)"
+            "LOGIN_PORT=$(Port 9010)"
+            "WM_PORT=$(Port 9013)"
+            "ZONE00_PORT=$(Port 9016)"
+            "ZONE01_PORT=$(Port 9019)"
+            "ZONE02_PORT=$(Port 9022)"
+            "ZONE03_PORT=$(Port 9025)"
+            "ZONE04_PORT=$(Port 9028)"
+            "SQL_PORT=$(Port 1433)"
+            (Var 'PATCH_PORT'  8080)
+            (Var 'API_PORT'    5000)
+            (Var 'WEBAPP_PORT' 80)
           ) | Set-Content .mimir-deploy.env -Encoding ascii
           @(
             "SA_PASSWORD=$($env:SA_PASSWORD)"
