@@ -268,6 +268,7 @@ services:
       - "${CI_PORT:-9000}:9000"
     volumes:
       - "${MIMIR_PROJ_DIR}:C:/project"
+      - "${CI_SSH_DIR:-./ci-ssh}:C:/ssh:ro"
       - type: npipe
         source: \\.\pipe\docker_engine
         target: \\.\pipe\docker_engine
@@ -278,6 +279,7 @@ services:
       - "COMPOSE_PROJECT=${COMPOSE_PROJECT_NAME:-}"
       - "PACK_ENABLED=${PACK_ENABLED:-false}"
       - "RESTART_SERVICES=${RESTART_SERVICES:-login worldmanager zone00 zone01 zone02 zone03 zone04 account accountlog character gamelog}"
+      - "GIT_SSH_COMMAND=ssh -i C:/ssh/id_deploy -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
     restart: unless-stopped
 
 volumes:
