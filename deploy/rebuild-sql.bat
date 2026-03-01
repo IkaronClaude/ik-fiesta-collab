@@ -31,4 +31,3 @@ if exist "%ENV_FILE%" (
 )
 echo SA_PASSWORD cleared from deploy config.
 echo Run 'mimir deploy set-sql-password NEW_PASSWORD' to set a new password.
-pause

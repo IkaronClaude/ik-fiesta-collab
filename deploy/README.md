@@ -240,6 +240,8 @@ jobs:
         run: git config --global credential.interactive never
 
       - uses: actions/checkout@v3
+        with:
+          clean: false   # preserve gitignored files (e.g. deploy/server-files/*.bak)
         continue-on-error: true   # checkout succeeds; ignore Windows temp dir cleanup error
 
       - name: Remove local mimir.bat
@@ -279,6 +281,16 @@ jobs:
           @(
             "SA_PASSWORD=$($env:SA_PASSWORD)"
           ) | Set-Content .mimir-deploy.secrets -Encoding ascii
+
+      - name: Init SQL on first deploy
+        shell: powershell
+        run: |
+          $proj = (Get-Content .mimir-deploy.env | Where-Object { $_ -match "^COMPOSE_PROJECT_NAME=" }) -replace "^COMPOSE_PROJECT_NAME=",""
+          $exists = docker volume ls --format "{{.Name}}" | Where-Object { $_ -eq "${proj}_sql-data" }
+          if (-not $exists) {
+            Write-Host "SQL volume not found - running first-time SQL setup..."
+            mimir deploy rebuild-sql
+          }
 
       - name: Build data
         run: mimir build --all
