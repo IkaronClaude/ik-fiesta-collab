@@ -202,6 +202,52 @@ mimir deploy webapp
 
 ## CI/CD — Auto-Deploy on Git Push
 
+### Preferred: GitHub Actions with Self-Hosted Runner
+
+Install a GitHub Actions runner directly on your server. On push, GitHub triggers the runner which has direct access to your project and Docker.
+
+**Setup:**
+1. In your project repo: **Settings → Actions → Runners → New self-hosted runner → Windows**
+2. Follow GitHub's install steps. When running `config.cmd`, add `--work "C:\path\to\your-project"` so the runner's workspace is your project directory.
+3. Add `.github/workflows/deploy.yml` to your project repo:
+
+```yaml
+name: Deploy
+
+on:
+  push:
+    branches: [ "master" ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    defaults:
+      run:
+        shell: cmd
+        working-directory: ${{ github.workspace }}
+    steps:
+      - uses: actions/checkout@v3
+        continue-on-error: true   # checkout succeeds; ignore Windows temp dir cleanup error
+
+      - name: Build data
+        run: mimir.bat build --all
+      - name: Pack patches
+        run: mimir.bat pack patches --env client
+      - name: Snapshot and restart
+        run: mimir.bat deploy restart-game
+```
+
+> `continue-on-error: true` on checkout works around a known Windows runner bug where Node.js fails to clean up a temp directory after a successful checkout.
+
+One-time setup: run `mimir deploy rebuild-sql` from the runner's work directory to seed the databases. Every push after that rebuilds and restarts automatically.
+
+---
+
+### Alternative: Webhook Container (untested)
+
+> **Note:** The webhook approach below is implemented but untested. Use the GitHub Actions runner above in preference.
+
 The `ci` profile runs a webhook listener that triggers `mimir build + restart` whenever you push to your project's git repository. No GitHub Actions YAML files are needed — GitHub POSTs directly to the container.
 
 ### How it works
