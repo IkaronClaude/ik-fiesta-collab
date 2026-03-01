@@ -124,6 +124,180 @@ Per-project deploy variables are stored in `<project>/.mimir-deploy.env` and loa
 | `SA_PASSWORD` | Yes — no default | SQL Server `sa` password used by the `sqlserver` container and all game processes. Set before first start with `mimir deploy set-sql-password YourStrongPassword1`. |
 | `KEEP_ALIVE` | No (default `0`) | Set to `1` to keep all game containers running after their process exits. Useful for debugging. Run `mimir deploy rebuild-game` after changing. |
 
+## Secrets
+
+Sensitive values (passwords, API keys) should be stored separately from regular config so they are never accidentally committed.
+
+```bat
+:: Store a secret — writes to .mimir-deploy.secrets (gitignored)
+:: and registers the key name in .mimir-deploy.secret-keys (committable)
+mimir deploy secret set SA_PASSWORD MyStrongPassword1
+mimir deploy secret set JWT_SECRET a-long-random-string-here
+mimir deploy secret set WEBHOOK_SECRET another-random-string
+
+:: Commit the key registry so teammates know what's needed
+git add .mimir-deploy.secret-keys
+git commit -m "Track required secret keys"
+
+:: New machine / fresh clone — get prompted for each missing secret
+mimir deploy secret check
+```
+
+| Command | What it does |
+|---------|-------------|
+| `mimir deploy secret set KEY VALUE` | Store a secret in `.mimir-deploy.secrets` |
+| `mimir deploy secret get KEY` | Print a secret value |
+| `mimir deploy secret list` | Show all required secrets and whether each is set |
+| `mimir deploy secret check` | Interactively prompt for any missing required secrets |
+
+`.mimir-deploy.secrets` is gitignored automatically. `.mimir-deploy.secret-keys` (just the names) is safe to commit — it tells new team members which secrets they need to fill in before running the server.
+
+> **Note:** Passwords containing `!` are not supported by the interactive `check` prompt (cmd limitation). Edit `.mimir-deploy.secrets` directly for those.
+
+## API Server
+
+A REST API (Mimir.Api) is available as an optional profile. It exposes account management, authentication, and leaderboard endpoints over HTTP/HTTPS.
+
+```bat
+:: Set required secrets first (if not already done)
+mimir deploy secret set SA_PASSWORD MyStrongPassword1
+mimir deploy secret set JWT_SECRET a-long-random-string-at-least-32-chars
+mimir deploy secret set ADMIN_KEY your-admin-key
+
+:: Build and start the API container (port 5000)
+mimir deploy api
+```
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SA_PASSWORD` | — required | SQL Server password |
+| `JWT_SECRET` | dev default | Secret for signing JWT tokens — **change in production** |
+| `ADMIN_KEY` | dev default | Key for admin-only endpoints |
+| `WORLD_DB_NAME` | `World00_Character` | Character database name |
+| `CORS_ORIGINS` | (none) | Comma-separated origins allowed for browser requests — set when using the web frontend (e.g. `http://your-server`) |
+| `TURNSTILE_SECRET` / `TURNSTILE_SITE_KEY` | (none) | Cloudflare Turnstile captcha for registration |
+| `RECAPTCHA_SECRET` / `RECAPTCHA_SITE_KEY` | (none) | Google reCAPTCHA v2 (used if Turnstile not configured) |
+| `HTTPS_CERT_PATH` | (none) | Path to a PFX certificate inside the container (mount via `CERT_DIR`) |
+| `HTTPS_CERT_PASSWORD` | (none) | Password for the PFX certificate |
+
+## Web Frontend
+
+A minimal web frontend (Mimir.StaticServer) serves register / login / change-password / leaderboard pages as an optional profile.
+
+```bat
+:: Set API URL so the frontend knows where to send requests
+mimir deploy set API_URL http://your-server-ip:5000
+mimir deploy set CORS_ORIGINS http://your-server-ip
+
+:: Build and start the webapp container (port 80 by default)
+mimir deploy webapp
+```
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `API_URL` | `http://api:5000` | Public URL of the API — **must be reachable from the browser** |
+| `WEBAPP_PORT` | `80` | Host port to expose the frontend on |
+
+> If the frontend and API are on the same machine, set `API_URL` to the server's public IP or hostname, not `api` (which is only resolvable inside Docker).
+
+## CI/CD — Auto-Deploy on Git Push
+
+The `ci` profile runs a webhook listener that triggers `mimir build + restart` whenever you push to your project's git repository. No GitHub Actions YAML files are needed — GitHub POSTs directly to the container.
+
+### How it works
+
+```
+GitHub push
+    │
+    ▼
+POST http://your-server:9000/webhook
+    │
+    ▼
+Mimir.Webhook container (CI)
+    ├── Validate HMAC-SHA256 signature
+    ├── Check branch matches WEBHOOK_BRANCH
+    ├── git pull (using SSH deploy key)
+    ├── mimir build --all
+    ├── mimir pack patches --env client  (if PACK_ENABLED=true)
+    ├── robocopy build/server → deployed/server
+    └── docker restart <game containers>
+```
+
+### Setup
+
+**Step 1 — Set secrets**
+
+```bat
+mimir deploy secret set SA_PASSWORD MyStrongPassword1
+mimir deploy secret set WEBHOOK_SECRET $(openssl rand -hex 32)
+```
+
+**Step 2 — Create an SSH deploy key** (so the container can `git pull` your project repo)
+
+```bat
+:: Generate a key pair (run once, from any machine)
+ssh-keygen -t ed25519 -C "mimir-ci" -f deploy_key -N ""
+```
+
+- Add `deploy_key.pub` to your GitHub repo: **Settings → Deploy keys → Add deploy key** (read-only is fine)
+- Create the `ci-ssh` directory in the `deploy/` folder and put `deploy_key` (the private key, no extension) inside it as `id_deploy`:
+
+```bat
+mkdir deploy\ci-ssh
+copy deploy_key deploy\ci-ssh\id_deploy
+```
+
+> The `ci-ssh/` directory is gitignored. Never commit the private key.
+
+**Step 3 — Configure and start**
+
+```bat
+:: Optional: change the branch to watch (default: master)
+mimir deploy set WEBHOOK_BRANCH master
+
+:: Optional: enable client pack on each deploy
+mimir deploy set PACK_ENABLED true
+
+:: Build and start the CI container (port 9000)
+mimir deploy ci
+```
+
+**Step 4 — Configure GitHub webhook**
+
+In your **project** repo (not the Mimir repo): **Settings → Webhooks → Add webhook**
+
+| Field | Value |
+|-------|-------|
+| Payload URL | `http://your-server-ip:9000/webhook` |
+| Content type | `application/json` |
+| Secret | The value you set for `WEBHOOK_SECRET` |
+| Which events? | Just the push event |
+
+Make sure port 9000 is open in your firewall / port-forwarded on your router.
+
+**Step 5 — Test it**
+
+Push a commit to the watched branch. Within a few seconds:
+
+```bat
+:: Check the build log
+curl http://your-server-ip:9000/log
+
+:: Check status
+curl http://your-server-ip:9000/status
+```
+
+### CI Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `WEBHOOK_SECRET` | (none — required) | HMAC secret — must match what you enter in GitHub |
+| `WEBHOOK_BRANCH` | `master` | Only deploys push to this branch |
+| `PACK_ENABLED` | `false` | If `true`, runs `mimir pack patches --env client` after build |
+| `CI_PORT` | `9000` | Host port for the webhook listener |
+| `CI_SSH_DIR` | `./ci-ssh` | Directory containing `id_deploy` (the SSH private key for git pull) |
+| `RESTART_SERVICES` | all game containers | Space-separated list of service names to restart after build |
+
 The `deploy/docker-config/ServerInfo/ServerInfo.txt` override (baked into the image) changes:
 - **ODBC driver**: `{SQL Server}` → `{ODBC Driver 17 for SQL Server}`
 - **ODBC server**: `.\SQLEXPRESS` → `sqlserver` (Docker Compose hostname)
