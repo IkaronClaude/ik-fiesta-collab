@@ -15,26 +15,31 @@ set "FILTER=%~2"
 if "%FILTER%"=="" set "FILTER=all"
 
 set "ENV_FILE=%MIMIR_PROJ_DIR%\.mimir-deploy.env"
+set "SECRETS_FILE=%MIMIR_PROJ_DIR%\.mimir-deploy.secrets"
 set "SA_PASSWORD="
 set "WORLD_DB_NAME=World00_Character"
-if exist "%ENV_FILE%" (
-    for /f "usebackq tokens=1* delims==" %%K in ("%ENV_FILE%") do (
-        if "%%K"=="SA_PASSWORD"   set "SA_PASSWORD=%%L"
-        if "%%K"=="WORLD_DB_NAME" set "WORLD_DB_NAME=%%L"
+set "SQL_PORT=1433"
+for %%F in ("%ENV_FILE%" "%SECRETS_FILE%") do (
+    if exist "%%~F" (
+        for /f "usebackq tokens=1* delims==" %%K in ("%%~F") do (
+            if "%%K"=="SA_PASSWORD"   set "SA_PASSWORD=%%L"
+            if "%%K"=="WORLD_DB_NAME" set "WORLD_DB_NAME=%%L"
+            if "%%K"=="SQL_PORT"      set "SQL_PORT=%%L"
+        )
     )
 )
 if "%SA_PASSWORD%"=="" (
-    echo ERROR: SA_PASSWORD not set. Run: mimir deploy set SA_PASSWORD=YourStrongPassword1
+    echo ERROR: SA_PASSWORD not set. Run: mimir deploy secret set SA_PASSWORD YourStrongPassword1
     exit /b 1
 )
 
 if /i not "%FILTER%"=="character" (
     echo Account:
-    echo   Server=sqlserver\SQLEXPRESS;Database=Account;User Id=sa;Password=%SA_PASSWORD%;TrustServerCertificate=True;
+    echo   Server=localhost,%SQL_PORT%\SQLEXPRESS;Database=Account;User Id=sa;Password=%SA_PASSWORD%;TrustServerCertificate=True;
     echo.
 )
 if /i not "%FILTER%"=="account" (
     echo Character ^(%WORLD_DB_NAME%^):
-    echo   Server=sqlserver\SQLEXPRESS;Database=%WORLD_DB_NAME%;User Id=sa;Password=%SA_PASSWORD%;TrustServerCertificate=True;
+    echo   Server=localhost,%SQL_PORT%\SQLEXPRESS;Database=%WORLD_DB_NAME%;User Id=sa;Password=%SA_PASSWORD%;TrustServerCertificate=True;
     echo.
 )

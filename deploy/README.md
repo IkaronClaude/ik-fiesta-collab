@@ -207,18 +207,33 @@ mimir deploy webapp
 Install a GitHub Actions runner directly on your server. On push, GitHub triggers the runner which has direct access to your project and Docker.
 
 **Setup:**
-1. In your project repo: **Settings → Actions → Runners → New self-hosted runner → Windows**
-2. Follow GitHub's install steps. Leave `--work` as default — the runner maintains its own clean workspace separate from your local copy of the project.
-3. Add GitHub Actions **Variables** and **Secrets** for this project repo (Settings → Secrets and variables → Actions):
 
-   | Type | Name | Example | Description |
-   |------|------|---------|-------------|
-   | Secret | `SA_PASSWORD` | `MyPassword1` | SQL Server sa password |
-   | Secret | `JWT_SECRET` | `<random 32+ chars>` | JWT signing key (if API enabled) |
-   | Variable | `COMPOSE_PROJECT_NAME` | `my-server-ci` | Container namespace — must differ from your local instance |
-   | Variable | `PORT_OFFSET` | `-1000` | Shifts all game ports (e.g. -1000 → 8010 instead of 9010) |
+1. In your project repo: **Settings → Actions → Runners → New self-hosted runner → Windows**. Follow GitHub's install steps. Leave `--work` as default — the runner maintains its own clean workspace separate from your local copy of the project.
 
-4. Add `.github/workflows/deploy.yml` to your project repo:
+2. Create a GitHub **Environment** (e.g. `dev`) under **Settings → Environments**. Add the following Variables and Secrets to it:
+
+   **Secrets** (Settings → Environments → dev → Secrets):
+
+   | Name | Example | Description |
+   |------|---------|-------------|
+   | `SA_PASSWORD` | `MyPassword1` | SQL Server sa password — required |
+   | `JWT_SECRET` | `<random 32+ chars>` | JWT signing key — required if using the API |
+
+   **Variables** (Settings → Environments → dev → Variables):
+
+   | Name | Example | Description |
+   |------|---------|-------------|
+   | `COMPOSE_PROJECT_NAME` | `my-server-ci` | Docker container namespace — **must differ from your local instance** |
+   | `PORT_OFFSET` | `1000` | Added to all game + SQL ports (e.g. `1000` → Login on 10010, SQL on 2433). Avoid offsets that land on 6000–6063 (X11, blocked by browsers). |
+   | `API_URL` | `http://yourserver:7000` | Public URL of the API — **must be reachable from the browser**. Required if using the webapp. |
+   | `CORS_ORIGINS` | `http://yourserver:1080` | Origin(s) allowed to call the API from a browser — must match the webapp's URL. Required if using the webapp. |
+   | `API_PORT` | `7000` | Host port for the API container. Use this to override the PORT_OFFSET result (e.g. if the computed port falls in a blocked range). |
+   | `WEBAPP_PORT` | `1080` | Host port for the webapp container. |
+   | `PATCH_PORT` | `9080` | Host port for the patch server container. |
+
+   > `PORT_OFFSET` is applied to game ports (Login, WorldManager, Zone, SQL). `API_PORT`, `WEBAPP_PORT`, and `PATCH_PORT` are set independently since web ports can land in browser-blocked ranges when an offset is applied.
+
+3. Add `.github/workflows/deploy.yml` to your project repo (update branch name if not `master`):
 
 ```yaml
 name: Deploy
@@ -231,6 +246,7 @@ on:
 jobs:
   deploy:
     runs-on: self-hosted
+    environment: dev
     defaults:
       run:
         shell: cmd
@@ -239,10 +255,10 @@ jobs:
       - name: Disable GCM interactive prompts
         run: git config --global credential.interactive never
 
-      - uses: actions/checkout@v3
-        with:
-          clean: false   # preserve gitignored files (e.g. deploy/server-files/*.bak)
-        continue-on-error: true   # checkout succeeds; ignore Windows temp dir cleanup error
+      - name: Update repository
+        run: |
+          git fetch origin
+          git reset --hard origin/master
 
       - name: Remove local mimir.bat
         run: del mimir.bat
@@ -251,9 +267,12 @@ jobs:
         shell: powershell
         env:
           SA_PASSWORD: ${{ secrets.SA_PASSWORD }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
           COMPOSE_PROJECT_NAME: ${{ vars.COMPOSE_PROJECT_NAME }}
           PORT_OFFSET: ${{ vars.PORT_OFFSET }}
-          # Optional: override specific ports individually (takes precedence over PORT_OFFSET)
+          API_URL: ${{ vars.API_URL }}
+          CORS_ORIGINS: ${{ vars.CORS_ORIGINS }}
+          # Optional: override individual ports (takes precedence over PORT_OFFSET)
           WEBAPP_PORT: ${{ vars.WEBAPP_PORT }}
           PATCH_PORT: ${{ vars.PATCH_PORT }}
           API_PORT: ${{ vars.API_PORT }}
@@ -277,34 +296,31 @@ jobs:
             (Var 'PATCH_PORT'  8080)
             (Var 'API_PORT'    5000)
             (Var 'WEBAPP_PORT' 80)
+            if ($env:API_URL)      { "API_URL=$($env:API_URL)" }
+            if ($env:CORS_ORIGINS) { "CORS_ORIGINS=$($env:CORS_ORIGINS)" }
           ) | Set-Content .mimir-deploy.env -Encoding ascii
           @(
             "SA_PASSWORD=$($env:SA_PASSWORD)"
+            "JWT_SECRET=$($env:JWT_SECRET)"
           ) | Set-Content .mimir-deploy.secrets -Encoding ascii
 
-      - name: Init SQL on first deploy
-        shell: powershell
-        run: |
-          $proj = (Get-Content .mimir-deploy.env | Where-Object { $_ -match "^COMPOSE_PROJECT_NAME=" }) -replace "^COMPOSE_PROJECT_NAME=",""
-          $exists = docker volume ls --format "{{.Name}}" | Where-Object { $_ -eq "${proj}_sql-data" }
-          if (-not $exists) {
-            Write-Host "SQL volume not found - running first-time SQL setup..."
-            mimir deploy rebuild-sql
-          }
+      - name: Build & Deploy Game
+        run: mimir deploy server
 
-      - name: Build data
-        run: mimir build --all
-      - name: Pack patches
-        run: mimir pack patches --env client
-      - name: Snapshot and restart
-        run: mimir deploy restart-game
+      - name: Deploy API
+        run: mimir deploy api
+
+      - name: Deploy WebApp
+        run: mimir deploy webapp
 ```
 
-> `continue-on-error: true` on checkout works around a known Windows runner bug where Node.js fails to clean up a temp directory after a successful checkout.
+> `git config --global credential.interactive never` prevents Windows Git Credential Manager from showing an account-picker popup in the CI context.
 >
-> `del mimir.bat` removes the project's local mimir resolver so the system PATH version is used instead (the project's `mimir.bat` contains a local path that won't exist on the runner).
-
-One-time setup: run `mimir deploy rebuild-sql` from the runner's work directory to seed the databases. Every push after that rebuilds and restarts automatically. No files need to be created on the server — all config comes from GitHub.
+> `git fetch + git reset --hard` is used instead of `actions/checkout` to preserve gitignored files (secrets, deployed server snapshot) and avoid a Windows runner bug where Node.js fails to clean up a temp directory.
+>
+> `del mimir.bat` removes the project's local mimir resolver so the system PATH version is used instead.
+>
+> `mimir deploy server` handles build + pack + snapshot + restart in one step, including first-time SQL setup. Remove the API/webapp steps if you are not using those profiles.
 
 ---
 
