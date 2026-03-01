@@ -255,5 +255,30 @@ services:
     volumes:
       - ${CERT_DIR:-./certs}:C:/certs
 
+  # --- CI/CD webhook listener (profile: ci) ---
+  # Triggered by GitHub push webhook; runs git pull + mimir build + docker restart.
+  # Requires: mimir deploy set WEBHOOK_SECRET=<your-github-secret>
+  # GitHub: repo Settings -> Webhooks -> Payload URL: http://<server>:9000/webhook
+  ci:
+    build:
+      context: .
+      dockerfile: Dockerfile.ci
+    profiles: [ci]
+    ports:
+      - "${CI_PORT:-9000}:9000"
+    volumes:
+      - "${MIMIR_PROJ_DIR}:C:/project"
+      - type: npipe
+        source: \\.\pipe\docker_engine
+        target: \\.\pipe\docker_engine
+    environment:
+      - "WEBHOOK_SECRET=${WEBHOOK_SECRET:-}"
+      - "WEBHOOK_BRANCH=${WEBHOOK_BRANCH:-master}"
+      - "PROJ_DIR=C:/project"
+      - "COMPOSE_PROJECT=${COMPOSE_PROJECT_NAME:-}"
+      - "PACK_ENABLED=${PACK_ENABLED:-false}"
+      - "RESTART_SERVICES=${RESTART_SERVICES:-login worldmanager zone00 zone01 zone02 zone03 zone04 account accountlog character gamelog}"
+    restart: unless-stopped
+
 volumes:
   sql-data:

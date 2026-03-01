@@ -1,0 +1,24 @@
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-windowsservercore-ltsc2022
+WORKDIR /app
+
+# MinGit — minimal portable git for Windows
+RUN powershell -NoProfile -Command \
+    "$ProgressPreference = 'SilentlyContinue'; \
+     Invoke-WebRequest -Uri 'https://github.com/git-for-windows/git/releases/download/v2.47.1.windows.1/MinGit-2.47.1-64-bit.zip' \
+         -OutFile C:\mingit.zip; \
+     Expand-Archive -Path C:\mingit.zip -DestinationPath C:\git; \
+     Remove-Item C:\mingit.zip"
+
+# Docker CLI (copied from host by ci.bat — needed to restart game containers)
+COPY docker-bin/ C:/docker-bin/
+
+ENV PATH="C:\git\cmd;C:\docker-bin;${PATH}"
+# Tell docker CLI to talk to the host engine via the mounted named pipe
+ENV DOCKER_HOST=npipe:////./pipe/docker_engine
+
+EXPOSE 9000
+COPY ci-publish/ .
+COPY ci-cli-publish/ C:/mimir/
+
+ENV ASPNETCORE_URLS=http://+:9000
+ENTRYPOINT ["dotnet", "Mimir.Webhook.dll"]
