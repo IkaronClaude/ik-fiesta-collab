@@ -37,7 +37,7 @@ if exist "%ENV_FILE%" (
 )
 
 :: Get lowercase project name for Docker container naming
-for /f "usebackq" %%L in (`powershell -NoProfile -Command "'%PROJECT%'.ToLower()"`) do set "COMPOSE_PROJECT_NAME=%%L"
+if not defined COMPOSE_PROJECT_NAME for /f "usebackq" %%L in (`powershell -NoProfile -Command "'%PROJECT%'.ToLower()"`) do set "COMPOSE_PROJECT_NAME=%%L"
 set "CONTAINER=%COMPOSE_PROJECT_NAME%-sqlserver-1"
 
 if "%OLD_PASSWORD%"=="" (
