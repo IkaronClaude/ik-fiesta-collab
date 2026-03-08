@@ -1,0 +1,257 @@
+# Fiesta Online server — Linux containers (Wine for game server, native SQL)
+# Use when MIMIR_OS=linux is set via: mimir deploy set MIMIR_OS linux
+#
+# Key differences from docker-compose.yml (Windows):
+#   - Game server runs in Wine on Ubuntu instead of Windows Server Core
+#   - SQL Server uses the official Linux image (mcr.microsoft.com/mssql/server)
+#   - Patch server uses nginx instead of PowerShell HTTP server
+#   - Volume paths use Linux notation (/server/9Data instead of C:/server/9Data)
+#   - BuildKit is supported (no DOCKER_BUILDKIT=0 needed)
+#   - SA_PASSWORD mapped to MSSQL_SA_PASSWORD for the official SQL image
+
+x-gameserver: &gameserver
+  build:
+    context: .
+    dockerfile: Dockerfile.server.linux
+  restart: on-failure
+  volumes:
+    - ${MIMIR_PROJ_DIR}/deployed/server:/server/9Data
+
+services:
+  sqlserver:
+    build:
+      context: .
+      dockerfile: Dockerfile.sql.linux
+    ports:
+      - "${SQL_PORT:-1433}:1433"
+    volumes:
+      - sql-data:/var/opt/mssql
+    environment:
+      - "SA_PASSWORD=${SA_PASSWORD:?SA_PASSWORD not set. Run: mimir deploy set SA_PASSWORD YourStrongPassword1}"
+      # The official mssql/server image reads MSSQL_SA_PASSWORD for the initial SA password.
+      - "MSSQL_SA_PASSWORD=${SA_PASSWORD:?SA_PASSWORD not set}"
+      - ACCEPT_EULA=Y
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$SA_PASSWORD\" -C -Q 'SELECT 1' || /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P \"$SA_PASSWORD\" -C -Q 'SELECT 1'"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # --- DB bridge processes (depend on SQL) ---
+
+  account:
+    <<: *gameserver
+    environment:
+      - "SA_PASSWORD=${SA_PASSWORD:?SA_PASSWORD not set. Run: mimir deploy set SA_PASSWORD YourStrongPassword1}"
+      - "KEEP_ALIVE=${KEEP_ALIVE:-0}"
+      - PROCESS_NAME=Account
+      - PROCESS_EXE=Account.exe
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+
+  accountlog:
+    <<: *gameserver
+    environment:
+      - "SA_PASSWORD=${SA_PASSWORD:?SA_PASSWORD not set. Run: mimir deploy set SA_PASSWORD YourStrongPassword1}"
+      - "KEEP_ALIVE=${KEEP_ALIVE:-0}"
+      - PROCESS_NAME=AccountLog
+      - PROCESS_EXE=AccountLog.exe
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+
+  character:
+    <<: *gameserver
+    environment:
+      - "SA_PASSWORD=${SA_PASSWORD:?SA_PASSWORD not set. Run: mimir deploy set SA_PASSWORD YourStrongPassword1}"
+      - "KEEP_ALIVE=${KEEP_ALIVE:-0}"
+      - PROCESS_NAME=Character
+      - PROCESS_EXE=Character.exe
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+
+  gamelog:
+    <<: *gameserver
+    environment:
+      - "SA_PASSWORD=${SA_PASSWORD:?SA_PASSWORD not set. Run: mimir deploy set SA_PASSWORD YourStrongPassword1}"
+      - "KEEP_ALIVE=${KEEP_ALIVE:-0}"
+      - PROCESS_NAME=GameLog
+      - PROCESS_EXE=GameLog.exe
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+
+  # --- Game processes (depend on DB bridges) ---
+
+  login:
+    <<: *gameserver
+    ports:
+      - "${LOGIN_PORT:-9010}:9010"
+    environment:
+      - "SA_PASSWORD=${SA_PASSWORD:?SA_PASSWORD not set. Run: mimir deploy set SA_PASSWORD YourStrongPassword1}"
+      - "KEEP_ALIVE=${KEEP_ALIVE:-0}"
+      - PROCESS_NAME=Login
+      - PROCESS_EXE=Login.exe
+    depends_on:
+      account:
+        condition: service_started
+      accountlog:
+        condition: service_started
+      character:
+        condition: service_started
+      gamelog:
+        condition: service_started
+
+  worldmanager:
+    <<: *gameserver
+    ports:
+      - "${WM_PORT:-9013}:9013"
+    environment:
+      - "SA_PASSWORD=${SA_PASSWORD:?SA_PASSWORD not set. Run: mimir deploy set SA_PASSWORD YourStrongPassword1}"
+      - "KEEP_ALIVE=${KEEP_ALIVE:-0}"
+      - PROCESS_NAME=WorldManager
+      - PROCESS_EXE=WorldManager.exe
+    depends_on:
+      account:
+        condition: service_started
+      accountlog:
+        condition: service_started
+      character:
+        condition: service_started
+      gamelog:
+        condition: service_started
+
+  # --- Zone processes (depend on WorldManager) ---
+
+  zone00:
+    <<: *gameserver
+    ports:
+      - "${ZONE00_PORT:-9016}:9016"
+    environment:
+      - "SA_PASSWORD=${SA_PASSWORD:?SA_PASSWORD not set. Run: mimir deploy set SA_PASSWORD YourStrongPassword1}"
+      - "KEEP_ALIVE=${KEEP_ALIVE:-0}"
+      - PROCESS_NAME=Zone00
+      - PROCESS_EXE=Zone.exe
+      - ZONE_NUMBER=0
+    depends_on:
+      worldmanager:
+        condition: service_started
+
+  zone01:
+    <<: *gameserver
+    ports:
+      - "${ZONE01_PORT:-9019}:9019"
+    environment:
+      - "SA_PASSWORD=${SA_PASSWORD:?SA_PASSWORD not set. Run: mimir deploy set SA_PASSWORD YourStrongPassword1}"
+      - "KEEP_ALIVE=${KEEP_ALIVE:-0}"
+      - PROCESS_NAME=Zone01
+      - PROCESS_EXE=Zone.exe
+      - ZONE_NUMBER=1
+    depends_on:
+      worldmanager:
+        condition: service_started
+
+  zone02:
+    <<: *gameserver
+    ports:
+      - "${ZONE02_PORT:-9022}:9022"
+    environment:
+      - "SA_PASSWORD=${SA_PASSWORD:?SA_PASSWORD not set. Run: mimir deploy set SA_PASSWORD YourStrongPassword1}"
+      - "KEEP_ALIVE=${KEEP_ALIVE:-0}"
+      - PROCESS_NAME=Zone02
+      - PROCESS_EXE=Zone.exe
+      - ZONE_NUMBER=2
+    depends_on:
+      worldmanager:
+        condition: service_started
+
+  zone03:
+    <<: *gameserver
+    ports:
+      - "${ZONE03_PORT:-9025}:9025"
+    environment:
+      - "SA_PASSWORD=${SA_PASSWORD:?SA_PASSWORD not set. Run: mimir deploy set SA_PASSWORD YourStrongPassword1}"
+      - "KEEP_ALIVE=${KEEP_ALIVE:-0}"
+      - PROCESS_NAME=Zone03
+      - PROCESS_EXE=Zone.exe
+      - ZONE_NUMBER=3
+    depends_on:
+      worldmanager:
+        condition: service_started
+
+  zone04:
+    <<: *gameserver
+    ports:
+      - "${ZONE04_PORT:-9028}:9028"
+    environment:
+      - "SA_PASSWORD=${SA_PASSWORD:?SA_PASSWORD not set. Run: mimir deploy set SA_PASSWORD YourStrongPassword1}"
+      - "KEEP_ALIVE=${KEEP_ALIVE:-0}"
+      - PROCESS_NAME=Zone04
+      - PROCESS_EXE=Zone.exe
+      - ZONE_NUMBER=4
+    depends_on:
+      worldmanager:
+        condition: service_started
+
+  # --- Optional patch server (profile: patch) ---
+  patch-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.patch.linux
+    profiles: [patch]
+    ports:
+      - "${PATCH_PORT:-8080}:80"
+    volumes:
+      - ${MIMIR_PROJ_DIR}/patches:/patches:ro
+    restart: unless-stopped
+
+  api:
+    profiles: [api]
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    ports:
+      - "${API_PORT:-5000}:5000"
+    environment:
+      - "ACCOUNT_CONN=Server=sqlserver,1433;Database=Account;User Id=sa;Password=${SA_PASSWORD:?SA_PASSWORD not set};TrustServerCertificate=True;"
+      - "CHARACTER_CONN=Server=sqlserver,1433;Database=${WORLD_DB_NAME:-World00_Character};User Id=sa;Password=${SA_PASSWORD:?SA_PASSWORD not set};TrustServerCertificate=True;"
+      - "JWT_SECRET=${JWT_SECRET:-dev-secret-change-in-prod-must-be-long-enough}"
+      - "ADMIN_KEY=${ADMIN_KEY:-dev-admin-key}"
+      - "CORS_ORIGINS=${CORS_ORIGINS:-}"
+      - "TURNSTILE_SECRET=${TURNSTILE_SECRET:-}"
+      - "TURNSTILE_SITE_KEY=${TURNSTILE_SITE_KEY:-}"
+      - "RECAPTCHA_SECRET=${RECAPTCHA_SECRET:-}"
+      - "RECAPTCHA_SITE_KEY=${RECAPTCHA_SITE_KEY:-}"
+      - "HTTPS_CERT_PATH=${HTTPS_CERT_PATH:-}"
+      - "HTTPS_CERT_PASSWORD=${HTTPS_CERT_PASSWORD:-}"
+      - "LETSENCRYPT_DOMAIN=${LETSENCRYPT_DOMAIN:-}"
+      - "LETSENCRYPT_EMAIL=${LETSENCRYPT_EMAIL:-}"
+      - "LETSENCRYPT_CERT_DIR=/certs"
+    volumes:
+      - ${CERT_DIR:-./certs}:/certs
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+
+  webapp:
+    build:
+      context: ${WEBAPP_CONTEXT:-.}
+      dockerfile: ${WEBAPP_DOCKERFILE:-Dockerfile.webapp}
+    profiles: [webapp]
+    ports:
+      - "${WEBAPP_PORT:-80}:8080"
+    environment:
+      - "API_URL=${API_URL:-http://api:5000}"
+      - "HTTPS_CERT_PATH=${HTTPS_CERT_PATH:-}"
+      - "HTTPS_CERT_PASSWORD=${HTTPS_CERT_PASSWORD:-}"
+      - "LETSENCRYPT_DOMAIN=${LETSENCRYPT_DOMAIN:-}"
+      - "LETSENCRYPT_EMAIL=${LETSENCRYPT_EMAIL:-}"
+      - "LETSENCRYPT_CERT_DIR=/certs"
+    volumes:
+      - ${CERT_DIR:-./certs}:/certs
+
+volumes:
+  sql-data:

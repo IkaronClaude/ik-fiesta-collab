@@ -48,7 +48,8 @@ echo.
 echo === Restarting game server containers ===
 if not defined COMPOSE_PROJECT_NAME for /f "usebackq" %%L in (`powershell -NoProfile -Command "'%PROJECT%'.ToLower()"`) do set "COMPOSE_PROJECT_NAME=%%L"
 set PROJECT_NAME=%PROJECT%
-docker compose -f docker-compose.yml restart account accountlog character gamelog login worldmanager zone00 zone01 zone02 zone03 zone04
+if /i "%MIMIR_OS%"=="linux" ( set "COMPOSE_FILE=docker-compose.linux.yml" ) else ( set "COMPOSE_FILE=docker-compose.yml" )
+docker compose -f %COMPOSE_FILE% restart account accountlog character gamelog login worldmanager zone00 zone01 zone02 zone03 zone04
 
 echo.
 echo === Done ===

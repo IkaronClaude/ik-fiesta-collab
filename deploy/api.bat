@@ -22,7 +22,7 @@ if not defined COMPOSE_PROJECT_NAME for /f "usebackq" %%L in (`powershell -NoPro
 set PROJECT_NAME=%PROJECT%
 if not defined CERT_DIR set "CERT_DIR=%MIMIR_PROJ_DIR%\certs"
 if not exist "%CERT_DIR%" mkdir "%CERT_DIR%"
-set DOCKER_BUILDKIT=0
+if /i "%MIMIR_OS%"=="linux" ( set "COMPOSE_FILE=docker-compose.linux.yml" ) else ( set "COMPOSE_FILE=docker-compose.yml" & set DOCKER_BUILDKIT=0 )
 cd /d "%~dp0"
 
 dotnet publish "%~dp0..\src\Mimir.Api" -c Release -o "%~dp0api-publish" --no-self-contained
@@ -32,5 +32,5 @@ if errorlevel 1 (
     exit /b 1
 )
 
-docker compose -f docker-compose.yml --profile api build api
-docker compose -f docker-compose.yml --profile api up -d api
+docker compose -f %COMPOSE_FILE% --profile api build api
+docker compose -f %COMPOSE_FILE% --profile api up -d api

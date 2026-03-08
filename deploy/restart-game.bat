@@ -16,6 +16,7 @@ set "PROJECT=%~1"
 if not defined MIMIR_PROJ_DIR set "MIMIR_PROJ_DIR=%~dp0..\%PROJECT%"
 if not defined COMPOSE_PROJECT_NAME for /f "usebackq" %%L in (`powershell -NoProfile -Command "'%PROJECT%'.ToLower()"`) do set "COMPOSE_PROJECT_NAME=%%L"
 set PROJECT_NAME=%PROJECT%
+if /i "%MIMIR_OS%"=="linux" ( set "COMPOSE_FILE=docker-compose.linux.yml" ) else ( set "COMPOSE_FILE=docker-compose.yml" )
 cd /d "%~dp0"
 
 echo === Copying build to deployed snapshot ===
@@ -27,4 +28,4 @@ if errorlevel 8 (
 )
 
 echo === Starting/restarting game containers ===
-docker compose -f docker-compose.yml up -d --force-recreate account accountlog character gamelog login worldmanager zone00 zone01 zone02 zone03 zone04
+docker compose -f %COMPOSE_FILE% up -d --force-recreate account accountlog character gamelog login worldmanager zone00 zone01 zone02 zone03 zone04

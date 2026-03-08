@@ -14,6 +14,7 @@ set "PROJECT=%~1"
 if not defined MIMIR_PROJ_DIR set "MIMIR_PROJ_DIR=%~dp0..\%PROJECT%"
 if not defined COMPOSE_PROJECT_NAME for /f "usebackq" %%L in (`powershell -NoProfile -Command "'%PROJECT%'.ToLower()"`) do set "COMPOSE_PROJECT_NAME=%%L"
 set PROJECT_NAME=%PROJECT%
+if /i "%MIMIR_OS%"=="linux" ( set "COMPOSE_FILE=docker-compose.linux.yml" ) else ( set "COMPOSE_FILE=docker-compose.yml" )
 cd /d "%~dp0"
-docker compose -f docker-compose.yml logs -f account accountlog character gamelog login worldmanager zone00 zone01 zone02 zone03 zone04
+docker compose -f %COMPOSE_FILE% logs -f account accountlog character gamelog login worldmanager zone00 zone01 zone02 zone03 zone04
 pause

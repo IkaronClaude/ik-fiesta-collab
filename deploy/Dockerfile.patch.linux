@@ -1,0 +1,16 @@
+# Patch server (Linux variant) — nginx serving Mimir patch zips and patch-index.json.
+# Replaces the PowerShell HTTP server used in the Windows variant.
+
+FROM nginx:alpine
+
+RUN printf 'server {\n\
+    listen 80;\n\
+    root /patches;\n\
+    location / {\n\
+        autoindex on;\n\
+        add_header Access-Control-Allow-Origin *;\n\
+        add_header Cache-Control "no-cache";\n\
+    }\n\
+}\n' > /etc/nginx/conf.d/default.conf
+
+EXPOSE 80

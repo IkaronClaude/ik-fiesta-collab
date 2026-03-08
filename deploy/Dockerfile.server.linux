@@ -1,0 +1,81 @@
+# Fiesta Online game server — Linux + Wine variant
+# Runs 32-bit Windows game server exes under Wine on Ubuntu 24.04.
+# Same interface as Dockerfile.server: one container per process via
+# PROCESS_NAME + PROCESS_EXE env vars.
+#
+# Usage: mimir deploy set MIMIR_OS linux
+#        mimir deploy rebuild-game
+
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# 32-bit architecture support (game server exes are 32-bit Windows)
+RUN dpkg --add-architecture i386
+
+# Wine + ODBC (FreeTDS for SQL Server connectivity via Wine ODBC passthrough)
+# wine32 provides 32-bit Wine runtime; xvfb is needed for headless Wine init.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        wine wine32 wine64 \
+        xvfb \
+        unixodbc unixodbc-dev \
+        tdsodbc \
+        libodbc2:i386 \
+        && rm -rf /var/lib/apt/lists/*
+
+# Register FreeTDS as the {SQL Server} ODBC driver.
+# Wine's odbc32.dll (native mode) passes ODBC calls through to system unixODBC,
+# which resolves {SQL Server} to this FreeTDS driver.
+RUN printf '[SQL Server]\n\
+Description=FreeTDS ODBC driver for SQL Server\n\
+Driver=/usr/lib/x86_64-linux-gnu/odbc/libtdsodbc.so\n\
+Setup=/usr/lib/x86_64-linux-gnu/odbc/libtdsS.so\n\
+FileUsage=1\n' > /etc/odbcinst.ini
+
+# FreeTDS: map the named-instance path used in ServerInfo.txt to sqlserver:1433.
+# The linux ServerInfo.txt uses SERVER=sqlserver,1433 directly (no named instance),
+# but this alias serves as a fallback if old configs are used.
+RUN printf '[global]\n\
+    tds version = 7.4\n\
+\n\
+[sqlserver\\SQLEXPRESS]\n\
+    host = sqlserver\n\
+    port = 1433\n\
+    tds version = 7.4\n' > /etc/freetds/freetds.conf
+
+# Initialise Wine prefix (win64 supports 32-bit apps via WoW64 redirection).
+# Use Xvfb for the init since wineboot may try to open windows.
+ENV WINEPREFIX=/root/.wine
+RUN Xvfb :99 -screen 0 800x600x24 & \
+    export DISPLAY=:99 && \
+    sleep 1 && \
+    WINEDEBUG=-all wine wineboot --init 2>/dev/null; \
+    # Tell Wine to use native (system) ODBC instead of the builtin stub
+    WINEDEBUG=-all wine reg add 'HKCU\Software\Wine\DllOverrides' \
+        /v odbc32 /t REG_SZ /d native /f 2>/dev/null; \
+    pkill Xvfb 2>/dev/null; true
+
+# Copy all server process directories (binaries + DLLs)
+COPY server-files/GamigoZR/     /server/GamigoZR/
+COPY server-files/Account/      /server/Account/
+COPY server-files/AccountLog/   /server/AccountLog/
+COPY server-files/Character/    /server/Character/
+COPY server-files/GameLog/      /server/GameLog/
+COPY server-files/Login/        /server/Login/
+COPY server-files/WorldManager/ /server/WorldManager/
+COPY server-files/Zone00/       /server/Zone00/
+COPY server-files/Zone01/       /server/Zone01/
+COPY server-files/Zone02/       /server/Zone02/
+COPY server-files/Zone03/       /server/Zone03/
+COPY server-files/Zone04/       /server/Zone04/
+
+# Docker-specific ServerInfo configs (linux variant uses sqlserver,1433)
+COPY config.linux/ /docker-config/
+
+COPY scripts/start-process.sh /start-process.sh
+RUN chmod +x /start-process.sh
+
+ENV PROCESS_NAME=""
+ENV PROCESS_EXE=""
+
+CMD ["/start-process.sh"]

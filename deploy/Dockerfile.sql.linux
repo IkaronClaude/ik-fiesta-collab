@@ -1,0 +1,24 @@
+# SQL Server 2022 on Linux
+# Much simpler than the Windows variant — official Microsoft image,
+# no Windows Server Core, no ODBC driver install, BuildKit-compatible.
+#
+# Restores game databases from .bak files on first run.
+# Data is persisted to the sql-data volume (/var/opt/mssql).
+
+FROM mcr.microsoft.com/mssql/server:2022-latest
+
+USER root
+
+# Copy database backups into the image
+COPY server-files/Databases/ /var/opt/mssql/backup/
+RUN chown -R mssql:mssql /var/opt/mssql/backup
+
+# Copy startup script
+COPY scripts/setup-sql.linux.sh /setup-sql.sh
+RUN chmod +x /setup-sql.sh
+
+USER mssql
+
+EXPOSE 1433
+
+CMD ["/bin/bash", "/setup-sql.sh"]

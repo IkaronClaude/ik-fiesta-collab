@@ -16,10 +16,16 @@ set "PROJECT=%~1"
 if not defined MIMIR_PROJ_DIR set "MIMIR_PROJ_DIR=%~dp0..\%PROJECT%"
 if not defined COMPOSE_PROJECT_NAME for /f "usebackq" %%L in (`powershell -NoProfile -Command "'%PROJECT%'.ToLower()"`) do set "COMPOSE_PROJECT_NAME=%%L"
 set PROJECT_NAME=%PROJECT%
+if /i "%MIMIR_OS%"=="linux" (
+    set "COMPOSE_FILE=docker-compose.linux.yml"
+) else (
+    set "COMPOSE_FILE=docker-compose.yml"
+    set DOCKER_BUILDKIT=0
+)
 cd /d "%~dp0"
 
 echo === Stopping game containers ===
-docker compose --profile patch -f docker-compose.yml stop login worldmanager zone00 zone01 zone02 zone03 zone04 account accountlog character gamelog patch-server
+docker compose --profile patch -f %COMPOSE_FILE% stop login worldmanager zone00 zone01 zone02 zone03 zone04 account accountlog character gamelog patch-server
 
 echo.
 echo === Building Mimir project [%PROJECT%] ===
@@ -57,8 +63,7 @@ if not exist "%MIMIR_PROJ_DIR%\deployed\server" mkdir "%MIMIR_PROJ_DIR%\deployed
 
 echo.
 echo === Starting game containers ===
-set DOCKER_BUILDKIT=0
-docker compose --profile patch -f docker-compose.yml up -d --force-recreate login worldmanager zone00 zone01 zone02 zone03 zone04 account accountlog character gamelog patch-server
+docker compose --profile patch -f %COMPOSE_FILE% up -d --force-recreate login worldmanager zone00 zone01 zone02 zone03 zone04 account accountlog character gamelog patch-server
 
 echo.
 echo === Done ===
