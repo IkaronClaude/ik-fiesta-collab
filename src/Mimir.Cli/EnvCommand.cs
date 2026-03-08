@@ -14,6 +14,17 @@ public static class EnvCommand
 
     private static readonly EnvProp[] Properties =
     [
+        new("type",
+            "Environment type: server or client. Determines valid operations (e.g. pack requires client).",
+            c => c.Type,
+            (c, v) =>
+            {
+                var lower = v.ToLowerInvariant();
+                if (lower != "server" && lower != "client")
+                    throw new ArgumentException($"Value for type must be 'server' or 'client', got: {v}");
+                c.Type = lower;
+            }),
+
         new("import-path",
             "Source directory to import data files from.",
             c => c.ImportPath,
@@ -170,6 +181,7 @@ public static class EnvCommand
 
         var config = new EnvironmentConfig
         {
+            Type = type?.ToLowerInvariant(),
             ImportPath = importPath,
             BuildPath = $"build/{envName}",
             OverridesPath = $"overrides/{envName}",

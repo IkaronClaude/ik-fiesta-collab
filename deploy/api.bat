@@ -14,8 +14,14 @@ set "MIMIR_ENV_FILE=%MIMIR_PROJ_DIR%\.mimir-deploy.env"
 if exist "%MIMIR_ENV_FILE%" (
     for /f "usebackq tokens=1* delims==" %%K in ("%MIMIR_ENV_FILE%") do set "%%K=%%L"
 )
+set "MIMIR_SECRETS_FILE=%MIMIR_PROJ_DIR%\.mimir-deploy.secrets"
+if exist "%MIMIR_SECRETS_FILE%" (
+    for /f "usebackq tokens=1* delims==" %%K in ("%MIMIR_SECRETS_FILE%") do if not defined %%K set "%%K=%%L"
+)
 if not defined COMPOSE_PROJECT_NAME for /f "usebackq" %%L in (`powershell -NoProfile -Command "'%PROJECT%'.ToLower()"`) do set "COMPOSE_PROJECT_NAME=%%L"
 set PROJECT_NAME=%PROJECT%
+if not defined CERT_DIR set "CERT_DIR=%MIMIR_PROJ_DIR%\certs"
+if not exist "%CERT_DIR%" mkdir "%CERT_DIR%"
 set DOCKER_BUILDKIT=0
 cd /d "%~dp0"
 

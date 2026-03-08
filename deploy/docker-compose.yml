@@ -20,6 +20,7 @@ x-gameserver: &gameserver
   build:
     context: .
     dockerfile: Dockerfile.server
+  restart: on-failure
   volumes:
     - ${MIMIR_PROJ_DIR}/deployed/server:C:/server/9Data
   # NOTE: 'environment' is overridden per-service because YAML merge is shallow.
@@ -38,7 +39,7 @@ services:
       - "SA_PASSWORD=${SA_PASSWORD:?SA_PASSWORD not set. Run: mimir deploy set SA_PASSWORD YourStrongPassword1}"
       - ACCEPT_EULA=Y
     healthcheck:
-      test: ["CMD", "sqlcmd", "-S", ".\\SQLEXPRESS", "-E", "-C", "-Q", "SELECT 1"]
+      test: ["CMD-SHELL", "sqlcmd -S .\\SQLEXPRESS -U sa -P %SA_PASSWORD% -C -Q \"SELECT 1\""]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -235,6 +236,9 @@ services:
       - "RECAPTCHA_SITE_KEY=${RECAPTCHA_SITE_KEY:-}"
       - "HTTPS_CERT_PATH=${HTTPS_CERT_PATH:-}"
       - "HTTPS_CERT_PASSWORD=${HTTPS_CERT_PASSWORD:-}"
+      - "LETSENCRYPT_DOMAIN=${LETSENCRYPT_DOMAIN:-}"
+      - "LETSENCRYPT_EMAIL=${LETSENCRYPT_EMAIL:-}"
+      - "LETSENCRYPT_CERT_DIR=C:/certs"
     volumes:
       - ${CERT_DIR:-./certs}:C:/certs
     depends_on:
@@ -252,6 +256,9 @@ services:
       - "API_URL=${API_URL:-http://api:5000}"
       - "HTTPS_CERT_PATH=${HTTPS_CERT_PATH:-}"
       - "HTTPS_CERT_PASSWORD=${HTTPS_CERT_PASSWORD:-}"
+      - "LETSENCRYPT_DOMAIN=${LETSENCRYPT_DOMAIN:-}"
+      - "LETSENCRYPT_EMAIL=${LETSENCRYPT_EMAIL:-}"
+      - "LETSENCRYPT_CERT_DIR=C:/certs"
     volumes:
       - ${CERT_DIR:-./certs}:C:/certs
 

@@ -18,8 +18,8 @@ if not defined COMPOSE_PROJECT_NAME for /f "usebackq" %%L in (`powershell -NoPro
 set PROJECT_NAME=%PROJECT%
 cd /d "%~dp0"
 
-echo === Stopping containers ===
-docker compose --profile patch -f docker-compose.yml down
+echo === Stopping game containers ===
+docker compose --profile patch -f docker-compose.yml stop login worldmanager zone00 zone01 zone02 zone03 zone04 account accountlog character gamelog patch-server
 
 echo.
 echo === Building Mimir project [%PROJECT%] ===
@@ -56,9 +56,9 @@ if not exist "%MIMIR_PROJ_DIR%\patches" mkdir "%MIMIR_PROJ_DIR%\patches"
 if not exist "%MIMIR_PROJ_DIR%\deployed\server" mkdir "%MIMIR_PROJ_DIR%\deployed\server"
 
 echo.
-echo === Starting containers ===
+echo === Starting game containers ===
 set DOCKER_BUILDKIT=0
-docker compose --profile patch -f docker-compose.yml up -d
+docker compose --profile patch -f docker-compose.yml up -d --force-recreate login worldmanager zone00 zone01 zone02 zone03 zone04 account accountlog character gamelog patch-server
 
 echo.
 echo === Done ===

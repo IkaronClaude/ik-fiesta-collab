@@ -37,32 +37,51 @@ cd ProjectMimir
 
 ### 2. Add mimir to your PATH (optional but recommended)
 
-`mimir.bat` at the repo root wraps `dotnet run` so you always run from source. Add the repo directory to your `PATH` so you can run `mimir` from anywhere:
+`mimir.bat` at the repo root wraps `dotnet run` so you always run from source. Add the repo directory to your `PATH` so you can run `mimir` from anywhere.
 
-```bat
-:: Add to PATH permanently (run once as admin, replace with your actual path)
-setx PATH "%PATH%;C:\Projects\Mimir"
+**Safe method** (PowerShell as admin — writes directly to registry, no length limit):
+
+```powershell
+[Environment]::SetEnvironmentVariable(
+    "Path",
+    [Environment]::GetEnvironmentVariable("Path","Machine") + ";C:\Projects\Mimir",
+    "Machine")
 ```
+
+> **Warning:** Do not use `setx PATH` — it truncates to 1024 characters and can silently destroy your PATH.
 
 ### 3. Create a project
 
-A "project" is a directory that holds your imported game data as JSON. Create one with `mimir init`:
+A "project" is a directory that holds your imported game data as JSON.
+
+**Option A — Interactive bootstrapper** (if mimir is not yet on PATH):
 
 ```bat
-mimir init my-server --env server=Z:/Server --env client=Z:/Client/ressystem
+:: From the Mimir repo root — guides you through everything interactively
+init.bat
 ```
 
-This creates inside `my-server/`:
+**Option B — CLI** (if mimir is on PATH):
+
+```bat
+mimir init my-server
+cd my-server
+
+:: Register your data sources
+mimir env server init Z:/Server --type server
+mimir env client init Z:/ClientSource/ressystem --type client
+```
+
+`mimir init` creates inside `my-server/`:
 - `mimir.json` — project manifest
+- `README.md` — project-specific quick-start guide
 - `mimir.bat` — local mimir resolver (all generated scripts call this; edit if mimir isn't in PATH)
-- `.gitignore` — excludes `build/` and `patches/`
+- `.gitignore` — excludes `build/`, `patches/`, `deployed/`, secrets
 - `deploy/reimport.bat` — wipe + reimport + rebuild
-- `deploy/server.bat` — build + pack + start all containers
+- `deploy/deploy.bat` — build + pack
 - `deploy/player/` — client patch scripts
 
 > Pass `--mimir <cmd>` to bake a specific path into `mimir.bat` (e.g. `--mimir C:\Tools\mimir.bat`). Default assumes `mimir` is in PATH.
-
-> The `server` and `client` env names are yours to choose — they become the env names used in build output.
 
 ### 4. Generate merge rules
 
@@ -70,10 +89,10 @@ Mimir needs to know how to handle tables that exist in both server and client. A
 
 ```bat
 cd my-server
-mimir init-template --passthrough server
+mimir init-template
 ```
 
-This scans both environments and writes `mimir.template.json`. Tables in both envs get a `merge` rule; tables in only one env get a `copy` rule. `--passthrough server` also adds `copyFile` actions for any non-table files found in the server env (e.g. plain `.txt` config files like `_ServerGroup.txt`).
+This scans both environments and writes `mimir.template.json`. Tables in both envs get a `merge` rule; tables in only one env get a `copy` rule. If the server env was registered with `--type server`, passthrough `copyFile` actions for non-table files (e.g. `_ServerGroup.txt`) are added automatically.
 
 > **Important:** After generating, set `split` strategy on tables with known value conflicts (e.g. ColorInfo, ItemViewInfo). This tells Mimir to preserve both env's values in separate columns rather than erroring on conflict:
 >
@@ -251,8 +270,8 @@ nginx container serving `patches/` on port 8080, started automatically with `mim
 
 Add `KEEP_ALIVE=1` to a service's environment in `docker-compose.yml` to keep the container alive after the game process exits. This lets you `docker exec` in to inspect logs, files, and service state.
 
-> **SQL Server SA password**: set with `mimir deploy set-sql-password YourPassword` before first start.
-> Connect: `sqlcmd -S localhost\SQLEXPRESS -U sa -P <your-password> -C`
+> **SQL Server SA password**: set with `mimir deploy secret set SA_PASSWORD YourPassword` before first start.
+> Connect: `sqlcmd -S localhost,1433 -U sa -P <your-password> -C`
 
 ---
 
@@ -260,10 +279,13 @@ Add `KEEP_ALIVE=1` to a service's environment in `docker-compose.yml` to keep th
 
 ```
 my-server/
-  mimir.json              # project manifest (environments, table index)
+  mimir.json              # project manifest (table index)
   mimir.template.json     # merge rules, constraints, column annotations
   mimir.bat               # mimir resolver — edit this if mimir isn't in PATH
-  .gitignore              # excludes build/ and patches/ from git
+  .gitignore              # excludes build/, patches/, deployed/, secrets from git
+  environments/
+    server.json           # import/build/deploy paths + type for each env
+    client.json
   data/
     shn/                  # SHN tables (server, client, or merged)
     shinetable/           # text tables (#table format)
@@ -274,11 +296,15 @@ my-server/
   patches/                # incremental + master patch zips, patch-index.json
   deployed/
     server/               # robocopy snapshot of build/server (Docker mounts this)
+  overrides/
+    server/               # files copied verbatim into build/server last
+    client/               # files copied verbatim into build/client last
   deploy/                 # Docker Compose + deploy scripts (shared across projects)
     docker-compose.yml
     player/
-      patch.bat           # distribute to players — edit MIMIR_PATCH_URL at top
+      patch.bat           # distribute to players
       repair.bat          # forces full client re-download
+      patcher.config      # set PatchUrl= to your patch server
 ```
 
 ---
@@ -289,8 +315,11 @@ Mimir automatically finds the project by walking up from the current directory (
 
 | Command | Description |
 |---------|-------------|
-| `init <dir> --env name=path [--mimir cmd]` | Create a new project with `mimir.json`, `mimir.bat`, and `deploy/` scripts |
-| `init-template [--passthrough env]` | Scan environments and auto-generate `mimir.template.json`; `--passthrough` adds `copyFile` actions for non-table files |
+| `init <dir> [--mimir cmd]` | Create a new project with `mimir.json`, `README.md`, `mimir.bat`, and `deploy/` scripts |
+| `env <name> init [path] [--type server\|client]` | Register an environment; `--type server` sets deploy-path + passthrough; `--type client` enables pack baseline |
+| `env <name> set <key> <value>` | Update an environment property (`type`, `import-path`, `build-path`, `deploy-path`, `passthrough`, `seed-pack-baseline`) |
+| `env <name\|all> list` | Show all properties for one or all environments |
+| `init-template` | Scan environments and auto-generate `mimir.template.json`; passthrough is automatic for `--type server` envs |
 | `import [--reimport] [--retain-pack-baseline] [--reseed-baseline-only]` | Import data from configured environments; seeds pack baseline from source afterward. `--reimport` wipes `data/` and `build/` first. `--retain-pack-baseline` skips baseline reseed. `--reseed-baseline-only` only re-hashes source files for the baseline, no import. |
 | `reimport [--retain-pack-baseline]` | Shortcut: `import --reimport` then `build --all` |
 | `build [--all] [--env name] [--output dir]` | Build to native formats; defaults to `--all` when no flags given |
@@ -337,29 +366,40 @@ Wide tables (>8 columns) are printed in vertical card format; narrow tables prin
 
 ---
 
-## mimir.json Environment Config
+## Environment Config
 
+Each environment is stored in `environments/<name>.json`. Manage with `mimir env <name> init/set/list`.
+
+**`environments/server.json`**
 ```json
 {
-  "environments": {
-    "server": {
-      "importPath": "Z:/Server",
-      "buildPath": "build/server"
-    },
-    "client": {
-      "importPath": "Z:/Client/ressystem",
-      "buildPath": "build/client",
-      "overridesPath": "Z:/ClientOverrides"
-    }
-  }
+  "type": "server",
+  "importPath": "Z:/Server/9Data",
+  "buildPath": "build/server/9Data",
+  "deployPath": "Z:/Server",
+  "passthrough": true
+}
+```
+
+**`environments/client.json`**
+```json
+{
+  "type": "client",
+  "importPath": "Z:/ClientSource/ressystem",
+  "buildPath": "build/client/ressystem",
+  "seedPackBaseline": true
 }
 ```
 
 | Field | Description |
 |-------|-------------|
-| `importPath` | Source directory to import from |
+| `type` | `"server"` or `"client"` — determines valid operations (e.g. `pack` requires `client`) |
+| `importPath` | Source directory to import data files from |
 | `buildPath` | Output directory for `mimir build` |
-| `overridesPath` | Optional directory — every file here is copied verbatim into build output last, overriding tables and `copyFile` actions |
+| `deployPath` | Path to server binaries (exes, DLLs) outside the data directory — used by deploy scripts |
+| `overridesPath` | Optional directory — every file here is copied verbatim into build output last, overriding tables and `copyFile` actions. Default: `overrides/<name>` |
+| `passthrough` | When true, `mimir init-template` adds `copyFile` actions for all non-table files in `importPath`. Set automatically for `--type server`. |
+| `seedPackBaseline` | When true, `mimir import` seeds a pack diff baseline from source files. Set automatically for `--type client`. |
 
 ---
 
@@ -413,15 +453,16 @@ mimir edit-template --conflict-strategy split
 
 ### `Fail to read ServerGroup.txt[0]` — Zone/WorldManager startup crash
 
-**Cause:** `_ServerGroup.txt` (and other plain non-table files under the server import path) are not copied to the build output unless `--passthrough server` was passed when generating the template.
+**Cause:** `_ServerGroup.txt` (and other plain non-table files under the server import path) are not copied to the build output unless the server environment has `passthrough = true`.
 
-**Fix:** Regenerate with the passthrough flag:
+**Fix:** If you registered the server env with `--type server`, passthrough is already enabled. If not, enable it:
 
 ```bat
-mimir init-template --passthrough server
+mimir env server set passthrough true
+mimir init-template   :: regenerates copyFile actions for all non-table files
 ```
 
-This adds `copyFile` actions for every non-table file in the server env (plain `.txt` configs, scripts, etc.) so they are copied verbatim to `build/server/` during `mimir build`.
+This adds `copyFile` actions for every non-table file in the server env so they are copied verbatim to `build/server/` during `mimir build`.
 
 If you've already customised your template and don't want to regenerate it, add the entry manually to `mimir.template.json`:
 

@@ -4,6 +4,14 @@ namespace Mimir.Core.Project;
 
 public sealed class EnvironmentConfig
 {
+    /// <summary>
+    /// Explicit environment type: "server" or "client". Set via <c>mimir env &lt;name&gt; init --type</c>.
+    /// Determines valid operations (e.g. <c>mimir pack</c> requires type client).
+    /// </summary>
+    [JsonPropertyName("type")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Type { get; set; }
+
     [JsonPropertyName("importPath")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? ImportPath { get; set; }

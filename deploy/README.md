@@ -57,11 +57,12 @@ All commands are run from inside the project directory. Mimir finds the project 
 | `mimir deploy stop` | Stop all containers |
 | `mimir deploy update` | **Iterative dev cycle**: `mimir build --all` → `mimir pack patches` → snapshot → restart game servers. No SQL touch, no Docker rebuild. Use this for day-to-day data changes. |
 | `mimir deploy server` | **Full cycle**: stop all → `mimir build --all` → `mimir pack patches` → snapshot → start all. Use for first-time deploys or after config changes. |
-| `mimir deploy restart-game` | Snapshot only → restart game containers. Use after a manual `mimir build` if you skipped pack. |
+| `mimir deploy restart-game` | Snapshot only → restart game containers. Use after a manual `mimir build` if you skipped pack. Also picks up env-var changes (e.g. `KEEP_ALIVE`) without a full image rebuild. |
 | `mimir deploy reimport` | Full reimport from source (slow — wipes data/, rebuilds, reseeds pack baseline) |
 | `mimir deploy rebuild-game` | Rebuild game server Docker image + start (needed after server binary/script changes) |
 | `mimir deploy rebuild-sql` | Wipe and restore SQL databases from `.bak` files (destructive) |
 | `mimir deploy logs` | Stream logs from all game containers (`docker compose logs -f`) |
+| `mimir deploy tail [service]` | Stream logs from one container, e.g. `mimir deploy tail account`. Omit `[service]` for all. |
 
 ## Day-to-Day Workflow
 
@@ -122,7 +123,7 @@ Per-project deploy variables are stored in `<project>/.mimir-deploy.env` and loa
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `SA_PASSWORD` | Yes — no default | SQL Server `sa` password used by the `sqlserver` container and all game processes. Set before first start with `mimir deploy set-sql-password YourStrongPassword1`. |
-| `KEEP_ALIVE` | No (default `0`) | Set to `1` to keep all game containers running after their process exits. Useful for debugging. Run `mimir deploy rebuild-game` after changing. |
+| `KEEP_ALIVE` | No (default `0`) | Set to `1` to keep all game containers running after their process exits. Useful for debugging. Run `mimir deploy restart-game` after changing (no rebuild needed — `restart-game` uses `--force-recreate`). |
 
 ## Secrets
 
@@ -179,26 +180,81 @@ mimir deploy api
 | `RECAPTCHA_SECRET` / `RECAPTCHA_SITE_KEY` | (none) | Google reCAPTCHA v2 (used if Turnstile not configured) |
 | `HTTPS_CERT_PATH` | (none) | Path to a PFX certificate inside the container (mount via `CERT_DIR`) |
 | `HTTPS_CERT_PASSWORD` | (none) | Password for the PFX certificate |
+| `LETSENCRYPT_DOMAIN` | (none) | Domain name for automatic TLS cert via Let's Encrypt (e.g. `api.example.com`) |
+| `LETSENCRYPT_EMAIL` | (none) | Contact email for Let's Encrypt cert issuance (required when `LETSENCRYPT_DOMAIN` is set) |
+| `LETSENCRYPT_CERT_DIR` | `C:/certs` | Container path for cert persistence (volume-mounted from `CERT_DIR` on host) |
+
+### HTTPS Setup
+
+**Option A — Let's Encrypt (recommended for production):**
+
+Requires your domain's DNS to point at this server and ports 80+443 open in your firewall.
+
+```bat
+:: Set the secrets/variables
+mimir deploy secret set SA_PASSWORD MyStrongPassword1
+mimir deploy set LETSENCRYPT_DOMAIN api.example.com
+mimir deploy set LETSENCRYPT_EMAIL you@example.com
+
+:: Expose ports 80+443 — edit docker-compose.yml api service ports to add:
+::   - "80:80"
+::   - "443:443"
+
+:: Set the URL scheme for Kestrel
+mimir deploy set ASPNETCORE_URLS http://+:80;https://+:443
+```
+
+Certs are automatically requested on first startup and renewed automatically. They are persisted to `<project>/certs/` via the volume mount so they survive container restarts.
+
+**Option B — Manual PFX certificate:**
+
+```bat
+:: Copy your PFX to the project certs/ dir
+copy my-cert.pfx <project>\certs\cert.pfx
+
+:: Configure
+mimir deploy secret set HTTPS_CERT_PASSWORD your-pfx-password
+mimir deploy set HTTPS_CERT_PATH C:/certs/cert.pfx
+
+:: Rebuild the API to pick up the cert config
+mimir deploy api
+```
+
+**With Cloudflare (no certificate needed on origin):**
+
+Cloudflare terminates TLS and proxies HTTP to your container. No cert configuration required — just run HTTP.
+
+```bat
+mimir deploy set API_URL https://api.example.com   # Cloudflare's public HTTPS URL
+mimir deploy set CORS_ORIGINS https://yoursite.com
+```
 
 ## Web Frontend
 
 A minimal web frontend (Mimir.StaticServer) serves register / login / change-password / leaderboard pages as an optional profile.
 
 ```bat
-:: Set API URL so the frontend knows where to send requests
-mimir deploy set API_URL http://your-server-ip:5000
+:: 1. Tell the API which origins it should accept requests from
+::    (must match the URL players use to access the webapp)
 mimir deploy set CORS_ORIGINS http://your-server-ip
 
-:: Build and start the webapp container (port 80 by default)
+:: 2. Tell the webapp where to send API requests
+::    (must be a URL reachable from the player's browser — NOT the Docker-internal "api" hostname)
+mimir deploy set API_URL http://your-server-ip:5000
+
+:: 3. Build and start the webapp container (port 80 by default)
 mimir deploy webapp
 ```
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `API_URL` | `http://api:5000` | Public URL of the API — **must be reachable from the browser** |
+| `API_URL` | `http://api:5000` | Public URL of the API — **must be reachable from the browser**, not just inside Docker |
 | `WEBAPP_PORT` | `80` | Host port to expose the frontend on |
+| `HTTPS_CERT_PATH` / `LETSENCRYPT_DOMAIN` | (none) | Same HTTPS options as the API — applies to the webapp's Kestrel server |
 
-> If the frontend and API are on the same machine, set `API_URL` to the server's public IP or hostname, not `api` (which is only resolvable inside Docker).
+> **`API_URL` and `CORS_ORIGINS` must match.** `API_URL` is what the browser fetches from (e.g. `http://yourserver:5000`). `CORS_ORIGINS` is what the API allows (e.g. `http://yourserver`). If the webapp is on a different port or subdomain from the API, both must reflect that.
+>
+> The default `API_URL=http://api:5000` only works for server-side requests (within Docker). Browser clients need the public hostname or IP.
 
 ## CI/CD — Auto-Deploy on Git Push
 
