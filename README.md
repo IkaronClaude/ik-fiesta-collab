@@ -1,5 +1,7 @@
 # Mimir
 
+[![CI](https://github.com/IkaronClaude/ProjectMimir/actions/workflows/ci.yml/badge.svg)](https://github.com/IkaronClaude/ProjectMimir/actions/workflows/ci.yml)
+
 Server administration toolkit for Fiesta Online private servers. Converts game data files into a git-friendly JSON project format, provides SQL querying, bulk editing, validation, and builds back to server format. Supports multi-environment workflows (server + client data) and client patch distribution.
 
 ## How It Works
