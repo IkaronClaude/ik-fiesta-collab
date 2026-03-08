@@ -368,11 +368,16 @@ initCommand.SetHandler((DirectoryInfo project, string mimirCmd) =>
             "## Deploy\r\n" +
             "\r\n" +
             "```bat\r\n" +
-            ":: Set secrets (run once per machine, not committed to git)\r\n" +
+            ":: 1. Link server binaries (once per machine — gitignored, required for Docker build)\r\n" +
+            "::    Creates deploy\\server-files as a directory symlink.\r\n" +
+            "::    Requires Administrator or Developer Mode enabled.\r\n" +
+            "mklink /D deploy\\server-files Z:\\Server\r\n" +
+            "\r\n" +
+            ":: 2. Set secrets (once per machine, not committed to git)\r\n" +
             "mimir deploy secret set SA_PASSWORD YourStrongPassword1\r\n" +
             "mimir deploy secret set JWT_SECRET YourJwtSecret\r\n" +
             "\r\n" +
-            ":: First-time setup (creates containers and restores databases)\r\n" +
+            ":: 3. First-time setup (creates containers and restores databases)\r\n" +
             "mimir deploy rebuild-sql\r\n" +
             "mimir deploy rebuild-game\r\n" +
             "\r\n" +

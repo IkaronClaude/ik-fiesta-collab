@@ -41,12 +41,25 @@ echo  --- Environment Setup ---
 echo.
 
 :: --- Server ---
-set /p "SERVER_PATH=Server data path (e.g. Z:/Server, or Enter to skip): "
+set /p "SERVER_PATH=Server data path (e.g. Z:\Server, or Enter to skip): "
 if not "!SERVER_PATH!"=="" (
     cd /d "!PROJ_DIR!"
     %MIMIR_CMD% env server init "!SERVER_PATH!" --type server
     if errorlevel 1 ( echo WARNING: env server init failed - check the path and retry. )
     cd /d "%~dp0"
+
+    :: Create deploy/server-files symlink so Docker can COPY binaries at build time
+    if not exist "!PROJ_DIR!\deploy\server-files" (
+        echo  Creating deploy\server-files symlink -^> !SERVER_PATH!
+        mklink /D "!PROJ_DIR!\deploy\server-files" "!SERVER_PATH!" >nul
+        if errorlevel 1 (
+            echo  WARNING: Could not create symlink. You may need to run as Administrator,
+            echo  or enable Developer Mode in Windows Settings.
+            echo  Create it manually: mklink /D "!PROJ_DIR!\deploy\server-files" "!SERVER_PATH!"
+        )
+    ) else (
+        echo  [info] deploy\server-files already exists - skipping symlink.
+    )
 )
 
 :: --- Client ---
