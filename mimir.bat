@@ -43,5 +43,22 @@ if exist "%MIMIR_SECRETS_FILE%" (
     for /f "usebackq tokens=1* delims==" %%K in ("%MIMIR_SECRETS_FILE%") do if not defined %%K set "%%K=%%L"
 )
 
+:: PORT_SHIFT: if set, offset all game/service ports by this amount.
+:: Individual port vars take precedence if already set (e.g. from .mimir-deploy.env).
+:: Usage: mimir deploy secret set PORT_SHIFT 100   (second server: 9110, 9113, 9116...)
+if defined PORT_SHIFT (
+    if not defined LOGIN_PORT  set /a "LOGIN_PORT=9010+PORT_SHIFT"
+    if not defined WM_PORT     set /a "WM_PORT=9013+PORT_SHIFT"
+    if not defined ZONE00_PORT set /a "ZONE00_PORT=9016+PORT_SHIFT"
+    if not defined ZONE01_PORT set /a "ZONE01_PORT=9019+PORT_SHIFT"
+    if not defined ZONE02_PORT set /a "ZONE02_PORT=9022+PORT_SHIFT"
+    if not defined ZONE03_PORT set /a "ZONE03_PORT=9025+PORT_SHIFT"
+    if not defined ZONE04_PORT set /a "ZONE04_PORT=9028+PORT_SHIFT"
+    if not defined PATCH_PORT  set /a "PATCH_PORT=8080+PORT_SHIFT"
+    if not defined API_PORT    set /a "API_PORT=5000+PORT_SHIFT"
+    if not defined WEBAPP_PORT set /a "WEBAPP_PORT=80+PORT_SHIFT"
+    if not defined CI_PORT     set /a "CI_PORT=9000+PORT_SHIFT"
+)
+
 call "%DEPLOY_BAT%" "%MIMIR_PROJ_NAME%" %3 %4 %5 %6 %7 %8 %9
 exit /b %errorlevel%
