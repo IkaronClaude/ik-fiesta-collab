@@ -254,6 +254,81 @@ initCommand.SetHandler((DirectoryInfo project, string mimirCmd) =>
             "echo.\r\n" +
             "call \"%~dp0patch.bat\"\r\n");
 
+        // .github/workflows/deploy.yml
+        var ghWorkflowsDir = Path.Combine(project.FullName, ".github", "workflows");
+        Directory.CreateDirectory(ghWorkflowsDir);
+        WriteIfMissing(Path.Combine(ghWorkflowsDir, "deploy.yml"),
+            "name: Deploy\r\n" +
+            "\r\n" +
+            "on:\r\n" +
+            "  push:\r\n" +
+            "    branches: [ \"main\" ]\r\n" +
+            "  workflow_dispatch:\r\n" +
+            "\r\n" +
+            "jobs:\r\n" +
+            "  deploy:\r\n" +
+            "    runs-on: self-hosted\r\n" +
+            "    environment: dev\r\n" +
+            "    defaults:\r\n" +
+            "      run:\r\n" +
+            "        shell: cmd\r\n" +
+            "        working-directory: ${{ github.workspace }}\r\n" +
+            "    steps:\r\n" +
+            "      - name: Disable GCM interactive prompts\r\n" +
+            "        run: git config --global credential.interactive never\r\n" +
+            "      - name: Update repository\r\n" +
+            "        run: |\r\n" +
+            "          git fetch origin --progress 2>&1\r\n" +
+            "          git reset --hard origin/main 2>&1\r\n" +
+            "          git log --oneline -3 2>&1\r\n" +
+            "      - name: Remove local mimir.bat\r\n" +
+            "        run: del mimir.bat\r\n" +
+            "      - name: Write deploy config from GitHub variables/secrets\r\n" +
+            "        shell: powershell\r\n" +
+            "        env:\r\n" +
+            "          SA_PASSWORD: ${{ secrets.SA_PASSWORD }}\r\n" +
+            "          JWT_SECRET: ${{ secrets.JWT_SECRET }}\r\n" +
+            "          COMPOSE_PROJECT_NAME: ${{ vars.COMPOSE_PROJECT_NAME }}\r\n" +
+            "          PORT_OFFSET: ${{ vars.PORT_OFFSET }}\r\n" +
+            "          WEBAPP_PORT: ${{ vars.WEBAPP_PORT }}\r\n" +
+            "          PATCH_PORT: ${{ vars.PATCH_PORT }}\r\n" +
+            "          API_PORT: ${{ vars.API_PORT }}\r\n" +
+            "          API_URL: ${{ vars.API_URL }}\r\n" +
+            "          CORS_ORIGINS: ${{ vars.CORS_ORIGINS }}\r\n" +
+            "        run: |\r\n" +
+            "          $o = if ($env:PORT_OFFSET) { [int]$env:PORT_OFFSET } else { 0 }\r\n" +
+            "          function Port($base) { $base + $o }\r\n" +
+            "          function Var($envName, $base) {\r\n" +
+            "            $v = [Environment]::GetEnvironmentVariable($envName)\r\n" +
+            "            if ($v) { \"$envName=$v\" } else { \"$envName=$(Port $base)\" }\r\n" +
+            "          }\r\n" +
+            "          @(\r\n" +
+            "            \"COMPOSE_PROJECT_NAME=$($env:COMPOSE_PROJECT_NAME)\"\r\n" +
+            "            \"LOGIN_PORT=$(Port 9010)\"\r\n" +
+            "            \"WM_PORT=$(Port 9013)\"\r\n" +
+            "            \"ZONE00_PORT=$(Port 9016)\"\r\n" +
+            "            \"ZONE01_PORT=$(Port 9019)\"\r\n" +
+            "            \"ZONE02_PORT=$(Port 9022)\"\r\n" +
+            "            \"ZONE03_PORT=$(Port 9025)\"\r\n" +
+            "            \"ZONE04_PORT=$(Port 9028)\"\r\n" +
+            "            \"SQL_PORT=$(Port 1433)\"\r\n" +
+            "            (Var 'PATCH_PORT'  8080)\r\n" +
+            "            (Var 'API_PORT'    5000)\r\n" +
+            "            (Var 'WEBAPP_PORT' 80)\r\n" +
+            "            if ($env:API_URL) { \"API_URL=$($env:API_URL)\" }\r\n" +
+            "            if ($env:CORS_ORIGINS) { \"CORS_ORIGINS=$($env:CORS_ORIGINS)\" }\r\n" +
+            "          ) | Set-Content .mimir-deploy.env -Encoding ascii\r\n" +
+            "          @(\r\n" +
+            "            \"SA_PASSWORD=$($env:SA_PASSWORD)\"\r\n" +
+            "            \"JWT_SECRET=$($env:JWT_SECRET)\"\r\n" +
+            "          ) | Set-Content .mimir-deploy.secrets -Encoding ascii\r\n" +
+            "      - name: Build & Deploy Game\r\n" +
+            "        run: mimir deploy server\r\n" +
+            "      - name: Deploy API\r\n" +
+            "        run: mimir deploy api\r\n" +
+            "      - name: Deploy WebApp\r\n" +
+            "        run: mimir deploy webapp\r\n");
+
         // README.md
         var projectName = project.Name;
         WriteIfMissing(Path.Combine(project.FullName, "README.md"),

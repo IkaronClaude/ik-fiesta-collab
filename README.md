@@ -266,7 +266,40 @@ Stops all containers, builds everything, packs patches, and starts fresh.
 
 ### Patch server
 
-nginx container serving `patches/` on port 8080, started automatically with `mimir deploy start`. `mimir deploy deploy` and `mimir deploy update` both run `mimir pack` before restarting so the patch server is always current.
+Static file server serving `patches/` on port 8080, started automatically with `mimir deploy start`. `mimir deploy update` runs `mimir pack` before restarting so the patch server is always current.
+
+### Web portal & REST API
+
+The optional REST API (`mimir deploy api`) and web portal (`mimir deploy webapp`) run as separate containers.
+
+```bat
+:: Start the API (player accounts, characters, leaderboard)
+mimir deploy api
+
+:: Start the web portal (default: Mimir.StaticServer serving a static SPA)
+mimir deploy webapp
+
+:: Or point to your own web app (Next.js, etc.)
+mimir deploy set WEBAPP_CONTEXT=Z:\my-nextjs-app
+mimir deploy set WEBAPP_DOCKERFILE=Dockerfile
+mimir deploy webapp
+```
+
+**CORS** (needed when the browser fetches the API from a different port):
+
+```bat
+mimir deploy secret set CORS_ORIGINS http://localhost:80
+```
+
+**HTTPS** — three options, in priority order:
+
+| Option | How |
+|--------|-----|
+| Let's Encrypt (auto) | `mimir deploy secret set LETSENCRYPT_DOMAIN myserver.com` + `LETSENCRYPT_EMAIL me@example.com` |
+| Manual certificate | `mimir deploy secret set HTTPS_CERT_PATH C:/certs/server.pfx` (volume-mount `certs/` dir) |
+| HTTP only (default) | No action needed |
+
+When HTTPS is active, HTTP requests are automatically redirected to HTTPS.
 
 ### Debugging a crashed container
 
