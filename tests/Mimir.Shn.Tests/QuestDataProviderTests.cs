@@ -206,6 +206,182 @@ public class QuestDataProviderTests : IDisposable
         tables2[0].Rows[0]["StartScript"].ShouldBe(koreanScript);
     }
 
+    // ── CanHandle edge cases ──
+
+    [Fact]
+    public void CanHandle_TooSmallFile_ReturnsFalse()
+    {
+        var path = Path.Combine(_tempDir, "QuestData.shn");
+        File.WriteAllBytes(path, new byte[7]); // needs at least 8 bytes
+        _provider.CanHandle(path).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void CanHandle_ZeroVersion_ReturnsFalse()
+    {
+        var bytes = BuildQuestFile(version: 0, quests: [MakeQuest(questId: 1)]);
+        var path = Path.Combine(_tempDir, "QuestData.shn");
+        File.WriteAllBytes(path, bytes);
+        _provider.CanHandle(path).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void CanHandle_VersionAbove100_ReturnsFalse()
+    {
+        var bytes = BuildQuestFile(version: 101, quests: [MakeQuest(questId: 1)]);
+        var path = Path.Combine(_tempDir, "QuestData.shn");
+        File.WriteAllBytes(path, bytes);
+        _provider.CanHandle(path).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void CanHandle_ZeroQuestCount_ReturnsFalse()
+    {
+        using var ms = new MemoryStream();
+        using var bw = new BinaryWriter(ms);
+        bw.Write((ushort)6); // valid version
+        bw.Write((ushort)0); // zero count
+        var path = Path.Combine(_tempDir, "QuestData.shn");
+        File.WriteAllBytes(path, ms.ToArray());
+        _provider.CanHandle(path).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void CanHandle_ShortFirstRecord_ReturnsFalse()
+    {
+        // Record length < 100 should be rejected (not a quest file)
+        using var ms = new MemoryStream();
+        using var bw = new BinaryWriter(ms);
+        bw.Write((ushort)6);
+        bw.Write((ushort)1);
+        bw.Write((ushort)50); // record length includes the 2-byte length field itself
+        bw.Write(new byte[48]);
+        var path = Path.Combine(_tempDir, "QuestData.shn");
+        File.WriteAllBytes(path, ms.ToArray());
+        _provider.CanHandle(path).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void CanHandle_WrongFilename_ReturnsFalse()
+    {
+        var bytes = BuildQuestFile(version: 6, quests: [MakeQuest(questId: 1)]);
+        var path = Path.Combine(_tempDir, "OtherData.shn");
+        File.WriteAllBytes(path, bytes);
+        _provider.CanHandle(path).ShouldBeFalse();
+    }
+
+    // ── ReadAsync edge cases ──
+
+    [Fact]
+    public async Task ReadAsync_SingleQuestAllEmptyScripts_Works()
+    {
+        // Single quest with all-empty scripts: fixedDataSize detection still works
+        // (3 consecutive nulls at the end of the record data are the 3 script terminators)
+        var path = WriteTempQuestFile("QuestData.shn", version: 6, quests: [
+            MakeQuest(questId: 42)
+        ]);
+
+        var tables = await _provider.ReadAsync(path);
+        tables[0].Rows.Count.ShouldBe(1);
+        tables[0].Rows[0]["QuestID"].ShouldBe((ushort)42);
+        tables[0].Rows[0]["StartScript"].ShouldBe(string.Empty);
+        tables[0].Rows[0]["InProgressScript"].ShouldBe(string.Empty);
+        tables[0].Rows[0]["FinishScript"].ShouldBe(string.Empty);
+    }
+
+    [Fact]
+    public async Task ReadAsync_AllEmptyScripts_RoundTrip_ByteIdentical()
+    {
+        var originalBytes = BuildQuestFile(version: 6, quests: [
+            MakeQuest(questId: 1),
+            MakeQuest(questId: 2),
+            MakeQuest(questId: 3),
+        ]);
+        var inputPath = Path.Combine(_tempDir, "QuestData.shn");
+        File.WriteAllBytes(inputPath, originalBytes);
+
+        var tables = await _provider.ReadAsync(inputPath);
+        var outputPath = Path.Combine(_tempDir, "QuestData_out.shn");
+        await _provider.WriteAsync(outputPath, tables);
+
+        File.ReadAllBytes(outputPath).ShouldBe(originalBytes);
+    }
+
+    [Fact]
+    public async Task ReadAsync_FixedDataSizeStoredInMetadata()
+    {
+        var path = WriteTempQuestFile("QuestData.shn", version: 6, quests: [
+            MakeQuest(questId: 1)
+        ]);
+
+        var tables = await _provider.ReadAsync(path);
+        var metadata = tables[0].Schema.Metadata!;
+        metadata.ShouldContainKey("fixedDataSize");
+        Convert.ToInt32(metadata["fixedDataSize"]).ShouldBe(678);
+    }
+
+    [Fact]
+    public async Task ReadAsync_FixedDataPreservesAllBytes()
+    {
+        // Every byte in the fixed region should round-trip exactly
+        var fixedData = new byte[678];
+        for (int i = 0; i < fixedData.Length; i++)
+            fixedData[i] = (byte)(i & 0xFF);
+        // QuestID is at offset 2-3; set it so the ID column matches
+        fixedData[2] = 7;
+        fixedData[3] = 0;
+
+        var path = WriteTempQuestFile("QuestData.shn", version: 6, quests: [
+            MakeQuestRaw(fixedData, "", "", "")
+        ]);
+
+        var tables = await _provider.ReadAsync(path);
+        var hexData = tables[0].Rows[0]["FixedData"]!.ToString()!;
+        var roundTripped = Convert.FromHexString(hexData);
+        roundTripped.ShouldBe(fixedData);
+    }
+
+    [Fact]
+    public async Task WriteAsync_QuestIdPatchedIntoFixedData()
+    {
+        // If QuestID column is changed after read, WriteAsync should patch it into FixedData bytes
+        var path = WriteTempQuestFile("QuestData.shn", version: 6, quests: [
+            MakeQuest(questId: 42)
+        ]);
+        var tables = await _provider.ReadAsync(path);
+
+        // Mutate QuestID on the row
+        tables[0].Rows[0]["QuestID"] = (ushort)999;
+
+        var outputPath = Path.Combine(_tempDir, "QuestData_patched.shn");
+        await _provider.WriteAsync(outputPath, tables);
+
+        // Re-read: QuestID should reflect the patched value
+        var tables2 = await _provider.ReadAsync(outputPath);
+        tables2[0].Rows[0]["QuestID"].ShouldBe((ushort)999);
+    }
+
+    [Fact]
+    public async Task WriteAsync_MixedScriptLengths_RoundTrip_ByteIdentical()
+    {
+        // Multiple quests where some have scripts, some don't — fixedDataSize detection
+        // uses the minimum position, so mixed lengths must still round-trip correctly
+        var originalBytes = BuildQuestFile(version: 6, quests: [
+            MakeQuest(questId: 1, startScript: "SAY 100 NPC\nACCEPT\nEND", inProgressScript: "SAY 101 NPC\nEND", finishScript: ""),
+            MakeQuest(questId: 2),
+            MakeQuest(questId: 3, startScript: "", inProgressScript: "", finishScript: "DONE\nEND"),
+        ]);
+
+        var inputPath = Path.Combine(_tempDir, "QuestData.shn");
+        File.WriteAllBytes(inputPath, originalBytes);
+
+        var tables = await _provider.ReadAsync(inputPath);
+        var outputPath = Path.Combine(_tempDir, "QuestData_out.shn");
+        await _provider.WriteAsync(outputPath, tables);
+
+        File.ReadAllBytes(outputPath).ShouldBe(originalBytes);
+    }
+
     // ── Helpers ──
 
     private record QuestRecord(byte[] FixedData, string StartScript, string InProgressScript, string FinishScript);
