@@ -44,6 +44,14 @@ Xvfb :99 -screen 0 800x600x24 &
 export DISPLAY=:99
 sleep 1
 
+# Fresh Wine prefix every container start — the prefix baked into the Docker
+# image accumulates stale service registrations and process state across
+# restarts, causing processes to silently fail or get truncated output.
+wineserver -k 2>/dev/null; sleep 1
+rm -rf /root/.wine
+WINEDEBUG=-all wine wineboot --init 2>/dev/null
+echo "Wine prefix initialised."
+
 # Wine maps Z:\ to / (Linux root). All paths use Z:\server\... so
 # the exe can find its config files and DLLs at /server/ on disk.
 
