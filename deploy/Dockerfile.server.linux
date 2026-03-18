@@ -50,9 +50,10 @@ RUN Xvfb :99 -screen 0 800x600x24 & \
     export DISPLAY=:99 && \
     sleep 1 && \
     WINEDEBUG=-all wine wineboot --init 2>/dev/null; \
-    # Tell Wine to use native (system) ODBC instead of the builtin stub
+    # Use Wine's builtin odbc32.dll which bridges to system unixODBC/FreeTDS.
+    # "native" would look for a Windows odbc32.dll (doesn't exist in prefix).
     WINEDEBUG=-all wine reg add 'HKCU\Software\Wine\DllOverrides' \
-        /v odbc32 /t REG_SZ /d native /f 2>/dev/null; \
+        /v odbc32 /t REG_SZ /d builtin /f 2>/dev/null; \
     pkill Xvfb 2>/dev/null; true
 
 # Server process binaries are mounted as a volume at /server-bins/ (read-only).
