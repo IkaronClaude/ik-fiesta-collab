@@ -433,11 +433,20 @@ initCommand.SetHandler((DirectoryInfo project, string mimirCmd) =>
         logger.LogInformation("Created project at {Dir}", project.FullName);
         logger.LogInformation("Next steps:");
         logger.LogInformation("  cd {Dir}", project.FullName);
-        logger.LogInformation("  mimir env server init Z:/Server --type server");
-        logger.LogInformation("  mimir env client init Z:/ClientSource/ressystem --type client");
+        logger.LogInformation("");
+        logger.LogInformation("  # 1. Register your data sources");
+        logger.LogInformation("  mimir env server init /path/to/server --type server");
+        logger.LogInformation("  mimir env client init /path/to/client --type client");
+        logger.LogInformation("");
+        logger.LogInformation("  # 2. Generate merge rules and import");
         logger.LogInformation("  mimir init-template");
         logger.LogInformation("  mimir import");
+        logger.LogInformation("");
+        logger.LogInformation("  # 3. Build output files");
         logger.LogInformation("  mimir build --all");
+        logger.LogInformation("");
+        logger.LogInformation("  # Linux: make scripts executable");
+        logger.LogInformation("  chmod +x mimir.sh deploy/*.sh");
     });
 
 }, initProjectArg, initMimirOption);
