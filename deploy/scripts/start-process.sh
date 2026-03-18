@@ -91,7 +91,10 @@ for hostname in login worldmanager zone00 zone01 zone02 zone03 zone04 \
     ip=$(getent hosts "${hostname}" 2>/dev/null | awk '{print $1}' | head -1)
     if [ -n "${ip}" ]; then
         echo "  ${hostname} -> ${ip}"
+        # Replace quoted hostnames in SERVER_INFO entries: "hostname" -> "ip"
         content="${content//\"${hostname}\"/\"${ip}\"}"
+        # Replace unquoted hostnames in ODBC connection strings: SERVER=hostname, -> SERVER=ip,
+        content="${content//SERVER=${hostname},/SERVER=${ip},}"
     else
         echo "  WARNING: ${hostname} - no IP found"
     fi
