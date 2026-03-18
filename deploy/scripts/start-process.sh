@@ -151,6 +151,8 @@ fi
 WIN_EXE="Z:\\server\\${PROCESS_NAME}\\${PROCESS_EXE}"
 
 echo "Registering service: ${SERVICE_NAME} -> ${WIN_EXE}"
+# Delete any stale service registration from previous runs
+WINEDEBUG=-all wine sc.exe delete "${SERVICE_NAME}" 2>/dev/null || true
 WINEDEBUG=-all wine sc.exe create "${SERVICE_NAME}" \
     binPath= "${WIN_EXE}" start= demand 2>/dev/null || true
 
