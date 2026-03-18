@@ -4,4 +4,4 @@
 # Usage: mimir deploy reimport
 source "$(dirname "$0")/common.sh"
 cd "${MIMIR_PROJ_DIR}"
-mimir reimport
+bash "${SCRIPT_DIR}/../mimir.sh" reimport

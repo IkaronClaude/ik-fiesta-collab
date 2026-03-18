@@ -12,11 +12,11 @@ docker compose --profile patch -f "${COMPOSE_FILE}" stop \
 echo ""
 echo "=== Building Mimir project [${PROJECT}] ==="
 cd "${MIMIR_PROJ_DIR}"
-mimir build --all || { echo "ERROR: mimir build failed."; exit 1; }
+bash "${SCRIPT_DIR}/../mimir.sh" build --all || { echo "ERROR: mimir build failed."; exit 1; }
 
 echo ""
 echo "=== Generating client patches ==="
-mimir pack patches --env client || { echo "ERROR: mimir pack failed."; exit 1; }
+bash "${SCRIPT_DIR}/../mimir.sh" pack patches --env client || { echo "ERROR: mimir pack failed."; exit 1; }
 
 echo ""
 echo "=== Copying build to deployed snapshot ==="
