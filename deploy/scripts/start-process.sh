@@ -87,8 +87,11 @@ SERVER_INFO_DIR="/server/ServerInfo"
 DEST="${SERVER_INFO_DIR}/ServerInfo.txt"
 mkdir -p "${SERVER_INFO_DIR}"
 
+PUBLIC_IP="${PUBLIC_IP:?PUBLIC_IP env var not set}"
+
 content=$(cat "${TEMPLATE}")
 content="${content//\{\{SA_PASSWORD\}\}/${SA_PASSWORD}}"
+content="${content//\{\{PUBLIC_IP\}\}/${PUBLIC_IP}}"
 
 echo "Resolving Docker hostnames to IPs..."
 for hostname in login worldmanager zone00 zone01 zone02 zone03 zone04 \

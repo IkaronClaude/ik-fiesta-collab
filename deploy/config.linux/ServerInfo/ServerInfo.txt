@@ -38,7 +38,7 @@ WORLD_NAME 0, "INITIO",   "../9Data/Shine"
 ;	LOGIN SERVICE
 ;##################################################################################################################################################################
 
-SERVER_INFO  "PG_Login",     4, 0, 0,20,  "login",  	9010,  100,   200  ; 	PUBLIC_IP
+SERVER_INFO  "PG_Login",     4, 0, 0,20,  "{{PUBLIC_IP}}",  	9010,  100,   200  ; 	PUBLIC_IP
 SERVER_INFO  "PG_Login",     4, 0, 0, 5,  "login",  	9011,  100,    50  ; 	LOCALHOST
 SERVER_INFO  "PG_Login",     4, 0, 0, 8,  "login",  	9012,    1,    30  ; 	LOCALHOST
 
@@ -46,7 +46,7 @@ SERVER_INFO  "PG_Login",     4, 0, 0, 8,  "login",  	9012,    1,    30  ; 	LOCAL
 ;	WORLD MANAGER SERVICE
 ;##################################################################################################################################################################
 
-SERVER_INFO  "PG_W00_WM",    5, 0, 0,20,  "worldmanager",		9013,  100,  1500  ; 	PUBLIC_IP
+SERVER_INFO  "PG_W00_WM",    5, 0, 0,20,  "{{PUBLIC_IP}}",		9013,  100,  1500  ; 	PUBLIC_IP
 SERVER_INFO  "PG_W00_WM",    5, 0, 0, 6,  "worldmanager",  	9014,  100,   100  ; 	LOCALHOST
 SERVER_INFO  "PG_W00_WM",    5, 0, 0, 8,  "worldmanager",  	9015,  100,    30  ; 	LOCALHOST
 
@@ -54,23 +54,23 @@ SERVER_INFO  "PG_W00_WM",    5, 0, 0, 8,  "worldmanager",  	9015,  100,    30  ;
 ;	ZONE SERVICES & DATABASE SERVICES
 ;##################################################################################################################################################################
 
-SERVER_INFO  "PG_W00_Z00",   6, 0, 0,20,  "zone00",  	9016,  100,  1500  ; 	PUBLIC_IP
+SERVER_INFO  "PG_W00_Z00",   6, 0, 0,20,  "{{PUBLIC_IP}}",  	9016,  100,  1500  ; 	PUBLIC_IP
 SERVER_INFO  "PG_W00_Z00",   6, 0, 0, 6,  "zone00",  	9017,    1,    30  ; 	LOCALHOST
 SERVER_INFO  "PG_W00_Z00",   6, 0, 0, 8,  "zone00",  	9018,  100,    30  ; 	LOCALHOST
 
-SERVER_INFO  "PG_W00_Z01",   6, 0, 1,20,  "zone01",  	9019,  100,  1500  ; 	PUBLIC_IP
+SERVER_INFO  "PG_W00_Z01",   6, 0, 1,20,  "{{PUBLIC_IP}}",  	9019,  100,  1500  ; 	PUBLIC_IP
 SERVER_INFO  "PG_W00_Z01",   6, 0, 1, 6,  "zone01",  	9020,    1,    30  ; 	LOCALHOST
 SERVER_INFO  "PG_W00_Z01",   6, 0, 1, 8,  "zone01",  	9021,  100,    30  ; 	LOCALHOST
 
-SERVER_INFO  "PG_W00_Z02",   6, 0, 2,20,  "zone02",  	9022,  100,  1500  ; 	PUBLIC_IP
+SERVER_INFO  "PG_W00_Z02",   6, 0, 2,20,  "{{PUBLIC_IP}}",  	9022,  100,  1500  ; 	PUBLIC_IP
 SERVER_INFO  "PG_W00_Z02",   6, 0, 2, 6,  "zone02",  	9023,    1,    30  ; 	LOCALHOST
 SERVER_INFO  "PG_W00_Z02",   6, 0, 2, 8,  "zone02",  	9024,  100,    30  ; 	LOCALHOST
 
-SERVER_INFO  "PG_W00_Z03",   6, 0, 3,20,  "zone03",  	9025,  100,  1500  ; 	PUBLIC_IP
+SERVER_INFO  "PG_W00_Z03",   6, 0, 3,20,  "{{PUBLIC_IP}}",  	9025,  100,  1500  ; 	PUBLIC_IP
 SERVER_INFO  "PG_W00_Z03",   6, 0, 3, 6,  "zone03",  	9026,    1,    30  ; 	LOCALHOST
 SERVER_INFO  "PG_W00_Z03",   6, 0, 3, 8,  "zone03",  	9027,  100,    30  ; 	LOCALHOST
 
-SERVER_INFO  "PG_W00_Z04",   6, 0, 4,20,  "zone04",  	9028,  100,  1500  ; 	PUBLIC_IP
+SERVER_INFO  "PG_W00_Z04",   6, 0, 4,20,  "{{PUBLIC_IP}}",  	9028,  100,  1500  ; 	PUBLIC_IP
 SERVER_INFO  "PG_W00_Z04",   6, 0, 4, 6,  "zone04",  	9029,    1,    30  ; 	LOCALHOST
 SERVER_INFO  "PG_W00_Z04",   6, 0, 4, 8,  "zone04",  	9030,  100,    30  ; 	LOCALHOST
 

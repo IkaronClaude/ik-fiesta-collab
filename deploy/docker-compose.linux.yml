@@ -47,6 +47,7 @@ services:
     environment:
       - "SA_PASSWORD=${SA_PASSWORD:?SA_PASSWORD not set. Run: mimir deploy set SA_PASSWORD YourStrongPassword1}"
       - "KEEP_ALIVE=${KEEP_ALIVE:-0}"
+      - "PUBLIC_IP=${PUBLIC_IP:?PUBLIC_IP not set. Run: mimir deploy set PUBLIC_IP your-vps-ip}"
       - PROCESS_NAME=Account
       - PROCESS_EXE=Account.exe
     depends_on:
@@ -58,6 +59,7 @@ services:
     environment:
       - "SA_PASSWORD=${SA_PASSWORD:?SA_PASSWORD not set. Run: mimir deploy set SA_PASSWORD YourStrongPassword1}"
       - "KEEP_ALIVE=${KEEP_ALIVE:-0}"
+      - "PUBLIC_IP=${PUBLIC_IP:?PUBLIC_IP not set. Run: mimir deploy set PUBLIC_IP your-vps-ip}"
       - PROCESS_NAME=AccountLog
       - PROCESS_EXE=AccountLog.exe
     depends_on:
@@ -69,6 +71,7 @@ services:
     environment:
       - "SA_PASSWORD=${SA_PASSWORD:?SA_PASSWORD not set. Run: mimir deploy set SA_PASSWORD YourStrongPassword1}"
       - "KEEP_ALIVE=${KEEP_ALIVE:-0}"
+      - "PUBLIC_IP=${PUBLIC_IP:?PUBLIC_IP not set. Run: mimir deploy set PUBLIC_IP your-vps-ip}"
       - PROCESS_NAME=Character
       - PROCESS_EXE=Character.exe
     depends_on:
@@ -80,6 +83,7 @@ services:
     environment:
       - "SA_PASSWORD=${SA_PASSWORD:?SA_PASSWORD not set. Run: mimir deploy set SA_PASSWORD YourStrongPassword1}"
       - "KEEP_ALIVE=${KEEP_ALIVE:-0}"
+      - "PUBLIC_IP=${PUBLIC_IP:?PUBLIC_IP not set. Run: mimir deploy set PUBLIC_IP your-vps-ip}"
       - PROCESS_NAME=GameLog
       - PROCESS_EXE=GameLog.exe
     depends_on:
@@ -95,6 +99,7 @@ services:
     environment:
       - "SA_PASSWORD=${SA_PASSWORD:?SA_PASSWORD not set. Run: mimir deploy set SA_PASSWORD YourStrongPassword1}"
       - "KEEP_ALIVE=${KEEP_ALIVE:-0}"
+      - "PUBLIC_IP=${PUBLIC_IP:?PUBLIC_IP not set. Run: mimir deploy set PUBLIC_IP your-vps-ip}"
       - PROCESS_NAME=Login
       - PROCESS_EXE=Login.exe
     depends_on:
@@ -114,6 +119,7 @@ services:
     environment:
       - "SA_PASSWORD=${SA_PASSWORD:?SA_PASSWORD not set. Run: mimir deploy set SA_PASSWORD YourStrongPassword1}"
       - "KEEP_ALIVE=${KEEP_ALIVE:-0}"
+      - "PUBLIC_IP=${PUBLIC_IP:?PUBLIC_IP not set. Run: mimir deploy set PUBLIC_IP your-vps-ip}"
       - PROCESS_NAME=WorldManager
       - PROCESS_EXE=WorldManager.exe
     depends_on:
@@ -135,6 +141,7 @@ services:
     environment:
       - "SA_PASSWORD=${SA_PASSWORD:?SA_PASSWORD not set. Run: mimir deploy set SA_PASSWORD YourStrongPassword1}"
       - "KEEP_ALIVE=${KEEP_ALIVE:-0}"
+      - "PUBLIC_IP=${PUBLIC_IP:?PUBLIC_IP not set. Run: mimir deploy set PUBLIC_IP your-vps-ip}"
       - PROCESS_NAME=Zone00
       - PROCESS_EXE=Zone.exe
       - ZONE_NUMBER=0
@@ -149,6 +156,7 @@ services:
     environment:
       - "SA_PASSWORD=${SA_PASSWORD:?SA_PASSWORD not set. Run: mimir deploy set SA_PASSWORD YourStrongPassword1}"
       - "KEEP_ALIVE=${KEEP_ALIVE:-0}"
+      - "PUBLIC_IP=${PUBLIC_IP:?PUBLIC_IP not set. Run: mimir deploy set PUBLIC_IP your-vps-ip}"
       - PROCESS_NAME=Zone01
       - PROCESS_EXE=Zone.exe
       - ZONE_NUMBER=1
@@ -163,6 +171,7 @@ services:
     environment:
       - "SA_PASSWORD=${SA_PASSWORD:?SA_PASSWORD not set. Run: mimir deploy set SA_PASSWORD YourStrongPassword1}"
       - "KEEP_ALIVE=${KEEP_ALIVE:-0}"
+      - "PUBLIC_IP=${PUBLIC_IP:?PUBLIC_IP not set. Run: mimir deploy set PUBLIC_IP your-vps-ip}"
       - PROCESS_NAME=Zone02
       - PROCESS_EXE=Zone.exe
       - ZONE_NUMBER=2
@@ -177,6 +186,7 @@ services:
     environment:
       - "SA_PASSWORD=${SA_PASSWORD:?SA_PASSWORD not set. Run: mimir deploy set SA_PASSWORD YourStrongPassword1}"
       - "KEEP_ALIVE=${KEEP_ALIVE:-0}"
+      - "PUBLIC_IP=${PUBLIC_IP:?PUBLIC_IP not set. Run: mimir deploy set PUBLIC_IP your-vps-ip}"
       - PROCESS_NAME=Zone03
       - PROCESS_EXE=Zone.exe
       - ZONE_NUMBER=3
@@ -191,6 +201,7 @@ services:
     environment:
       - "SA_PASSWORD=${SA_PASSWORD:?SA_PASSWORD not set. Run: mimir deploy set SA_PASSWORD YourStrongPassword1}"
       - "KEEP_ALIVE=${KEEP_ALIVE:-0}"
+      - "PUBLIC_IP=${PUBLIC_IP:?PUBLIC_IP not set. Run: mimir deploy set PUBLIC_IP your-vps-ip}"
       - PROCESS_NAME=Zone04
       - PROCESS_EXE=Zone.exe
       - ZONE_NUMBER=4
