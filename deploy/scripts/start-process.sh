@@ -44,10 +44,8 @@ Xvfb :99 -screen 0 800x600x24 &
 export DISPLAY=:99
 sleep 1
 
-# Map C:\server to /server in Wine's filesystem.
-# Wine maps Z:\ to / but C:\ to ~/.wine/drive_c/.
-# Game exes and service registrations use C:\server paths.
-ln -sfn /server "${WINEPREFIX}/drive_c/server"
+# Wine maps Z:\ to / (Linux root). All paths use Z:\server\... so
+# the exe can find its config files and DLLs at /server/ on disk.
 
 # --- Step 1: Copy per-process ServerInfo config ---
 
@@ -117,7 +115,7 @@ echo "Registry keys set."
 # --- Step 4: GamigoZR service (Zone processes only) ---
 
 if [[ "${PROCESS_NAME}" =~ ^Zone ]]; then
-    GAMIGOZR_EXE='C:\server\GamigoZR\GamigoZR.exe'
+    GAMIGOZR_EXE='Z:\server\GamigoZR\GamigoZR.exe'
     if [ -f /server/GamigoZR/GamigoZR.exe ]; then
         echo "Registering GamigoZR service..."
         WINEDEBUG=-all wine sc.exe create GamigoZR \
@@ -146,7 +144,7 @@ else
     SERVICE_NAME="_${PROCESS_NAME}"
 fi
 
-WIN_EXE="C:\\server\\${PROCESS_NAME}\\${PROCESS_EXE}"
+WIN_EXE="Z:\\server\\${PROCESS_NAME}\\${PROCESS_EXE}"
 
 echo "Registering service: ${SERVICE_NAME} -> ${WIN_EXE}"
 WINEDEBUG=-all wine sc.exe create "${SERVICE_NAME}" \
