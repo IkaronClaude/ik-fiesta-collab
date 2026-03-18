@@ -44,6 +44,11 @@ Xvfb :99 -screen 0 800x600x24 &
 export DISPLAY=:99
 sleep 1
 
+# Map C:\server to /server in Wine's filesystem.
+# Wine maps Z:\ to / but C:\ to ~/.wine/drive_c/.
+# Game exes and service registrations use C:\server paths.
+ln -sfn /server "${WINEPREFIX}/drive_c/server"
+
 # --- Step 1: Copy per-process ServerInfo config ---
 
 copy_config() {
