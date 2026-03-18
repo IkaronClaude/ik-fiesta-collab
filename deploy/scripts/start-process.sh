@@ -44,17 +44,10 @@ Xvfb :99 -screen 0 800x600x24 &
 export DISPLAY=:99
 sleep 1
 
-# Fresh Wine prefix every container start — the prefix baked into the Docker
-# image accumulates stale service registrations and process state across
-# restarts, causing processes to silently fail or get truncated output.
-echo "[debug] Killing stale wineserver..."
+# Kill any stale wineserver from a previous run (container restart).
+# The Wine prefix from the Docker build is kept intact — stale service
+# registrations are cleaned up by sc.exe delete in Step 6.
 wineserver -k 2>/dev/null || true
-sleep 1
-echo "[debug] Removing old Wine prefix..."
-rm -rf /root/.wine || true
-echo "[debug] Running wineboot --init..."
-WINEDEBUG=-all wine wineboot --init || true
-echo "Wine prefix initialised."
 
 # Wine maps Z:\ to / (Linux root). All paths use Z:\server\... so
 # the exe can find its config files and DLLs at /server/ on disk.
