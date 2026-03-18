@@ -156,38 +156,22 @@ WINEDEBUG=-all wine sc.exe delete "${SERVICE_NAME}" 2>/dev/null || true
 WINEDEBUG=-all wine sc.exe create "${SERVICE_NAME}" \
     binPath= "${WIN_EXE}" start= demand 2>/dev/null || true
 
-# Wine's SCM sometimes fails on the first start after a fresh wineserver
-# init (service starts briefly then stops). Retry up to 3 times.
-MAX_RETRIES=3
-for attempt in $(seq 1 ${MAX_RETRIES}); do
-    echo "Starting service: ${SERVICE_NAME} (attempt ${attempt}/${MAX_RETRIES})"
-    WINEDEBUG=-all wine sc.exe start "${SERVICE_NAME}" 2>/dev/null || true
-    sleep 5
+# Wine's SCM incorrectly reports services as STOPPED even when the process
+# is running fine. Start the service and monitor the actual process instead.
+echo "Starting service: ${SERVICE_NAME}"
+WINEDEBUG=-all wine sc.exe start "${SERVICE_NAME}" 2>/dev/null || true
+sleep 3
 
-    status=$(WINEDEBUG=-all wine sc.exe query "${SERVICE_NAME}" 2>/dev/null \
-        | grep -i "STATE" | awk '{print $NF}' | tr -d '[:space:]')
-    if [ "${status}" = "RUNNING" ] || [ "${status}" = "4" ]; then
-        echo "Service ${SERVICE_NAME} is running."
-        break
-    fi
-
-    echo "Service not running (state: ${status}). Retrying..."
-    # Stop cleanly before retry
-    WINEDEBUG=-all wine sc.exe stop "${SERVICE_NAME}" 2>/dev/null || true
-    sleep 2
-done
-
-# Final check
-status=$(WINEDEBUG=-all wine sc.exe query "${SERVICE_NAME}" 2>/dev/null \
-    | grep -i "STATE" | awk '{print $NF}' | tr -d '[:space:]')
-if [ "${status}" != "RUNNING" ] && [ "${status}" != "4" ]; then
-    echo "ERROR: Service ${SERVICE_NAME} failed to start after ${MAX_RETRIES} attempts."
+# Verify the exe is actually running as a process
+if ! pgrep -f "${PROCESS_EXE}" > /dev/null 2>&1; then
+    echo "ERROR: ${PROCESS_EXE} not running after service start."
     if [ "${KEEP_ALIVE}" = "1" ]; then
         echo "KEEP_ALIVE=1: container staying alive for investigation."
         exec sleep infinity
     fi
     exit 1
 fi
+echo "${PROCESS_EXE} is running (PID: $(pgrep -f "${PROCESS_EXE}" | head -1))."
 
 # --- Step 7: Wait for log files, then tail them ---
 
@@ -209,20 +193,17 @@ done
 find "${PROCESS_DIR}" "${LOG_DIR}" -name "*.txt" 2>/dev/null \
     | xargs -r tail -F 2>/dev/null &
 
-# --- Step 8: Monitor service until it stops ---
+# --- Step 8: Monitor process until it exits ---
+# Wine's SCM is unreliable — monitor the actual process instead.
 
-while true; do
-    status=$(WINEDEBUG=-all wine sc.exe query "${SERVICE_NAME}" 2>/dev/null \
-        | grep -i "STATE" | awk '{print $NF}' | tr -d '[:space:]')
-    if [ "${status}" = "STOPPED" ] || [ "${status}" = "4" ]; then
-        echo "=== ${SERVICE_NAME} stopped ==="
-        # Drain final log output
-        sleep 2
-        if [ "${KEEP_ALIVE}" = "1" ]; then
-            echo "KEEP_ALIVE=1: container staying alive."
-            exec sleep infinity
-        fi
-        exit 1
-    fi
+while pgrep -f "${PROCESS_EXE}" > /dev/null 2>&1; do
     sleep 5
 done
+
+echo "=== ${PROCESS_EXE} exited ==="
+sleep 2
+if [ "${KEEP_ALIVE}" = "1" ]; then
+    echo "KEEP_ALIVE=1: container staying alive."
+    exec sleep infinity
+fi
+exit 1
