@@ -17,7 +17,8 @@ RUN mkdir -p /var/opt/mssql/backup
 COPY scripts/setup-sql.linux.sh /setup-sql.sh
 RUN chmod +x /setup-sql.sh
 
-USER mssql
+# Stay as root — setup script fixes permissions on mounted backup dir,
+# then starts sqlservr which drops privileges internally.
 
 EXPOSE 1433
 
