@@ -47,9 +47,9 @@ sleep 1
 # Fresh Wine prefix every container start — the prefix baked into the Docker
 # image accumulates stale service registrations and process state across
 # restarts, causing processes to silently fail or get truncated output.
-wineserver -k 2>/dev/null; sleep 1
+wineserver -k 2>/dev/null || true; sleep 1
 rm -rf /root/.wine
-WINEDEBUG=-all wine wineboot --init 2>/dev/null
+WINEDEBUG=-all wine wineboot --init 2>/dev/null || true
 echo "Wine prefix initialised."
 
 # Wine maps Z:\ to / (Linux root). All paths use Z:\server\... so
