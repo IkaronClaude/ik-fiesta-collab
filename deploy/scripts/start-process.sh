@@ -157,12 +157,19 @@ else
 fi
 
 WIN_EXE="Z:\\server\\${PROCESS_NAME}\\${PROCESS_EXE}"
+STDOUT_LOG="${PROCESS_DIR}/stdout.txt"
+
+# Wrap in cmd /c — Wine's SCM kills service processes that take too long
+# to call StartServiceCtrlDispatcher(). The game exes do heavy init (IOCP
+# threads, config loading) before registering, causing the SCM to time out.
+# cmd /c acts as the service wrapper, letting the exe run as a child process.
+BIN_PATH="cmd /c ${WIN_EXE} > Z:\\server\\${PROCESS_NAME}\\stdout.txt 2>&1"
 
 echo "Registering service: ${SERVICE_NAME} -> ${WIN_EXE}"
 # Delete any stale service registration from previous runs
 WINEDEBUG=-all wine sc.exe delete "${SERVICE_NAME}" 2>/dev/null || true
 WINEDEBUG=-all wine sc.exe create "${SERVICE_NAME}" \
-    binPath= "${WIN_EXE}" start= demand 2>/dev/null || true
+    binPath= "${BIN_PATH}" start= demand 2>/dev/null || true
 
 # Wine's SCM incorrectly reports services as STOPPED even when the process
 # is running fine. Start the service and monitor the actual process instead.
@@ -206,7 +213,7 @@ for i in $(seq 1 ${TIMEOUT}); do
     sleep 1
 done
 
-# Tail all log files in background
+# Tail all log files (including stdout capture) in background
 find "${PROCESS_DIR}" "${LOG_DIR}" -name "*.txt" 2>/dev/null \
     | xargs -r tail -F 2>/dev/null &
 
