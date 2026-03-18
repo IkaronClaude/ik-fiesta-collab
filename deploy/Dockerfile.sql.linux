@@ -22,4 +22,7 @@ RUN chmod +x /setup-sql.sh
 
 EXPOSE 1433
 
+# Override the image's ENTRYPOINT (launch_sqlservr.sh) which starts its own
+# sqlservr — our setup script manages the sqlservr lifecycle itself.
+ENTRYPOINT []
 CMD ["/bin/bash", "/setup-sql.sh"]
