@@ -9,9 +9,9 @@ FROM mcr.microsoft.com/mssql/server:2022-latest
 
 USER root
 
-# Copy database backups into the image
-COPY server-files/Databases/ /var/opt/mssql/backup/
-RUN chown -R mssql:mssql /var/opt/mssql/backup
+# Database backups are mounted as a volume at /var/opt/mssql/backup/ (from DEPLOY_PATH/Databases).
+# No files baked into the image — everything comes from the project's deploy path.
+RUN mkdir -p /var/opt/mssql/backup
 
 # Copy startup script
 COPY scripts/setup-sql.linux.sh /setup-sql.sh

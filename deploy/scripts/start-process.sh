@@ -12,15 +12,34 @@ KEEP_ALIVE="${KEEP_ALIVE:-0}"
 PROCESS_DIR="/server/${PROCESS_NAME}"
 EXE_PATH="${PROCESS_DIR}/${PROCESS_EXE}"
 
-if [ ! -f "${EXE_PATH}" ]; then
-    echo "ERROR: Executable not found: ${EXE_PATH}"
-    exit 1
-fi
-
 echo "=== Starting ${PROCESS_NAME} (${PROCESS_EXE}) under Wine ==="
 echo "Process dir: ${PROCESS_DIR}"
 
+# --- Copy process binaries from mounted volume to writable directory ---
+# Server binaries are mounted read-only at /server-bins/ from DEPLOY_PATH.
+# We copy to /server/ because the game exes write logs to their own directory.
+BINS_DIR="/server-bins"
+if [ -d "${BINS_DIR}/${PROCESS_NAME}" ]; then
+    mkdir -p "${PROCESS_DIR}"
+    cp -a "${BINS_DIR}/${PROCESS_NAME}/." "${PROCESS_DIR}/"
+    echo "Copied binaries: ${BINS_DIR}/${PROCESS_NAME}/ -> ${PROCESS_DIR}/"
+fi
+
+# Copy GamigoZR for Zone processes (anti-cheat dependency)
+if [[ "${PROCESS_NAME}" =~ ^Zone ]] && [ -d "${BINS_DIR}/GamigoZR" ]; then
+    mkdir -p /server/GamigoZR
+    cp -a "${BINS_DIR}/GamigoZR/." /server/GamigoZR/
+fi
+
+if [ ! -f "${EXE_PATH}" ]; then
+    echo "ERROR: Executable not found: ${EXE_PATH}"
+    echo "  Check that DEPLOY_PATH is set and contains ${PROCESS_NAME}/${PROCESS_EXE}"
+    exit 1
+fi
+
 # Start a persistent Xvfb (Wine needs X11 even for headless server processes)
+# Clean stale lock files from container restarts
+rm -f /tmp/.X99-lock /tmp/.X11-unix/X99 2>/dev/null || true
 Xvfb :99 -screen 0 800x600x24 &
 export DISPLAY=:99
 sleep 1

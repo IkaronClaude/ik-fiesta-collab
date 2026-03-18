@@ -55,19 +55,10 @@ RUN Xvfb :99 -screen 0 800x600x24 & \
         /v odbc32 /t REG_SZ /d native /f 2>/dev/null; \
     pkill Xvfb 2>/dev/null; true
 
-# Copy all server process directories (binaries + DLLs)
-COPY server-files/GamigoZR/     /server/GamigoZR/
-COPY server-files/Account/      /server/Account/
-COPY server-files/AccountLog/   /server/AccountLog/
-COPY server-files/Character/    /server/Character/
-COPY server-files/GameLog/      /server/GameLog/
-COPY server-files/Login/        /server/Login/
-COPY server-files/WorldManager/ /server/WorldManager/
-COPY server-files/Zone00/       /server/Zone00/
-COPY server-files/Zone01/       /server/Zone01/
-COPY server-files/Zone02/       /server/Zone02/
-COPY server-files/Zone03/       /server/Zone03/
-COPY server-files/Zone04/       /server/Zone04/
+# Server process binaries are mounted as a volume at /server-bins/ (read-only).
+# start-process.sh copies the needed process directory to /server/ at runtime.
+# This keeps the image generic — no project-specific files baked in.
+RUN mkdir -p /server
 
 # Docker-specific ServerInfo configs (linux variant uses sqlserver,1433)
 COPY config.linux/ /docker-config/

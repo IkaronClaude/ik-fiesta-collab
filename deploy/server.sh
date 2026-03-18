@@ -19,12 +19,12 @@ echo "=== Generating client patches ==="
 bash "${SCRIPT_DIR}/../mimir.sh" pack patches --env client || { echo "ERROR: mimir pack failed."; exit 1; }
 
 echo ""
-echo "=== Copying build to deployed snapshot ==="
-rsync -a --delete "${MIMIR_PROJ_DIR}/build/server/" "${MIMIR_PROJ_DIR}/deployed/server/"
-
-echo ""
 echo "=== Ensuring required directories exist ==="
 mkdir -p "${MIMIR_PROJ_DIR}/patches" "${MIMIR_PROJ_DIR}/deployed/server"
+
+echo ""
+echo "=== Copying build to deployed snapshot ==="
+rsync -a --delete "${MIMIR_PROJ_DIR}/build/server/" "${MIMIR_PROJ_DIR}/deployed/server/"
 
 echo ""
 echo "=== Starting game containers ==="

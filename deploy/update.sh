@@ -14,6 +14,7 @@ bash "${SCRIPT_DIR}/../mimir.sh" pack patches --env client || { echo "ERROR: mim
 
 echo ""
 echo "=== Copying build to deployed snapshot ==="
+mkdir -p "${MIMIR_PROJ_DIR}/deployed/server"
 rsync -a --delete "${MIMIR_PROJ_DIR}/build/server/" "${MIMIR_PROJ_DIR}/deployed/server/"
 
 echo ""

@@ -16,6 +16,7 @@ x-gameserver: &gameserver
   restart: on-failure
   volumes:
     - ${GAME_DATA_DIR:-${MIMIR_PROJ_DIR}/deployed/server}:/server/9Data
+    - ${DEPLOY_PATH:?DEPLOY_PATH not set. Run mimir deploy setup}:/server-bins:ro
 
 services:
   sqlserver:
@@ -26,6 +27,7 @@ services:
       - "${SQL_PORT:-1433}:1433"
     volumes:
       - sql-data:/var/opt/mssql
+      - ${DEPLOY_PATH:?DEPLOY_PATH not set}/Databases:/var/opt/mssql/backup
     environment:
       - "SA_PASSWORD=${SA_PASSWORD:?SA_PASSWORD not set. Run: mimir deploy set SA_PASSWORD YourStrongPassword1}"
       # The official mssql/server image reads MSSQL_SA_PASSWORD for the initial SA password.

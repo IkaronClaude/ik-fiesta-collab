@@ -65,4 +65,27 @@ fi
 
 # --- Compose project name (lowercase) ---
 export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-$(echo "$PROJECT" | tr '[:upper:]' '[:lower:]')}"
-export PROJECT MIMIR_PROJ_DIR COMPOSE_FILE
+
+# --- Resolve DEPLOY_PATH from server environment config ---
+# Docker compose needs DEPLOY_PATH for volume mounts (server binaries + database backups).
+# Read from: env var > .mimir-deploy.env > server environment's deployPath in project config.
+if [ -z "${DEPLOY_PATH:-}" ]; then
+    _env_file="${MIMIR_PROJ_DIR}/environments/server.json"
+    _mimir_json="${MIMIR_PROJ_DIR}/mimir.json"
+
+    if [ -f "${_env_file}" ]; then
+        DEPLOY_PATH=$(python3 -c "
+import json
+with open('${_env_file}') as f:
+    print(json.load(f).get('deployPath', ''))" 2>/dev/null || true)
+    fi
+    if [ -z "${DEPLOY_PATH}" ] && [ -f "${_mimir_json}" ]; then
+        DEPLOY_PATH=$(python3 -c "
+import json
+with open('${_mimir_json}') as f:
+    print(json.load(f).get('environments', {}).get('server', {}).get('deployPath', ''))" 2>/dev/null || true)
+    fi
+    unset _env_file _mimir_json
+fi
+
+export PROJECT MIMIR_PROJ_DIR COMPOSE_FILE DEPLOY_PATH

@@ -7,6 +7,9 @@ set -eo pipefail
 
 SA_PASSWORD="${SA_PASSWORD:?SA_PASSWORD not set. Run: mimir deploy set SA_PASSWORD YourStrongPassword1}"
 BACKUP_DIR="/var/opt/mssql/backup"
+
+# Fix permissions on mounted backup directory (host files may be owned by root)
+chmod -R a+r "${BACKUP_DIR}" 2>/dev/null || true
 DATA_DIR="/var/opt/mssql/data"
 SQLCMD="/opt/mssql-tools18/bin/sqlcmd"
 
