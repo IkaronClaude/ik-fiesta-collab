@@ -124,7 +124,7 @@ Per-project deploy variables are stored in `<project>/.mimir-deploy.env` and loa
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `SA_PASSWORD` | Yes — no default | SQL Server `sa` password used by the `sqlserver` container and all game processes. Set before first start with `mimir deploy set-sql-password YourStrongPassword1`. |
+| `SA_PASSWORD` | Yes — no default | SQL Server `sa` password used by the `sqlserver` container and all game processes. Set before first start with `mimir deploy set-sql-password YourStrongPassword1`. **Must not contain `"`, `'`, `£`, or `$`** — these break the Fiesta config file parser and docker-compose variable substitution. Stick to alphanumeric + `!@#%^&*`. |
 | `KEEP_ALIVE` | No (default `0`) | Set to `1` to keep all game containers running after their process exits. Useful for debugging. Run `mimir deploy restart-game` after changing (no rebuild needed — `restart-game` uses `--force-recreate`). |
 
 ## Secrets
@@ -437,14 +437,7 @@ echo 'alias mimir="bash ~/ProjectMimir/mimir.sh"' >> ~/.bashrc
 source ~/.bashrc
 ```
 
-### 6. Copy server files into Docker build context
-
-```bash
-mkdir -p ~/ProjectMimir/deploy/server-files
-cp -a ~/fiesta-files/{GamigoZR,Account,AccountLog,Character,GameLog,Login,WorldManager,Zone00,Zone01,Zone02,Zone03,Zone04,Databases} ~/ProjectMimir/deploy/server-files/
-```
-
-### 7. Register environments
+### 6. Register environments
 
 ```bash
 cd ~/my-server
@@ -454,7 +447,7 @@ mimir env server init /root/fiesta-files --type server
 mimir env client init /root/fiesta-files/ressystem --type client
 ```
 
-### 8. Import and build
+### 7. Import and build
 
 ```bash
 mimir init-template
@@ -462,30 +455,28 @@ mimir import
 mimir build --all
 ```
 
-### 9. Set up deploy config
+### 8. Set up deploy config
 
 ```bash
 cd ~/my-server
-
-cat > .mimir-deploy.env << 'EOF'
-MIMIR_PROJ_DIR=/root/my-server
-GAME_DATA_DIR=/root/my-server/deployed/server
-KEEP_ALIVE=1
-EOF
-
-cat > .mimir-deploy.secrets << 'EOF'
-SA_PASSWORD=YourStrongPassword123!
-EOF
+mimir deploy setup
+# Prompts for:
+#   DEPLOY_PATH — path to server binaries (e.g. /root/fiesta-files)
+#   SA_PASSWORD — SQL Server password (no " ' £ $ characters!)
+#   PORT_OFFSET — shift all ports (optional, default 0)
+#   KEEP_ALIVE  — keep containers alive after crash for debugging (0 or 1)
 ```
 
-### 10. Create deployed snapshot directory
+This creates `.mimir-deploy.env` and `.mimir-deploy.secrets` in your project directory.
+
+### 9. Create deployed snapshot directory
 
 ```bash
 mkdir -p ~/my-server/deployed/server
 rsync -a ~/my-server/build/server/ ~/my-server/deployed/server/
 ```
 
-### 11. Build Docker images and start
+### 10. Build Docker images and start
 
 ```bash
 cd ~/my-server
@@ -499,7 +490,7 @@ mimir deploy tail sqlserver
 mimir deploy rebuild-game
 ```
 
-### 12. Verify
+### 11. Verify
 
 ```bash
 # Check all containers
@@ -533,9 +524,12 @@ mimir deploy tail login    # single service
 
 - **Use absolute paths** in environment config — `~` is a shell feature, not expanded by .NET
 - **`rsync` must be installed** — deploy scripts use it instead of `robocopy`
-- **`deployed/server/` must exist** before first start — create it manually (step 10)
-- **Scripts need `chmod +x`** after every fresh clone
+- **`deployed/server/` must exist** before first start — create it manually (step 9)
+- **Scripts need `chmod +x`** after every fresh clone (already set in git index, but verify)
 - **Non-interactive bash** does not load `.bashrc` aliases — deploy scripts use `${SCRIPT_DIR}/../mimir.sh` internally
+- **SA_PASSWORD must not contain `"`, `'`, `£`, or `$`** — these break Fiesta config file parsing and docker-compose shell expansion
+- **Wine uses Z:\ for Linux root** — all paths inside Wine containers use `Z:\server\...` not `C:\server\...`
+- **Server binaries are volume-mounted**, not copied into Docker images — set `DEPLOY_PATH` via `mimir deploy setup`
 
 ---
 
