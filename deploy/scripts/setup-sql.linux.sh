@@ -23,18 +23,51 @@ SQL_PID=$!
 
 # Wait for SQL Server to accept connections
 echo "Waiting for SQL Server to become ready..."
+SQL_READY=0
 for i in $(seq 1 60); do
     if "${SQLCMD}" -S localhost -U sa -P "${SA_PASSWORD}" -C -Q "SELECT 1" > /dev/null 2>&1; then
         echo "SQL Server is ready (${i}s)."
+        SQL_READY=1
         break
     fi
-    if [ "${i}" -eq 60 ]; then
-        echo "ERROR: SQL Server did not become ready after 60s."
+    # Check if SQL Server is up but password is wrong (existing volume with old password)
+    if [ "${i}" -ge 10 ] && "${SQLCMD}" -S localhost -U sa -P "${SA_PASSWORD}" -C -Q "SELECT 1" 2>&1 | grep -q "Login failed"; then
+        echo "SQL Server is up but SA password doesn't match volume. Resetting password..."
         kill "${SQL_PID}" 2>/dev/null
-        exit 1
+        wait "${SQL_PID}" 2>/dev/null || true
+        sleep 2
+        # Restart in single-user mode to reset password
+        /opt/mssql/bin/sqlservr -m &
+        SQL_PID=$!
+        sleep 5
+        "${SQLCMD}" -S localhost -C -Q "ALTER LOGIN sa WITH PASSWORD = '${SA_PASSWORD}'; ALTER LOGIN sa ENABLE;" 2>&1 \
+            && echo "SA password reset successfully." \
+            || { echo "ERROR: Failed to reset SA password."; kill "${SQL_PID}" 2>/dev/null; exit 1; }
+        # Restart in normal mode
+        kill "${SQL_PID}" 2>/dev/null
+        wait "${SQL_PID}" 2>/dev/null || true
+        sleep 2
+        /opt/mssql/bin/sqlservr &
+        SQL_PID=$!
+        # Wait for normal-mode startup
+        for j in $(seq 1 30); do
+            if "${SQLCMD}" -S localhost -U sa -P "${SA_PASSWORD}" -C -Q "SELECT 1" > /dev/null 2>&1; then
+                echo "SQL Server restarted with new password (${j}s)."
+                SQL_READY=1
+                break
+            fi
+            sleep 1
+        done
+        break
     fi
     sleep 1
 done
+
+if [ "${SQL_READY}" -ne 1 ]; then
+    echo "ERROR: SQL Server did not become ready after 60s."
+    kill "${SQL_PID}" 2>/dev/null
+    exit 1
+fi
 
 # Enable remote TCP connections
 "${SQLCMD}" -S localhost -U sa -P "${SA_PASSWORD}" -C -Q \
