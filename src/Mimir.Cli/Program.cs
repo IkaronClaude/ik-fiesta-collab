@@ -100,6 +100,13 @@ initCommand.SetHandler((DirectoryInfo project, string mimirCmd) =>
             ":: Edit the line below if mimir is not in your PATH.\r\n" +
             $"{mimirCmd} %*\r\n");
 
+        // mimir.sh — Linux equivalent
+        WriteIfMissing(Path.Combine(project.FullName, "mimir.sh"),
+            "#!/bin/bash\n" +
+            "# Mimir CLI resolver for this project.\n" +
+            "# Edit the line below if mimir is not in your PATH.\n" +
+            $"{mimirCmd} \"$@\"\n");
+
         // deploy/reimport.bat
         WriteIfMissing(Path.Combine(project.FullName, "deploy", "reimport.bat"),
             "@echo off\r\n" +
@@ -108,6 +115,14 @@ initCommand.SetHandler((DirectoryInfo project, string mimirCmd) =>
             "cd /d \"%~dp0..\"\r\n" +
             "call mimir.bat reimport\r\n" +
             "pause\r\n");
+
+        // deploy/reimport.sh
+        WriteIfMissing(Path.Combine(project.FullName, "deploy", "reimport.sh"),
+            "#!/bin/bash\n" +
+            "# Re-import all data and rebuild. Wipes data/ and build/ first.\n" +
+            "# NOTE: mimir.template.json is preserved -- don't regenerate it unless you mean to.\n" +
+            "cd \"$(dirname \"$0\")/..\" || exit 1\n" +
+            "bash mimir.sh reimport\n");
 
         // deploy/deploy.bat — build + pack (no Docker assumptions)
         WriteIfMissing(Path.Combine(project.FullName, "deploy", "deploy.bat"),
@@ -120,6 +135,16 @@ initCommand.SetHandler((DirectoryInfo project, string mimirCmd) =>
             "if errorlevel 1 ( pause & exit /b 1 )\r\n" +
             "echo Done! Patches written to patches/\r\n" +
             "pause\r\n");
+
+        // deploy/deploy.sh
+        WriteIfMissing(Path.Combine(project.FullName, "deploy", "deploy.sh"),
+            "#!/bin/bash\n" +
+            "# Build all environments and generate client patches.\n" +
+            "set -eo pipefail\n" +
+            "cd \"$(dirname \"$0\")/..\" || exit 1\n" +
+            "bash mimir.sh build --all\n" +
+            "bash mimir.sh pack patches --env client\n" +
+            "echo \"Done! Patches written to patches/\"\n");
 
         // deploy/player/patcher.config
         WriteIfMissing(Path.Combine(project.FullName, "deploy", "player", "patcher.config"),
@@ -258,156 +283,152 @@ initCommand.SetHandler((DirectoryInfo project, string mimirCmd) =>
         var ghWorkflowsDir = Path.Combine(project.FullName, ".github", "workflows");
         Directory.CreateDirectory(ghWorkflowsDir);
         WriteIfMissing(Path.Combine(ghWorkflowsDir, "deploy.yml"),
-            "name: Deploy\r\n" +
-            "\r\n" +
-            "on:\r\n" +
-            "  push:\r\n" +
-            "    branches: [ \"main\" ]\r\n" +
-            "  workflow_dispatch:\r\n" +
-            "\r\n" +
-            "jobs:\r\n" +
-            "  deploy:\r\n" +
-            "    runs-on: self-hosted\r\n" +
-            "    environment: dev\r\n" +
-            "    defaults:\r\n" +
-            "      run:\r\n" +
-            "        shell: cmd\r\n" +
-            "        working-directory: ${{ github.workspace }}\r\n" +
-            "    steps:\r\n" +
-            "      - name: Disable GCM interactive prompts\r\n" +
-            "        run: git config --global credential.interactive never\r\n" +
-            "      - name: Update repository\r\n" +
-            "        run: |\r\n" +
-            "          git fetch origin --progress 2>&1\r\n" +
-            "          git reset --hard origin/main 2>&1\r\n" +
-            "          git log --oneline -3 2>&1\r\n" +
-            "      - name: Remove local mimir.bat\r\n" +
-            "        run: del mimir.bat\r\n" +
-            "      - name: Write deploy config from GitHub variables/secrets\r\n" +
-            "        shell: powershell\r\n" +
-            "        env:\r\n" +
-            "          SA_PASSWORD: ${{ secrets.SA_PASSWORD }}\r\n" +
-            "          JWT_SECRET: ${{ secrets.JWT_SECRET }}\r\n" +
-            "          COMPOSE_PROJECT_NAME: ${{ vars.COMPOSE_PROJECT_NAME }}\r\n" +
-            "          PORT_OFFSET: ${{ vars.PORT_OFFSET }}\r\n" +
-            "          WEBAPP_PORT: ${{ vars.WEBAPP_PORT }}\r\n" +
-            "          PATCH_PORT: ${{ vars.PATCH_PORT }}\r\n" +
-            "          API_PORT: ${{ vars.API_PORT }}\r\n" +
-            "          API_URL: ${{ vars.API_URL }}\r\n" +
-            "          CORS_ORIGINS: ${{ vars.CORS_ORIGINS }}\r\n" +
-            "        run: |\r\n" +
-            "          $o = if ($env:PORT_OFFSET) { [int]$env:PORT_OFFSET } else { 0 }\r\n" +
-            "          function Port($base) { $base + $o }\r\n" +
-            "          function Var($envName, $base) {\r\n" +
-            "            $v = [Environment]::GetEnvironmentVariable($envName)\r\n" +
-            "            if ($v) { \"$envName=$v\" } else { \"$envName=$(Port $base)\" }\r\n" +
-            "          }\r\n" +
-            "          @(\r\n" +
-            "            \"COMPOSE_PROJECT_NAME=$($env:COMPOSE_PROJECT_NAME)\"\r\n" +
-            "            \"LOGIN_PORT=$(Port 9010)\"\r\n" +
-            "            \"WM_PORT=$(Port 9013)\"\r\n" +
-            "            \"ZONE00_PORT=$(Port 9016)\"\r\n" +
-            "            \"ZONE01_PORT=$(Port 9019)\"\r\n" +
-            "            \"ZONE02_PORT=$(Port 9022)\"\r\n" +
-            "            \"ZONE03_PORT=$(Port 9025)\"\r\n" +
-            "            \"ZONE04_PORT=$(Port 9028)\"\r\n" +
-            "            \"SQL_PORT=$(Port 1433)\"\r\n" +
-            "            (Var 'PATCH_PORT'  8080)\r\n" +
-            "            (Var 'API_PORT'    5000)\r\n" +
-            "            (Var 'WEBAPP_PORT' 80)\r\n" +
-            "            if ($env:API_URL) { \"API_URL=$($env:API_URL)\" }\r\n" +
-            "            if ($env:CORS_ORIGINS) { \"CORS_ORIGINS=$($env:CORS_ORIGINS)\" }\r\n" +
-            "          ) | Set-Content .mimir-deploy.env -Encoding ascii\r\n" +
-            "          @(\r\n" +
-            "            \"SA_PASSWORD=$($env:SA_PASSWORD)\"\r\n" +
-            "            \"JWT_SECRET=$($env:JWT_SECRET)\"\r\n" +
-            "          ) | Set-Content .mimir-deploy.secrets -Encoding ascii\r\n" +
-            "      - name: Build & Deploy Game\r\n" +
-            "        run: mimir deploy server\r\n" +
-            "      - name: Deploy API\r\n" +
-            "        run: mimir deploy api\r\n" +
-            "      - name: Deploy WebApp\r\n" +
-            "        run: mimir deploy webapp\r\n");
+            "name: Deploy\n" +
+            "\n" +
+            "on:\n" +
+            "  push:\n" +
+            "    branches: [ \"main\" ]\n" +
+            "  workflow_dispatch:\n" +
+            "\n" +
+            "jobs:\n" +
+            "  deploy:\n" +
+            "    runs-on: self-hosted\n" +
+            "    environment: dev\n" +
+            "    defaults:\n" +
+            "      run:\n" +
+            "        working-directory: ${{ github.workspace }}\n" +
+            "    steps:\n" +
+            "      - name: Update repository\n" +
+            "        run: |\n" +
+            "          git fetch origin --progress 2>&1\n" +
+            "          git reset --hard origin/main 2>&1\n" +
+            "          git log --oneline -3 2>&1\n" +
+            "      - name: Write deploy config from GitHub variables/secrets\n" +
+            "        env:\n" +
+            "          SA_PASSWORD: ${{ secrets.SA_PASSWORD }}\n" +
+            "          JWT_SECRET: ${{ secrets.JWT_SECRET }}\n" +
+            "          COMPOSE_PROJECT_NAME: ${{ vars.COMPOSE_PROJECT_NAME }}\n" +
+            "          PORT_OFFSET: ${{ vars.PORT_OFFSET }}\n" +
+            "          WEBAPP_PORT: ${{ vars.WEBAPP_PORT }}\n" +
+            "          PATCH_PORT: ${{ vars.PATCH_PORT }}\n" +
+            "          API_PORT: ${{ vars.API_PORT }}\n" +
+            "          API_URL: ${{ vars.API_URL }}\n" +
+            "          CORS_ORIGINS: ${{ vars.CORS_ORIGINS }}\n" +
+            "          GAME_DATA_DIR: ${{ vars.GAME_DATA_DIR }}\n" +
+            "          MIMIR_PROJ_DIR: ${{ github.workspace }}\n" +
+            "        run: |\n" +
+            "          O=${PORT_OFFSET:-0}\n" +
+            "          cat > .mimir-deploy.env << EOF\n" +
+            "          COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME}\n" +
+            "          MIMIR_PROJ_DIR=${MIMIR_PROJ_DIR}\n" +
+            "          GAME_DATA_DIR=${GAME_DATA_DIR}\n" +
+            "          LOGIN_PORT=$((9010 + O))\n" +
+            "          WM_PORT=$((9013 + O))\n" +
+            "          ZONE00_PORT=$((9016 + O))\n" +
+            "          ZONE01_PORT=$((9019 + O))\n" +
+            "          ZONE02_PORT=$((9022 + O))\n" +
+            "          ZONE03_PORT=$((9025 + O))\n" +
+            "          ZONE04_PORT=$((9028 + O))\n" +
+            "          SQL_PORT=$((1433 + O))\n" +
+            "          PATCH_PORT=${PATCH_PORT:-$((8080 + O))}\n" +
+            "          API_PORT=${API_PORT:-$((5000 + O))}\n" +
+            "          WEBAPP_PORT=${WEBAPP_PORT:-$((80 + O))}\n" +
+            "          EOF\n" +
+            "          [ -n \"$API_URL\" ] && echo \"API_URL=$API_URL\" >> .mimir-deploy.env\n" +
+            "          [ -n \"$CORS_ORIGINS\" ] && echo \"CORS_ORIGINS=$CORS_ORIGINS\" >> .mimir-deploy.env\n" +
+            "          cat > .mimir-deploy.secrets << EOF\n" +
+            "          SA_PASSWORD=${SA_PASSWORD}\n" +
+            "          JWT_SECRET=${JWT_SECRET}\n" +
+            "          EOF\n" +
+            "      - name: Build & Deploy Game\n" +
+            "        run: mimir deploy server\n" +
+            "      - name: Deploy API\n" +
+            "        run: mimir deploy api\n" +
+            "      - name: Deploy WebApp\n" +
+            "        run: mimir deploy webapp\n");
 
         // README.md
         var projectName = project.Name;
         WriteIfMissing(Path.Combine(project.FullName, "README.md"),
-            $"# {projectName}\r\n" +
-            "\r\n" +
-            "Fiesta Online server data project managed by [Mimir](https://github.com/IkaronClaude/ProjectMimir).\r\n" +
-            "\r\n" +
-            "## Quick Start\r\n" +
-            "\r\n" +
-            "```bat\r\n" +
-            ":: 1. Register your data sources (do once)\r\n" +
-            "mimir env server init Z:/Server --type server\r\n" +
-            "mimir env client init Z:/ClientSource/ressystem --type client\r\n" +
-            "\r\n" +
-            ":: 2. Generate merge rules and import all data\r\n" +
-            "mimir init-template\r\n" +
-            "mimir import\r\n" +
-            "\r\n" +
-            ":: 3. Build output files for each environment\r\n" +
-            "mimir build --all\r\n" +
-            "```\r\n" +
-            "\r\n" +
-            "## Daily Workflow\r\n" +
-            "\r\n" +
-            "```bat\r\n" +
-            ":: Query or edit data via SQL\r\n" +
-            "mimir shell\r\n" +
-            "mimir edit \"UPDATE ItemInfo SET Price = 100 WHERE InxName = 'Item_Sword'\"\r\n" +
-            "\r\n" +
-            ":: Rebuild outputs after editing\r\n" +
-            "mimir build --all\r\n" +
-            "\r\n" +
-            ":: Pack a client patch\r\n" +
-            "mimir pack patches --env client\r\n" +
-            "```\r\n" +
-            "\r\n" +
-            "## Deploy\r\n" +
-            "\r\n" +
-            "```bat\r\n" +
-            ":: 1. Link server binaries (once per machine — gitignored, required for Docker build)\r\n" +
-            "::    Creates deploy\\server-files as a directory symlink.\r\n" +
-            "::    Requires Administrator or Developer Mode enabled.\r\n" +
-            "mklink /D deploy\\server-files Z:\\Server\r\n" +
-            "\r\n" +
-            ":: 2. Set secrets (once per machine, not committed to git)\r\n" +
-            "mimir deploy secret set SA_PASSWORD YourStrongPassword1\r\n" +
-            "mimir deploy secret set JWT_SECRET YourJwtSecret\r\n" +
-            "\r\n" +
-            ":: 3. First-time setup (creates containers and restores databases)\r\n" +
-            "mimir deploy rebuild-sql\r\n" +
-            "mimir deploy rebuild-game\r\n" +
-            "\r\n" +
-            ":: Normal deploy (build + pack + restart game server)\r\n" +
-            "mimir deploy update\r\n" +
-            "```\r\n" +
-            "\r\n" +
-            "## Project Layout\r\n" +
-            "\r\n" +
-            "```\r\n" +
-            $"{projectName}/\r\n" +
-            "  mimir.json            # project manifest\r\n" +
-            "  mimir.template.json   # merge rules (generated by init-template, then hand-tuned)\r\n" +
-            "  data/                 # imported game data — commit this\r\n" +
-            "    shn/                # SHN binary tables (as JSON)\r\n" +
-            "    shinetable/         # text tables (#table format)\r\n" +
-            "    configtable/        # config tables (#DEFINE format)\r\n" +
-            "  build/                # build output — gitignored\r\n" +
-            "  patches/              # client patch zips — gitignored\r\n" +
-            "  overrides/            # files copied verbatim into build output last\r\n" +
-            "  environments/         # per-env config (import/build/deploy paths)\r\n" +
-            "  deploy/               # deploy scripts (reimport, deploy, player patcher)\r\n" +
-            "```\r\n" +
-            "\r\n" +
-            "## Reference\r\n" +
-            "\r\n" +
-            "- `mimir --help` — all commands\r\n" +
-            "- `mimir env all list` — show all environment configs\r\n" +
-            "- `mimir validate` — check foreign key constraints\r\n" +
-            "- `mimir shn <file>` — inspect a raw SHN file\r\n");
+            $"# {projectName}\n" +
+            "\n" +
+            "Fiesta Online server data project managed by [Mimir](https://github.com/IkaronClaude/ProjectMimir).\n" +
+            "\n" +
+            "## Quick Start\n" +
+            "\n" +
+            "```bash\n" +
+            "# 1. Register your data sources (do once)\n" +
+            "mimir env server init Z:/Server --type server\n" +
+            "mimir env client init Z:/ClientSource/ressystem --type client\n" +
+            "\n" +
+            "# 2. Generate merge rules and import all data\n" +
+            "mimir init-template\n" +
+            "mimir import\n" +
+            "\n" +
+            "# 3. Build output files for each environment\n" +
+            "mimir build --all\n" +
+            "```\n" +
+            "\n" +
+            "## Daily Workflow\n" +
+            "\n" +
+            "```bash\n" +
+            "# Query or edit data via SQL\n" +
+            "mimir shell\n" +
+            "mimir edit \"UPDATE ItemInfo SET Price = 100 WHERE InxName = 'Item_Sword'\"\n" +
+            "\n" +
+            "# Rebuild outputs after editing\n" +
+            "mimir build --all\n" +
+            "\n" +
+            "# Pack a client patch\n" +
+            "mimir pack patches --env client\n" +
+            "```\n" +
+            "\n" +
+            "## Deploy\n" +
+            "\n" +
+            "```bash\n" +
+            "# 1. Make scripts executable (Linux only, once after clone)\n" +
+            "chmod +x mimir.sh deploy/*.sh\n" +
+            "\n" +
+            "# 2. Link server binaries (once per machine, gitignored, required for Docker build)\n" +
+            "#    Windows: mklink /D deploy\\server-files Z:\\Server\n" +
+            "#    Linux:   ln -s /path/to/server deploy/server-files\n" +
+            "#    Or copy: cp -a /path/to/server deploy/server-files\n" +
+            "\n" +
+            "# 3. Set secrets (once per machine, not committed to git)\n" +
+            "mimir deploy secret set SA_PASSWORD YourStrongPassword1\n" +
+            "mimir deploy secret set JWT_SECRET YourJwtSecret\n" +
+            "\n" +
+            "# 4. First-time setup (creates containers and restores databases)\n" +
+            "mimir deploy rebuild-sql\n" +
+            "mimir deploy rebuild-game\n" +
+            "\n" +
+            "# Normal deploy (build + pack + restart game server)\n" +
+            "mimir deploy update\n" +
+            "```\n" +
+            "\n" +
+            "## Project Layout\n" +
+            "\n" +
+            "```\n" +
+            $"{projectName}/\n" +
+            "  mimir.json            # project manifest\n" +
+            "  mimir.template.json   # merge rules (generated by init-template, then hand-tuned)\n" +
+            "  data/                 # imported game data -- commit this\n" +
+            "    shn/                # SHN binary tables (as JSON)\n" +
+            "    shinetable/         # text tables (#table format)\n" +
+            "    configtable/        # config tables (#DEFINE format)\n" +
+            "  build/                # build output -- gitignored\n" +
+            "  patches/              # client patch zips -- gitignored\n" +
+            "  overrides/            # files copied verbatim into build output last\n" +
+            "  environments/         # per-env config (import/build/deploy paths)\n" +
+            "  deploy/               # deploy scripts (reimport, deploy, player patcher)\n" +
+            "```\n" +
+            "\n" +
+            "## Reference\n" +
+            "\n" +
+            "- `mimir --help` -- all commands\n" +
+            "- `mimir env all list` -- show all environment configs\n" +
+            "- `mimir validate` -- check foreign key constraints\n" +
+            "- `mimir shn <file>` -- inspect a raw SHN file\n");
 
         logger.LogInformation("Created project at {Dir}", project.FullName);
         logger.LogInformation("Next steps:");
