@@ -160,18 +160,27 @@ WINEDEBUG=-all wine sc.exe create "${SERVICE_NAME}" \
 # is running fine. Start the service and monitor the actual process instead.
 echo "Starting service: ${SERVICE_NAME}"
 WINEDEBUG=-all wine sc.exe start "${SERVICE_NAME}" 2>/dev/null || true
-sleep 3
 
-# Verify the exe is actually running as a process
-if ! pgrep -f "${PROCESS_EXE}" > /dev/null 2>&1; then
-    echo "ERROR: ${PROCESS_EXE} not running after service start."
+# Wait for the exe to appear (Wine SCM takes time to spawn the process)
+echo "Waiting for ${PROCESS_EXE} to start..."
+STARTED=0
+for i in $(seq 1 30); do
+    if pgrep -f "${PROCESS_EXE}" > /dev/null 2>&1; then
+        echo "${PROCESS_EXE} is running after ${i}s (PID: $(pgrep -f "${PROCESS_EXE}" | head -1))."
+        STARTED=1
+        break
+    fi
+    sleep 1
+done
+
+if [ "${STARTED}" -ne 1 ]; then
+    echo "ERROR: ${PROCESS_EXE} not running after 30s."
     if [ "${KEEP_ALIVE}" = "1" ]; then
         echo "KEEP_ALIVE=1: container staying alive for investigation."
         exec sleep infinity
     fi
     exit 1
 fi
-echo "${PROCESS_EXE} is running (PID: $(pgrep -f "${PROCESS_EXE}" | head -1))."
 
 # --- Step 7: Wait for log files, then tail them ---
 
