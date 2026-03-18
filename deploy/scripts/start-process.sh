@@ -156,9 +156,32 @@ WINEDEBUG=-all wine sc.exe delete "${SERVICE_NAME}" 2>/dev/null || true
 WINEDEBUG=-all wine sc.exe create "${SERVICE_NAME}" \
     binPath= "${WIN_EXE}" start= demand 2>/dev/null || true
 
-echo "Starting service: ${SERVICE_NAME}"
-if ! WINEDEBUG=-all wine sc.exe start "${SERVICE_NAME}" 2>/dev/null; then
-    echo "ERROR: Failed to start service ${SERVICE_NAME}."
+# Wine's SCM sometimes fails on the first start after a fresh wineserver
+# init (service starts briefly then stops). Retry up to 3 times.
+MAX_RETRIES=3
+for attempt in $(seq 1 ${MAX_RETRIES}); do
+    echo "Starting service: ${SERVICE_NAME} (attempt ${attempt}/${MAX_RETRIES})"
+    WINEDEBUG=-all wine sc.exe start "${SERVICE_NAME}" 2>/dev/null || true
+    sleep 5
+
+    status=$(WINEDEBUG=-all wine sc.exe query "${SERVICE_NAME}" 2>/dev/null \
+        | grep -i "STATE" | awk '{print $NF}' | tr -d '[:space:]')
+    if [ "${status}" = "RUNNING" ] || [ "${status}" = "4" ]; then
+        echo "Service ${SERVICE_NAME} is running."
+        break
+    fi
+
+    echo "Service not running (state: ${status}). Retrying..."
+    # Stop cleanly before retry
+    WINEDEBUG=-all wine sc.exe stop "${SERVICE_NAME}" 2>/dev/null || true
+    sleep 2
+done
+
+# Final check
+status=$(WINEDEBUG=-all wine sc.exe query "${SERVICE_NAME}" 2>/dev/null \
+    | grep -i "STATE" | awk '{print $NF}' | tr -d '[:space:]')
+if [ "${status}" != "RUNNING" ] && [ "${status}" != "4" ]; then
+    echo "ERROR: Service ${SERVICE_NAME} failed to start after ${MAX_RETRIES} attempts."
     if [ "${KEEP_ALIVE}" = "1" ]; then
         echo "KEEP_ALIVE=1: container staying alive for investigation."
         exec sleep infinity
