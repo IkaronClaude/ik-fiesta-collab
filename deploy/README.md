@@ -1,10 +1,12 @@
 # Fiesta Server — Docker Deployment
 
-Local Fiesta Online server running in Docker for end-to-end testing of Mimir build output.
+Game server running in Docker containers. Two modes:
+- **Windows** — Windows Server Core containers (local dev)
+- **Linux** — Ubuntu + Wine containers (VPS / production)
 
 ## Architecture
 
-12 Windows containers on a shared Docker Compose network:
+12 containers on a shared Docker Compose network:
 
 - **sqlserver** — SQL Server Express 2025 with 7 game databases restored from `.bak` files
 - **account, accountlog, character, gamelog** — DB bridge processes
@@ -376,9 +378,170 @@ jobs:
 >
 > `mimir deploy server` handles build + pack + snapshot + restart in one step, including first-time SQL setup. Remove the API/webapp steps if you are not using those profiles.
 
+---
+
+## Linux VPS Deployment (Ubuntu / Debian)
+
+Step-by-step guide for deploying to a Linux VPS using Wine containers.
+
+### 1. VPS Prerequisites
+
+```bash
+# Install Docker
+curl -fsSL https://get.docker.com | sh
+
+# Install rsync (used by deploy scripts)
+apt install -y rsync
+
+# Install .NET SDK 10 (for mimir CLI)
+curl -sSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 10.0
+echo 'export DOTNET_ROOT=$HOME/.dotnet' >> ~/.bashrc
+echo 'export PATH=$PATH:$DOTNET_ROOT' >> ~/.bashrc
+source ~/.bashrc
+dotnet --version   # verify
+```
+
+### 2. Transfer server files from Windows
+
+Run these from the Windows machine (PowerShell or CMD), from inside the `ServerSource` directory:
+
+```powershell
+ssh root@your-vps "mkdir -p ~/fiesta-files"
+scp -r GamigoZR Account AccountLog Character GameLog Login WorldManager Zone00 Zone01 Zone02 Zone03 Zone04 Databases root@your-vps:~/fiesta-files/
+```
+
+If serving client patches, also transfer the client files:
+
+```powershell
+scp -r ressystem root@your-vps:~/fiesta-files/ressystem
+```
+
+### 3. Clone repos on VPS
+
+```bash
+git clone git@github.com:IkaronClaude/ProjectMimir.git ~/ProjectMimir
+git clone <your-private-project-repo> ~/my-server
+```
+
+### 4. Make scripts executable
+
+```bash
+cd ~/ProjectMimir
+chmod +x mimir.sh deploy/*.sh
+```
+
+### 5. Set up mimir alias
+
+```bash
+echo 'alias mimir="bash ~/ProjectMimir/mimir.sh"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+### 6. Copy server files into Docker build context
+
+```bash
+mkdir -p ~/ProjectMimir/deploy/server-files
+cp -a ~/fiesta-files/{GamigoZR,Account,AccountLog,Character,GameLog,Login,WorldManager,Zone00,Zone01,Zone02,Zone03,Zone04,Databases} ~/ProjectMimir/deploy/server-files/
+```
+
+### 7. Register environments
+
+```bash
+cd ~/my-server
+
+# Use absolute paths — ~ does not expand in config files
+mimir env server init /root/fiesta-files --type server
+mimir env client init /root/fiesta-files/ressystem --type client
+```
+
+### 8. Import and build
+
+```bash
+mimir init-template
+mimir import
+mimir build --all
+```
+
+### 9. Set up deploy config
+
+```bash
+cd ~/my-server
+
+cat > .mimir-deploy.env << 'EOF'
+MIMIR_PROJ_DIR=/root/my-server
+GAME_DATA_DIR=/root/my-server/deployed/server
+KEEP_ALIVE=1
+EOF
+
+cat > .mimir-deploy.secrets << 'EOF'
+SA_PASSWORD=YourStrongPassword123!
+EOF
+```
+
+### 10. Create deployed snapshot directory
+
+```bash
+mkdir -p ~/my-server/deployed/server
+rsync -a ~/my-server/build/server/ ~/my-server/deployed/server/
+```
+
+### 11. Build Docker images and start
+
+```bash
+cd ~/my-server
+
+# Build and start SQL (first time is slow — restores 7 databases)
+mimir deploy rebuild-sql
+mimir deploy tail sqlserver
+# Wait for "SQL Server setup complete.", then Ctrl+C
+
+# Build and start game servers (first time is slow — Wine install)
+mimir deploy rebuild-game
+```
+
+### 12. Verify
+
+```bash
+# Check all containers
+docker compose -f ~/ProjectMimir/deploy/docker-compose.linux.yml ps
+
+# Check logs
+mimir deploy logs
+
+# Test login port
+apt install -y netcat-openbsd
+nc -zv localhost 9010
+```
+
+### Day-to-day (Linux)
+
+```bash
+cd ~/my-server
+
+# After editing data: rebuild + restart
+mimir deploy update
+
+# Or full cycle (stop -> build -> pack -> start)
+mimir deploy server
+
+# View logs
+mimir deploy logs          # all game services
+mimir deploy tail login    # single service
+```
+
+### Linux-specific gotchas
+
+- **Use absolute paths** in environment config — `~` is a shell feature, not expanded by .NET
+- **`rsync` must be installed** — deploy scripts use it instead of `robocopy`
+- **`deployed/server/` must exist** before first start — create it manually (step 10)
+- **Scripts need `chmod +x`** after every fresh clone
+- **Non-interactive bash** does not load `.bashrc` aliases — deploy scripts use `${SCRIPT_DIR}/../mimir.sh` internally
+
+---
+
 ## Troubleshooting
 
-**Container won't start**: Confirm Docker Desktop is in Windows container mode (whale icon → "Switch to Windows containers").
+**Container won't start (Windows)**: Confirm Docker Desktop is in Windows container mode (whale icon → "Switch to Windows containers").
 
 **`docker compose build` hangs or fails**: Run `set DOCKER_BUILDKIT=0` first. BuildKit is incompatible with Windows containers.
 
