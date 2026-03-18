@@ -103,6 +103,10 @@ echo "ServerInfo.txt written to ${DEST} ($(wc -c < "${DEST}") bytes)"
 # --- Step 3: Wine registry keys ---
 
 echo "Setting up registry keys..."
+# Ensure Wine uses builtin odbc32.dll (bridges to system unixODBC/FreeTDS).
+# Set at runtime to avoid Docker build cache serving stale layers.
+WINEDEBUG=-all wine reg add 'HKCU\Software\Wine\DllOverrides' \
+    /v odbc32 /t REG_SZ /d builtin /f 2>/dev/null
 WINEDEBUG=-all wine reg add 'HKLM\Software\Wow6432Node\Fantasy\Fighter' /v Bird    /d Eagle      /f 2>/dev/null
 WINEDEBUG=-all wine reg add 'HKLM\Software\Wow6432Node\Fantasy\Fighter' /v Insect  /d Honet      /f 2>/dev/null
 WINEDEBUG=-all wine reg add 'HKLM\Software\Wow6432Node\GBO' /v Desert   /d 138127     /f 2>/dev/null
