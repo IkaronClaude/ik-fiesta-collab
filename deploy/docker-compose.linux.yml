@@ -15,7 +15,7 @@ x-gameserver: &gameserver
     dockerfile: Dockerfile.server.linux
   restart: on-failure
   volumes:
-    - ${MIMIR_PROJ_DIR}/deployed/server:/server/9Data
+    - ${GAME_DATA_DIR:-${MIMIR_PROJ_DIR}/deployed/server}:/server/9Data
 
 services:
   sqlserver:

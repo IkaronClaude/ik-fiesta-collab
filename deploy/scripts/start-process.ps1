@@ -298,6 +298,8 @@ $watcherJob = Start-Job -ScriptBlock {
 
 $svcSeenRunning = $false
 $svcCheckTick   = 0   # check service status every ~2.5s (5 x 500ms)
+$svcStartTime   = Get-Date
+$svcNeverRanTimeout = 30  # seconds to wait before assuming the service crashed at startup
 
 while ($true) {
     # Forward any new log output from tailing jobs
@@ -322,20 +324,35 @@ while ($true) {
         $svc = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
         if ($svc -and $svc.Status -eq 'Running') {
             $svcSeenRunning = $true
-        } elseif ($svcSeenRunning) {
+        }
+        # Detect crash: either saw it running and now it's stopped,
+        # OR it never reached Running and enough time has passed (crashed during init)
+        $elapsed = ((Get-Date) - $svcStartTime).TotalSeconds
+        $neverStarted = (-not $svcSeenRunning) -and ($elapsed -gt $svcNeverRanTimeout) -and ($svc -and $svc.Status -eq 'Stopped')
+        if ($svcSeenRunning -and $svc -and $svc.Status -ne 'Running') {
             $exitCode = if ($svc) { $svc.ExitCode } else { -1 }
             Write-Host ("=== $serviceName stopped (exit code: $exitCode) ===" ) -ForegroundColor Yellow
-            # Drain any final log output before exiting
-            Start-Sleep -Milliseconds 1500
+        }
+        elseif ($neverStarted) {
+            Write-Host ("=== $serviceName never reached Running state (crashed during init, ${elapsed}s elapsed) ===" ) -ForegroundColor Red
+        }
+        else {
+            continue
+        }
+
+        # Service is dead — drain log output generously before deciding what to do
+        Write-Host "Draining log output..."
+        for ($d = 0; $d -lt 10; $d++) {
+            Start-Sleep -Milliseconds 500
             foreach ($job in $jobs) {
                 Receive-Job -Job $job -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_ }
             }
-            if ($keepAlive) {
-                Write-Host "KEEP_ALIVE=1: container staying alive. Use 'docker exec' to investigate." -ForegroundColor Cyan
-                while ($true) { Start-Sleep -Seconds 60 }
-            }
-            exit 1
         }
+        if ($keepAlive) {
+            Write-Host "KEEP_ALIVE=1: container staying alive. Use 'docker exec' to investigate." -ForegroundColor Cyan
+            while ($true) { Start-Sleep -Seconds 60 }
+        }
+        exit 1
     }
 
     Start-Sleep -Milliseconds 500

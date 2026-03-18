@@ -20,7 +20,7 @@ if /i "%MIMIR_OS%"=="linux" (
     set "COMPOSE_FILE=docker-compose.linux.yml"
 ) else (
     set "COMPOSE_FILE=docker-compose.yml"
-    set DOCKER_BUILDKIT=0
+    set "DOCKER_BUILDKIT=0"
 )
 cd /d "%~dp0"
 

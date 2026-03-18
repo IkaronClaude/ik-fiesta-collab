@@ -19,7 +19,7 @@ if /i "%MIMIR_OS%"=="linux" (
     set "COMPOSE_FILE=docker-compose.linux.yml"
 ) else (
     set "COMPOSE_FILE=docker-compose.yml"
-    set DOCKER_BUILDKIT=0
+    set "DOCKER_BUILDKIT=0"
 )
 cd /d "%~dp0"
 docker compose --profile patch -f %COMPOSE_FILE% build account accountlog character gamelog login worldmanager zone00 zone01 zone02 zone03 zone04

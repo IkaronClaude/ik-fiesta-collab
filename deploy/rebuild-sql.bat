@@ -20,19 +20,13 @@ if /i "%MIMIR_OS%"=="linux" (
     set "COMPOSE_FILE=docker-compose.linux.yml"
 ) else (
     set "COMPOSE_FILE=docker-compose.yml"
-    set DOCKER_BUILDKIT=0
+    set "DOCKER_BUILDKIT=0"
 )
 cd /d "%~dp0"
 docker compose -f %COMPOSE_FILE% build sqlserver
 docker compose -f %COMPOSE_FILE% up -d sqlserver
 
-:: Clear stored SA_PASSWORD — image is rebuilt with the default install password.
-:: Run 'mimir deploy set-sql-password NEW_PASSWORD' to set a new one.
-set "ENV_FILE=%MIMIR_PROJ_DIR%\.mimir-deploy.env"
-set "TMP_FILE=%TEMP%\mimir-deploy-set-tmp.txt"
-if exist "%ENV_FILE%" (
-    findstr /v /b /c:"SA_PASSWORD=" "%ENV_FILE%" > "%TMP_FILE%" 2>nul
-    move /y "%TMP_FILE%" "%ENV_FILE%" > nul
-)
-echo SA_PASSWORD cleared from deploy config.
-echo Run 'mimir deploy set-sql-password NEW_PASSWORD' to set a new password.
+:: SA_PASSWORD is preserved — setup-sql.ps1 handles password sync on startup.
+:: If you need to change the password, run: mimir deploy set-sql-password NEW_PASSWORD
+echo SQL Server container rebuilt. SA_PASSWORD from deploy config will be applied on startup.
+echo If you need to change the password, run: mimir deploy set-sql-password NEW_PASSWORD
