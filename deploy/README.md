@@ -531,6 +531,22 @@ mimir deploy tail login    # single service
 - **Wine uses Z:\ for Linux root** — all paths inside Wine containers use `Z:\server\...` not `C:\server\...`
 - **Server binaries are volume-mounted**, not copied into Docker images — set `DEPLOY_PATH` via `mimir deploy setup`
 
+### Reverse proxy with external nginx (Docker network)
+
+If an external nginx container (e.g. from another compose project) reverse-proxies to the API, webapp, or patch server, it must be on the same Docker network. The mimir compose creates a default network named `<project>_default` (e.g. `my-server_default`).
+
+```bash
+# Connect external nginx to the mimir network
+docker network connect my-server_default fluxer_nginx
+
+# Use internal container ports in nginx upstream config:
+#   webapp:       my-server-webapp-1:8080
+#   api:          my-server-api-1:5000
+#   patch-server: my-server-patch-server-1:80
+```
+
+**Important:** This connection is lost whenever the mimir containers are recreated (e.g. `mimir deploy rebuild-game`, `mimir deploy webapp`, `mimir deploy api`). Re-run `docker network connect` after each rebuild.
+
 ---
 
 ## Troubleshooting
