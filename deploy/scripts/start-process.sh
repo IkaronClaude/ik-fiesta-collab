@@ -194,6 +194,8 @@ BIN_PATH="cmd /c ${WIN_EXE} > Z:\\server\\${PROCESS_NAME}\\stdout.txt 2>&1"
 
 echo "Registering service: ${SERVICE_NAME} -> ${WIN_EXE}"
 # Delete any stale service registration from previous runs
+# Use WINEDEBUG from env (set by WINE_DEBUG above) or default to -all.
+_WD="${WINEDEBUG:--all}"
 WINEDEBUG=-all wine sc.exe delete "${SERVICE_NAME}" 2>/dev/null || true
 WINEDEBUG=-all wine sc.exe create "${SERVICE_NAME}" \
     binPath= "${BIN_PATH}" start= demand 2>/dev/null || true
@@ -201,7 +203,7 @@ WINEDEBUG=-all wine sc.exe create "${SERVICE_NAME}" \
 # Wine's SCM incorrectly reports services as STOPPED even when the process
 # is running fine. Start the service and monitor the actual process instead.
 echo "Starting service: ${SERVICE_NAME}"
-WINEDEBUG=-all wine sc.exe start "${SERVICE_NAME}" 2>/dev/null || true
+WINEDEBUG="${_WD}" wine sc.exe start "${SERVICE_NAME}" 2>/dev/null || true
 
 # Wait for the exe to appear (Wine SCM takes time to spawn the process)
 echo "Waiting for ${PROCESS_EXE} to start..."
