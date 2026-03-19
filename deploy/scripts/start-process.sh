@@ -145,23 +145,9 @@ WINEDEBUG=-all wine reg add 'HKLM\Software\Wow6432Node\GBO' /v Ocean     /d 7241
 WINEDEBUG=-all wine reg add 'HKLM\Software\Wow6432Node\GBO' /v Sabana    /d 2554545953 /f 2>/dev/null
 echo "Registry keys set."
 
-# --- Step 4: GamigoZR service (Zone processes only) ---
-
-if [[ "${PROCESS_NAME}" =~ ^Zone ]]; then
-    GAMIGOZR_EXE='Z:\server\GamigoZR\GamigoZR.exe'
-    if [ -f /server/GamigoZR/GamigoZR.exe ]; then
-        echo "Registering GamigoZR service..."
-        # Use cmd /c wrapper — same SCM timeout fix as game processes.
-        # GamigoZR does heavy init before StartServiceCtrlDispatcher().
-        WINEDEBUG=-all wine sc.exe delete GamigoZR 2>/dev/null || true
-        WINEDEBUG=-all wine sc.exe create GamigoZR \
-            binPath= "cmd /c ${GAMIGOZR_EXE}" start= demand 2>/dev/null || true
-        WINEDEBUG=-all wine sc.exe start GamigoZR 2>/dev/null || \
-            echo "WARNING: GamigoZR start failed (may already be running or not supported)"
-    else
-        echo "WARNING: GamigoZR.exe not found — Zone may crash without it."
-    fi
-fi
+# --- Step 4: GamigoZR ---
+# GamigoZR runs as a separate shared service (gamigozr in docker-compose).
+# Zone processes connect to it over the host network — no need to start it here.
 
 # --- Step 5: Clear old log files ---
 

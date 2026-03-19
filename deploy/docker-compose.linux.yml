@@ -137,7 +137,21 @@ services:
       gamelog:
         condition: service_started
 
-  # --- Zone processes (depend on WorldManager) ---
+  # --- GamigoZR (.NET HTTP service for zone verification) ---
+  # Shared service — all zones connect to it over host network.
+  # On Windows this is a single system service; replicated here.
+
+  gamigozr:
+    build:
+      context: .
+      dockerfile: Dockerfile.server.linux
+    restart: on-failure
+    network_mode: host
+    volumes:
+      - ${DEPLOY_PATH:?DEPLOY_PATH not set. Run mimir deploy setup}:/server-bins:ro
+    entrypoint: ["/start-gamigozr.sh"]
+
+  # --- Zone processes (depend on WorldManager + GamigoZR) ---
 
   zone00:
     <<: *gameserver
@@ -152,6 +166,8 @@ services:
       - ZONE_NUMBER=0
     depends_on:
       worldmanager:
+        condition: service_started
+      gamigozr:
         condition: service_started
 
   zone01:
@@ -168,6 +184,8 @@ services:
     depends_on:
       worldmanager:
         condition: service_started
+      gamigozr:
+        condition: service_started
 
   zone02:
     <<: *gameserver
@@ -182,6 +200,8 @@ services:
       - ZONE_NUMBER=2
     depends_on:
       worldmanager:
+        condition: service_started
+      gamigozr:
         condition: service_started
 
   zone03:
@@ -198,6 +218,8 @@ services:
     depends_on:
       worldmanager:
         condition: service_started
+      gamigozr:
+        condition: service_started
 
   zone04:
     <<: *gameserver
@@ -212,6 +234,8 @@ services:
       - ZONE_NUMBER=4
     depends_on:
       worldmanager:
+        condition: service_started
+      gamigozr:
         condition: service_started
 
   # --- Optional patch server (profile: patch) ---

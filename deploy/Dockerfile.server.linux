@@ -74,7 +74,8 @@ RUN mkdir -p /server
 COPY config.linux/ /docker-config/
 
 COPY scripts/start-process.sh /start-process.sh
-RUN chmod +x /start-process.sh
+COPY scripts/start-gamigozr.sh /start-gamigozr.sh
+RUN chmod +x /start-process.sh /start-gamigozr.sh
 
 ENV PROCESS_NAME=""
 ENV PROCESS_EXE=""
