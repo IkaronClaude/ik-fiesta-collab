@@ -23,7 +23,7 @@ shift
 DEPLOY_CMD="${1:-}"
 if [ -z "${DEPLOY_CMD}" ]; then
     echo "Usage: mimir deploy <script>"
-    echo "Available: server, update, restart-game, start, stop, logs, tail, rebuild-game, rebuild-sql, wipe-sql, reimport, set, get, clear, list, get-connection-string, set-sql-password, secret"
+    echo "Available: server, update, restart-game, start, stop, logs, tail, rebuild-game, rebuild-sql, wipe-sql, reimport, set, get, clear, list, get-connection-string, set-sql-password, secret, api, webapp"
     exit 1
 fi
 shift
