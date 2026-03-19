@@ -140,6 +140,9 @@ echo "Setting up registry keys..."
 # Set at runtime to avoid Docker build cache serving stale layers.
 WINEDEBUG=-all wine reg add 'HKCU\Software\Wine\DllOverrides' \
     /v odbc32 /t REG_SZ /d builtin /f 2>/dev/null
+# Wine's reg.exe doesn't recursively create multi-level parent keys —
+# create Fantasy first, then Fantasy\Fighter.
+WINEDEBUG=-all wine reg add 'HKLM\Software\Wow6432Node\Fantasy' /ve /f 2>/dev/null
 WINEDEBUG=-all wine reg add 'HKLM\Software\Wow6432Node\Fantasy\Fighter' /v Bird    /d Eagle      /f 2>/dev/null
 WINEDEBUG=-all wine reg add 'HKLM\Software\Wow6432Node\Fantasy\Fighter' /v Insect  /d Honet      /f 2>/dev/null
 WINEDEBUG=-all wine reg add 'HKLM\Software\Wow6432Node\GBO' /v Desert   /d 138127     /f 2>/dev/null
@@ -159,11 +162,24 @@ WINEDEBUG=-all wine cmd /c echo ready 2>/dev/null || true
 
 # If WINE_DEBUG is set (e.g. WINE_DEBUG=+file for tracing), restart wineserver
 # so the SCM and all child processes (including Zone.exe) inherit the new setting.
+# Registry keys must be re-added after restart (wineserver -k may not flush).
 if [ -n "${WINE_DEBUG}" ]; then
     echo "WINE_DEBUG=${WINE_DEBUG} — restarting wineserver with debug channels..."
     wineserver -k 2>/dev/null || true
     sleep 1
     export WINEDEBUG="${WINE_DEBUG}"
+    # Re-add registry keys lost by wineserver restart
+    echo "Re-adding registry keys after wineserver restart..."
+    WINEDEBUG=-all wine reg add 'HKCU\Software\Wine\DllOverrides' \
+        /v odbc32 /t REG_SZ /d builtin /f 2>/dev/null
+    WINEDEBUG=-all wine reg add 'HKLM\Software\Wow6432Node\Fantasy' /ve /f 2>/dev/null
+    WINEDEBUG=-all wine reg add 'HKLM\Software\Wow6432Node\Fantasy\Fighter' /v Bird /d Eagle /f 2>/dev/null
+    WINEDEBUG=-all wine reg add 'HKLM\Software\Wow6432Node\Fantasy\Fighter' /v Insect /d Honet /f 2>/dev/null
+    WINEDEBUG=-all wine reg add 'HKLM\Software\Wow6432Node\GBO' /v Desert /d 138127 /f 2>/dev/null
+    WINEDEBUG=-all wine reg add 'HKLM\Software\Wow6432Node\GBO' /v Mountain /d 30324 /f 2>/dev/null
+    WINEDEBUG=-all wine reg add 'HKLM\Software\Wow6432Node\GBO' /v Natural /d 126810443 /f 2>/dev/null
+    WINEDEBUG=-all wine reg add 'HKLM\Software\Wow6432Node\GBO' /v Ocean /d 7241589632 /f 2>/dev/null
+    WINEDEBUG=-all wine reg add 'HKLM\Software\Wow6432Node\GBO' /v Sabana /d 2554545953 /f 2>/dev/null
 fi
 
 # --- Step 5: Clear old log files ---
