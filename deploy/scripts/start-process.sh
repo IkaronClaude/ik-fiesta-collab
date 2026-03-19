@@ -193,11 +193,12 @@ STDOUT_LOG="${PROCESS_DIR}/stdout.txt"
 BIN_PATH="cmd /c ${WIN_EXE} > Z:\\server\\${PROCESS_NAME}\\stdout.txt 2>&1"
 
 echo "Registering service: ${SERVICE_NAME} -> ${WIN_EXE}"
-# Delete any stale service registration from previous runs
 # Use WINEDEBUG from env (set by WINE_DEBUG above) or default to -all.
+# All wine commands after wineserver restart must use the same setting,
+# because the first wine command restarts the SCM which Zone.exe inherits from.
 _WD="${WINEDEBUG:--all}"
-WINEDEBUG=-all wine sc.exe delete "${SERVICE_NAME}" 2>/dev/null || true
-WINEDEBUG=-all wine sc.exe create "${SERVICE_NAME}" \
+WINEDEBUG="${_WD}" wine sc.exe delete "${SERVICE_NAME}" 2>/dev/null || true
+WINEDEBUG="${_WD}" wine sc.exe create "${SERVICE_NAME}" \
     binPath= "${BIN_PATH}" start= demand 2>/dev/null || true
 
 # Wine's SCM incorrectly reports services as STOPPED even when the process
