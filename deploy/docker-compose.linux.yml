@@ -255,7 +255,7 @@ services:
     profiles: [api]
     build:
       context: .
-      dockerfile: Dockerfile.api
+      dockerfile: Dockerfile.api.linux
     ports:
       - "${API_PORT:-5000}:5000"
     environment:
