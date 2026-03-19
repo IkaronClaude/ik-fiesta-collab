@@ -21,7 +21,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         unixodbc unixodbc-dev \
         tdsodbc tdsodbc:i386 \
         libodbc2:i386 \
+        wget ca-certificates \
         && rm -rf /var/lib/apt/lists/*
+
+# Install Wine Mono (.NET support — required for GamigoZR anti-cheat service).
+# Place the MSI where Wine auto-discovers it during prefix init.
+RUN mkdir -p /usr/share/wine/mono && \
+    wget -q https://dl.winehq.org/wine/wine-mono/9.1.0/wine-mono-9.0.0-x86.msi \
+        -O /usr/share/wine/mono/wine-mono-9.0.0-x86.msi
 
 # Register FreeTDS as the {SQL Server} ODBC driver.
 # Game exes are 32-bit, so Wine's 32-bit odbc32 bridge loads 32-bit unixODBC,
