@@ -1,0 +1,16 @@
+# Webapp — nginx serving the SPA (Linux variant)
+# Replaces the .NET StaticServer with plain nginx for static file serving.
+# config.json is generated at startup from API_URL env var.
+
+FROM nginx:alpine
+
+COPY webapp-files/ /usr/share/nginx/html/
+COPY scripts/nginx-webapp.conf /etc/nginx/conf.d/default.conf
+COPY scripts/webapp-entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+ENV API_URL="http://localhost:5000"
+EXPOSE 8080
+
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["nginx", "-g", "daemon off;"]

@@ -545,5 +545,7 @@ mimir deploy tail login    # single service
 
 **Can't connect from client**: Only port 9010 (Login) is exposed to the host. Configure the client to connect to `127.0.0.1:9010`.
 
+**"World server is down for maintenance" on login (but server is running)**: This usually means the **username doesn't exist**. The `usp_User_USLoginGame` stored procedure returns a code that the client displays as "maintenance" when the account is not found. Create an account first (via the web frontend, or insert directly into the `Account..tUser` table). If the username exists but the password is wrong, the client correctly shows "please check your ID or password."
+
 **SQL password not set**: Run `mimir deploy set-sql-password YourStrongPassword1` before first start, then `mimir deploy rebuild-sql`.
 Connect: `sqlcmd -S localhost\SQLEXPRESS -U sa -P <your-password> -C`
