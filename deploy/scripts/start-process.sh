@@ -23,6 +23,10 @@ if [ -d "${BINS_DIR}/${PROCESS_NAME}" ]; then
     mkdir -p "${PROCESS_DIR}"
     cp -a "${BINS_DIR}/${PROCESS_NAME}/." "${PROCESS_DIR}/"
     echo "Copied binaries: ${BINS_DIR}/${PROCESS_NAME}/ -> ${PROCESS_DIR}/"
+    # Clean stale logs from server-bins copy (avoid confusion with current run)
+    rm -f "${PROCESS_DIR}"/{Assert,ExitLog,Msg_,Dbg,MapLoad,Message,Size,Socket}*.txt 2>/dev/null || true
+    rm -f "${PROCESS_DIR}"/DebugMessage/*.txt 2>/dev/null || true
+    rm -f "${PROCESS_DIR}"/*.mdmp "${PROCESS_DIR}"/*DumpStack*.txt "${PROCESS_DIR}"/*CallStack*.txt 2>/dev/null || true
 fi
 
 # Copy GamigoZR for Zone processes (anti-cheat dependency)
@@ -148,8 +152,7 @@ echo "Registry keys set."
 # --- Step 4: Wine SCM warm-up ---
 # Wine's SCM needs to be exercised before starting the main service,
 # otherwise it kills the service process during startup (SCM timeout).
-# Previously GamigoZR startup served this purpose. Now GamigoZR runs
-# in a shared container, so we warm up the SCM with harmless commands.
+# GamigoZR runs in a shared container (gamigozr service in docker-compose).
 echo "Warming up Wine SCM..."
 WINEDEBUG=-all wine sc.exe query type= service state= all 2>/dev/null || true
 WINEDEBUG=-all wine cmd /c echo ready 2>/dev/null || true
