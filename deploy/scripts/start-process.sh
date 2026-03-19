@@ -157,6 +157,15 @@ echo "Warming up Wine SCM..."
 WINEDEBUG=-all wine sc.exe query type= service state= all 2>/dev/null || true
 WINEDEBUG=-all wine cmd /c echo ready 2>/dev/null || true
 
+# If WINE_DEBUG is set (e.g. WINE_DEBUG=+file for tracing), restart wineserver
+# so the SCM and all child processes (including Zone.exe) inherit the new setting.
+if [ -n "${WINE_DEBUG}" ]; then
+    echo "WINE_DEBUG=${WINE_DEBUG} — restarting wineserver with debug channels..."
+    wineserver -k 2>/dev/null || true
+    sleep 1
+    export WINEDEBUG="${WINE_DEBUG}"
+fi
+
 # --- Step 5: Clear old log files ---
 
 LOG_DIR="${PROCESS_DIR}/DebugMessage"

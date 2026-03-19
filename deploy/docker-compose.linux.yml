@@ -161,6 +161,7 @@ services:
       - "PUBLIC_IP=${PUBLIC_IP:?PUBLIC_IP not set. Run: mimir deploy set PUBLIC_IP your-vps-ip}"
       - "ZONE00_PORT=${ZONE00_PORT:-9016}"
       - "SQL_PORT=${SQL_PORT:-1433}"
+      - "WINE_DEBUG=${WINE_DEBUG:-}"
       - PROCESS_NAME=Zone00
       - PROCESS_EXE=Zone.exe
       - ZONE_NUMBER=0
