@@ -24,11 +24,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         wget ca-certificates \
         && rm -rf /var/lib/apt/lists/*
 
-# Install Wine Mono (.NET support — required for GamigoZR anti-cheat service).
-# Place the MSI where Wine auto-discovers it during prefix init.
-RUN mkdir -p /usr/share/wine/mono && \
-    wget -q https://dl.winehq.org/wine/wine-mono/9.0.0/wine-mono-9.0.0-x86.msi \
-        -O /usr/share/wine/mono/wine-mono-9.0.0-x86.msi
+# Install Wine Mono (.NET support — required for GamigoZR).
+# Download MSI and install explicitly during wineboot below.
+RUN wget -q https://dl.winehq.org/wine/wine-mono/9.0.0/wine-mono-9.0.0-x86.msi \
+        -O /tmp/wine-mono.msi
 
 # Register FreeTDS as the {SQL Server} ODBC driver.
 # Game exes are 32-bit, so Wine's 32-bit odbc32 bridge loads 32-bit unixODBC,
@@ -57,6 +56,9 @@ RUN Xvfb :99 -screen 0 800x600x24 & \
     export DISPLAY=:99 && \
     sleep 1 && \
     WINEDEBUG=-all wine wineboot --init 2>/dev/null; \
+    # Install Wine Mono for .NET support (GamigoZR needs it).
+    WINEDEBUG=-all wine msiexec /i /tmp/wine-mono.msi 2>/dev/null; \
+    rm -f /tmp/wine-mono.msi; \
     # Use Wine's builtin odbc32.dll which bridges to system unixODBC/FreeTDS.
     # "native" would look for a Windows odbc32.dll (doesn't exist in prefix).
     WINEDEBUG=-all wine reg add 'HKCU\Software\Wine\DllOverrides' \
