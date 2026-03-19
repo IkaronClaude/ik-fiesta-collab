@@ -145,24 +145,14 @@ WINEDEBUG=-all wine reg add 'HKLM\Software\Wow6432Node\GBO' /v Ocean     /d 7241
 WINEDEBUG=-all wine reg add 'HKLM\Software\Wow6432Node\GBO' /v Sabana    /d 2554545953 /f 2>/dev/null
 echo "Registry keys set."
 
-# --- Step 4: GamigoZR service (Zone processes only) ---
-# The actual GamigoZR HTTP server runs in a shared container (gamigozr service
-# in docker-compose) since host networking means only one can bind the port.
-# We still register and start GamigoZR here because:
-#   1) The Wine SCM needs warm-up before the main service start
-#   2) The cmd /c wrapper keeps it RUNNING in the local SCM
-# The local GamigoZR can't bind the port (shared container has it), but that's OK.
-
-if [[ "${PROCESS_NAME}" =~ ^Zone ]]; then
-    GAMIGOZR_EXE='Z:\server\GamigoZR\GamigoZR.exe'
-    if [ -f /server/GamigoZR/GamigoZR.exe ]; then
-        echo "Registering GamigoZR service..."
-        WINEDEBUG=-all wine sc.exe delete GamigoZR 2>/dev/null || true
-        WINEDEBUG=-all wine sc.exe create GamigoZR \
-            binPath= "cmd /c ${GAMIGOZR_EXE}" start= demand 2>/dev/null || true
-        WINEDEBUG=-all wine sc.exe start GamigoZR 2>/dev/null || true
-    fi
-fi
+# --- Step 4: Wine SCM warm-up ---
+# Wine's SCM needs to be exercised before starting the main service,
+# otherwise it kills the service process during startup (SCM timeout).
+# Previously GamigoZR startup served this purpose. Now GamigoZR runs
+# in a shared container, so we warm up the SCM with harmless commands.
+echo "Warming up Wine SCM..."
+WINEDEBUG=-all wine sc.exe query type= service state= all 2>/dev/null || true
+WINEDEBUG=-all wine cmd /c echo ready 2>/dev/null || true
 
 # --- Step 5: Clear old log files ---
 
