@@ -151,8 +151,11 @@ if [[ "${PROCESS_NAME}" =~ ^Zone ]]; then
     GAMIGOZR_EXE='Z:\server\GamigoZR\GamigoZR.exe'
     if [ -f /server/GamigoZR/GamigoZR.exe ]; then
         echo "Registering GamigoZR service..."
+        # Use cmd /c wrapper — same SCM timeout fix as game processes.
+        # GamigoZR does heavy init before StartServiceCtrlDispatcher().
+        WINEDEBUG=-all wine sc.exe delete GamigoZR 2>/dev/null || true
         WINEDEBUG=-all wine sc.exe create GamigoZR \
-            binPath= "${GAMIGOZR_EXE}" start= demand 2>/dev/null || true
+            binPath= "cmd /c ${GAMIGOZR_EXE}" start= demand 2>/dev/null || true
         WINEDEBUG=-all wine sc.exe start GamigoZR 2>/dev/null || \
             echo "WARNING: GamigoZR start failed (may already be running or not supported)"
     else
