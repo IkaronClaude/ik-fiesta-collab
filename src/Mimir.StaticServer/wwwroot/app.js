@@ -65,6 +65,7 @@ function renderNav() {
   } else {
     nav.innerHTML = `
       <a href="#leaderboard">Leaderboard</a>
+      <a href="#download">Download</a>
       <a href="#register">Register</a>
       <a href="#login">Login</a>`;
   }
@@ -81,6 +82,8 @@ function route() {
 
   if (hash === '#leaderboard' || hash === '') {
     renderLeaderboard(app);
+  } else if (hash === '#download') {
+    renderDownload(app);
   } else if (hash === '#register') {
     if (jwtToken) { navigate('#leaderboard'); return; }
     renderRegister(app);
@@ -364,6 +367,41 @@ function renderChangePassword(container) {
       msg.innerHTML = '<span class="error-msg">Network error.</span>';
     } finally { btn.disabled = false; }
   });
+}
+
+// --- Download ---
+async function renderDownload(container) {
+  container.innerHTML = `
+    <h1>Download</h1>
+    <div class="card">
+      <p>Download the game client to get started.</p>
+      <div id="download-list" class="loading">Loading...</div>
+    </div>`;
+
+  try {
+    const res = await fetch('/downloads/');
+    if (!res.ok) throw new Error('Downloads not available');
+    const html = await res.text();
+
+    // Parse nginx autoindex HTML for file links
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+    const links = [...doc.querySelectorAll('a')]
+      .map(a => a.getAttribute('href'))
+      .filter(href => href && !href.startsWith('..') && !href.startsWith('/'));
+
+    if (links.length === 0) {
+      document.getElementById('download-list').innerHTML = '<p>No downloads available yet.</p>';
+      return;
+    }
+
+    document.getElementById('download-list').innerHTML = links.map(href => {
+      const name = decodeURIComponent(href.replace(/\/$/, ''));
+      return `<a href="/downloads/${esc(href)}" class="download-link">${esc(name)}</a>`;
+    }).join('');
+  } catch (err) {
+    document.getElementById('download-list').innerHTML = '<p>No downloads available yet.</p>';
+  }
 }
 
 // --- Captcha helpers ---

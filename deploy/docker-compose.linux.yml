@@ -286,6 +286,8 @@ services:
     profiles: [webapp]
     ports:
       - "${WEBAPP_PORT:-80}:8080"
+    volumes:
+      - ${MIMIR_PROJ_DIR}/downloads:/usr/share/nginx/html/downloads:ro
     environment:
       - "API_URL=${API_URL:-http://api:5000}"
 

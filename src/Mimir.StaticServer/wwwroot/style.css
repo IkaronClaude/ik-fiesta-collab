@@ -125,3 +125,18 @@ tr:hover td { background: #1e1e38; }
 .rank-3 td:first-child { color: #b45309; font-weight: 700; }
 
 .captcha-wrap { margin-bottom: 1rem; }
+
+/* Download */
+.download-link {
+  display: block;
+  background: #0f0f1a;
+  border: 1px solid #3a3a5a;
+  border-radius: 6px;
+  color: #c4b5fd;
+  text-decoration: none;
+  padding: 0.75rem 1rem;
+  margin-top: 0.5rem;
+  transition: border-color 0.15s, background 0.15s;
+}
+.download-link:hover { border-color: #7c3aed; background: #1e1e38; }
+.card p { color: #a0a0c0; margin-bottom: 0.75rem; }
