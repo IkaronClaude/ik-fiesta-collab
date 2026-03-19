@@ -78,38 +78,56 @@ case "${PROCESS_NAME}" in
         ;;
 esac
 
-# --- Step 2: Resolve Docker hostnames to IPs in ServerInfo.txt ---
-# Game exes use inet_addr() which requires IP addresses, not hostnames.
+# --- Step 2: Resolve template variables in ServerInfo.txt ---
+# Host networking: all services on 127.0.0.1, ports from env vars.
 
 SA_PASSWORD="${SA_PASSWORD:?SA_PASSWORD not set}"
+PUBLIC_IP="${PUBLIC_IP:?PUBLIC_IP env var not set}"
+
 TEMPLATE="/docker-config/ServerInfo/ServerInfo.txt"
 SERVER_INFO_DIR="/server/ServerInfo"
 DEST="${SERVER_INFO_DIR}/ServerInfo.txt"
 mkdir -p "${SERVER_INFO_DIR}"
 
-PUBLIC_IP="${PUBLIC_IP:?PUBLIC_IP env var not set}"
-
 content=$(cat "${TEMPLATE}")
 content="${content//\{\{SA_PASSWORD\}\}/${SA_PASSWORD}}"
 content="${content//\{\{PUBLIC_IP\}\}/${PUBLIC_IP}}"
 
-echo "Resolving Docker hostnames to IPs..."
-for hostname in login worldmanager zone00 zone01 zone02 zone03 zone04 \
-                account accountlog character gamelog sqlserver; do
-    ip=$(getent hosts "${hostname}" 2>/dev/null | awk '{print $1}' | head -1)
-    if [ -n "${ip}" ]; then
-        echo "  ${hostname} -> ${ip}"
-        # Replace quoted hostnames in SERVER_INFO entries: "hostname" -> "ip"
-        content="${content//\"${hostname}\"/\"${ip}\"}"
-        # Replace unquoted hostnames in ODBC connection strings: SERVER=hostname, -> SERVER=ip,
-        content="${content//SERVER=${hostname},/SERVER=${ip},}"
-    else
-        echo "  WARNING: ${hostname} - no IP found"
-    fi
-done
+# Resolve port template variables from env vars (base port + offsets for each service)
+resolve_ports() {
+    local name=$1 base=$2
+    content="${content//\{\{${name}_PORT\}\}/${base}}"
+    content="${content//\{\{${name}_PORT_1\}\}/$((base + 1))}"
+    content="${content//\{\{${name}_PORT_2\}\}/$((base + 2))}"
+}
+
+resolve_ports LOGIN      "${LOGIN_PORT:-9010}"
+resolve_ports WM         "${WM_PORT:-9013}"
+resolve_ports ZONE00     "${ZONE00_PORT:-9016}"
+resolve_ports ZONE01     "${ZONE01_PORT:-9019}"
+resolve_ports ZONE02     "${ZONE02_PORT:-9022}"
+resolve_ports ZONE03     "${ZONE03_PORT:-9025}"
+resolve_ports ZONE04     "${ZONE04_PORT:-9028}"
+
+# DB bridge and SQL ports (single port each, no offsets)
+content="${content//\{\{ACCOUNT_PORT\}\}/${ACCOUNT_PORT:-9031}}"
+content="${content//\{\{ACCOUNTLOG_PORT\}\}/${ACCOUNTLOG_PORT:-9032}}"
+content="${content//\{\{CHARACTER_PORT\}\}/${CHARACTER_PORT:-9033}}"
+content="${content//\{\{GAMELOG_PORT\}\}/${GAMELOG_PORT:-9034}}"
+content="${content//\{\{SQL_PORT\}\}/${SQL_PORT:-1433}}"
+
+echo "ServerInfo.txt resolved (PUBLIC_IP=${PUBLIC_IP}, LOGIN_PORT=${LOGIN_PORT:-9010}, SQL_PORT=${SQL_PORT:-1433})"
 
 printf '%s' "${content}" > "${DEST}"
 echo "ServerInfo.txt written to ${DEST} ($(wc -c < "${DEST}") bytes)"
+
+# Also write to 9Data path — the volume-mounted game data has an original
+# ServerInfo.txt with 127.0.0.1 and .\SQLEXPRESS that must be overwritten.
+NINEDATA_DIR="/server/9Data/ServerInfo"
+if [ -d "${NINEDATA_DIR}" ]; then
+    cp "${DEST}" "${NINEDATA_DIR}/ServerInfo.txt"
+    echo "ServerInfo.txt also written to ${NINEDATA_DIR}/"
+fi
 
 # --- Step 3: Wine registry keys ---
 

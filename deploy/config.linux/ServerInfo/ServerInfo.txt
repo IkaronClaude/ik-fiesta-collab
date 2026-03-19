@@ -38,46 +38,46 @@ WORLD_NAME 0, "INITIO",   "../9Data/Shine"
 ;	LOGIN SERVICE
 ;##################################################################################################################################################################
 
-SERVER_INFO  "PG_Login",     4, 0, 0,20,  "{{PUBLIC_IP}}",  	9010,  100,   200  ; 	PUBLIC_IP
-SERVER_INFO  "PG_Login",     4, 0, 0, 5,  "login",  	9011,  100,    50  ; 	LOCALHOST
-SERVER_INFO  "PG_Login",     4, 0, 0, 8,  "login",  	9012,    1,    30  ; 	LOCALHOST
+SERVER_INFO  "PG_Login",     4, 0, 0,20,  "{{PUBLIC_IP}}",  	{{LOGIN_PORT}},  100,   200  ; 	PUBLIC_IP
+SERVER_INFO  "PG_Login",     4, 0, 0, 5,  "127.0.0.1",  	{{LOGIN_PORT_1}},  100,    50  ; 	LOCALHOST
+SERVER_INFO  "PG_Login",     4, 0, 0, 8,  "127.0.0.1",  	{{LOGIN_PORT_2}},    1,    30  ; 	LOCALHOST
 
 ;##################################################################################################################################################################
 ;	WORLD MANAGER SERVICE
 ;##################################################################################################################################################################
 
-SERVER_INFO  "PG_W00_WM",    5, 0, 0,20,  "{{PUBLIC_IP}}",		9013,  100,  1500  ; 	PUBLIC_IP
-SERVER_INFO  "PG_W00_WM",    5, 0, 0, 6,  "worldmanager",  	9014,  100,   100  ; 	LOCALHOST
-SERVER_INFO  "PG_W00_WM",    5, 0, 0, 8,  "worldmanager",  	9015,  100,    30  ; 	LOCALHOST
+SERVER_INFO  "PG_W00_WM",    5, 0, 0,20,  "{{PUBLIC_IP}}",		{{WM_PORT}},  100,  1500  ; 	PUBLIC_IP
+SERVER_INFO  "PG_W00_WM",    5, 0, 0, 6,  "127.0.0.1",  	{{WM_PORT_1}},  100,   100  ; 	LOCALHOST
+SERVER_INFO  "PG_W00_WM",    5, 0, 0, 8,  "127.0.0.1",  	{{WM_PORT_2}},  100,    30  ; 	LOCALHOST
 
 ;##################################################################################################################################################################
 ;	ZONE SERVICES & DATABASE SERVICES
 ;##################################################################################################################################################################
 
-SERVER_INFO  "PG_W00_Z00",   6, 0, 0,20,  "{{PUBLIC_IP}}",  	9016,  100,  1500  ; 	PUBLIC_IP
-SERVER_INFO  "PG_W00_Z00",   6, 0, 0, 6,  "zone00",  	9017,    1,    30  ; 	LOCALHOST
-SERVER_INFO  "PG_W00_Z00",   6, 0, 0, 8,  "zone00",  	9018,  100,    30  ; 	LOCALHOST
+SERVER_INFO  "PG_W00_Z00",   6, 0, 0,20,  "{{PUBLIC_IP}}",  	{{ZONE00_PORT}},  100,  1500  ; 	PUBLIC_IP
+SERVER_INFO  "PG_W00_Z00",   6, 0, 0, 6,  "127.0.0.1",  	{{ZONE00_PORT_1}},    1,    30  ; 	LOCALHOST
+SERVER_INFO  "PG_W00_Z00",   6, 0, 0, 8,  "127.0.0.1",  	{{ZONE00_PORT_2}},  100,    30  ; 	LOCALHOST
 
-SERVER_INFO  "PG_W00_Z01",   6, 0, 1,20,  "{{PUBLIC_IP}}",  	9019,  100,  1500  ; 	PUBLIC_IP
-SERVER_INFO  "PG_W00_Z01",   6, 0, 1, 6,  "zone01",  	9020,    1,    30  ; 	LOCALHOST
-SERVER_INFO  "PG_W00_Z01",   6, 0, 1, 8,  "zone01",  	9021,  100,    30  ; 	LOCALHOST
+SERVER_INFO  "PG_W00_Z01",   6, 0, 1,20,  "{{PUBLIC_IP}}",  	{{ZONE01_PORT}},  100,  1500  ; 	PUBLIC_IP
+SERVER_INFO  "PG_W00_Z01",   6, 0, 1, 6,  "127.0.0.1",  	{{ZONE01_PORT_1}},    1,    30  ; 	LOCALHOST
+SERVER_INFO  "PG_W00_Z01",   6, 0, 1, 8,  "127.0.0.1",  	{{ZONE01_PORT_2}},  100,    30  ; 	LOCALHOST
 
-SERVER_INFO  "PG_W00_Z02",   6, 0, 2,20,  "{{PUBLIC_IP}}",  	9022,  100,  1500  ; 	PUBLIC_IP
-SERVER_INFO  "PG_W00_Z02",   6, 0, 2, 6,  "zone02",  	9023,    1,    30  ; 	LOCALHOST
-SERVER_INFO  "PG_W00_Z02",   6, 0, 2, 8,  "zone02",  	9024,  100,    30  ; 	LOCALHOST
+SERVER_INFO  "PG_W00_Z02",   6, 0, 2,20,  "{{PUBLIC_IP}}",  	{{ZONE02_PORT}},  100,  1500  ; 	PUBLIC_IP
+SERVER_INFO  "PG_W00_Z02",   6, 0, 2, 6,  "127.0.0.1",  	{{ZONE02_PORT_1}},    1,    30  ; 	LOCALHOST
+SERVER_INFO  "PG_W00_Z02",   6, 0, 2, 8,  "127.0.0.1",  	{{ZONE02_PORT_2}},  100,    30  ; 	LOCALHOST
 
-SERVER_INFO  "PG_W00_Z03",   6, 0, 3,20,  "{{PUBLIC_IP}}",  	9025,  100,  1500  ; 	PUBLIC_IP
-SERVER_INFO  "PG_W00_Z03",   6, 0, 3, 6,  "zone03",  	9026,    1,    30  ; 	LOCALHOST
-SERVER_INFO  "PG_W00_Z03",   6, 0, 3, 8,  "zone03",  	9027,  100,    30  ; 	LOCALHOST
+SERVER_INFO  "PG_W00_Z03",   6, 0, 3,20,  "{{PUBLIC_IP}}",  	{{ZONE03_PORT}},  100,  1500  ; 	PUBLIC_IP
+SERVER_INFO  "PG_W00_Z03",   6, 0, 3, 6,  "127.0.0.1",  	{{ZONE03_PORT_1}},    1,    30  ; 	LOCALHOST
+SERVER_INFO  "PG_W00_Z03",   6, 0, 3, 8,  "127.0.0.1",  	{{ZONE03_PORT_2}},  100,    30  ; 	LOCALHOST
 
-SERVER_INFO  "PG_W00_Z04",   6, 0, 4,20,  "{{PUBLIC_IP}}",  	9028,  100,  1500  ; 	PUBLIC_IP
-SERVER_INFO  "PG_W00_Z04",   6, 0, 4, 6,  "zone04",  	9029,    1,    30  ; 	LOCALHOST
-SERVER_INFO  "PG_W00_Z04",   6, 0, 4, 8,  "zone04",  	9030,  100,    30  ; 	LOCALHOST
+SERVER_INFO  "PG_W00_Z04",   6, 0, 4,20,  "{{PUBLIC_IP}}",  	{{ZONE04_PORT}},  100,  1500  ; 	PUBLIC_IP
+SERVER_INFO  "PG_W00_Z04",   6, 0, 4, 6,  "127.0.0.1",  	{{ZONE04_PORT_1}},    1,    30  ; 	LOCALHOST
+SERVER_INFO  "PG_W00_Z04",   6, 0, 4, 8,  "127.0.0.1",  	{{ZONE04_PORT_2}},  100,    30  ; 	LOCALHOST
 
-SERVER_INFO  "PG_AccDB",     0, 0, 0, 0,  "account",  	9031,  100,   100  ; 	LOCALHOST
-SERVER_INFO  "PG_ALDB",      1, 0, 0, 0,  "accountlog",  	9032,  100,   100  ; 	LOCALHOST
-SERVER_INFO  "PG_W00_CDB",   2, 0, 0, 0,  "character",  	9033,  100,   100  ; 	LOCALHOST
-SERVER_INFO  "PG_W00_GLDB",  3, 0, 0, 0,  "gamelog",  	9034,  100,   100  ; 	LOCALHOST
+SERVER_INFO  "PG_AccDB",     0, 0, 0, 0,  "127.0.0.1",  	{{ACCOUNT_PORT}},  100,   100  ; 	LOCALHOST
+SERVER_INFO  "PG_ALDB",      1, 0, 0, 0,  "127.0.0.1",  	{{ACCOUNTLOG_PORT}},  100,   100  ; 	LOCALHOST
+SERVER_INFO  "PG_W00_CDB",   2, 0, 0, 0,  "127.0.0.1",  	{{CHARACTER_PORT}},  100,   100  ; 	LOCALHOST
+SERVER_INFO  "PG_W00_GLDB",  3, 0, 0, 0,  "127.0.0.1",  	{{GAMELOG_PORT}},  100,   100  ; 	LOCALHOST
 
 
 
@@ -85,10 +85,10 @@ SERVER_INFO  "PG_W00_GLDB",  3, 0, 0, 0,  "gamelog",  	9034,  100,   100  ; 	LOC
 ;	ODBC
 ;####################################################################################################################
 
-ODBC_INFO	"Account",				    0, 		0, 	"DRIVER={SQL Server};SERVER=sqlserver,1433; UID=sa;PWD={{SA_PASSWORD}}", "USE Account; SET LOCK_TIMEOUT 5000"
-ODBC_INFO	"AccountLog",			    1,  	0,  "DRIVER={SQL Server};SERVER=sqlserver,1433; UID=sa;PWD={{SA_PASSWORD}}", "USE AccountLog; SET LOCK_TIMEOUT 5000"
-ODBC_INFO	"World00_Character",	10,  	0,  "DRIVER={SQL Server};SERVER=sqlserver,1433; UID=sa;PWD={{SA_PASSWORD}}", "USE World00_Character; SET LOCK_TIMEOUT 5000"
-ODBC_INFO	"World00_GameLog",		11,  	0,  "DRIVER={SQL Server};SERVER=sqlserver,1433; UID=sa;PWD={{SA_PASSWORD}}", "USE World00_GameLog; SET LOCK_TIMEOUT 5000"
-ODBC_INFO	"StatisticsData",		  2,  	0,  "DRIVER={SQL Server};SERVER=sqlserver,1433; UID=sa;PWD={{SA_PASSWORD}}", "USE StatisticsData; SET LOCK_TIMEOUT 5000"
-ODBC_INFO	"OperatorTool",			  3,  	0,  "DRIVER={SQL Server};SERVER=sqlserver,1433; UID=sa;PWD={{SA_PASSWORD}}", "USE OperatorTool; SET LOCK_TIMEOUT 5000"
+ODBC_INFO	"Account",				    0, 		0, 	"DRIVER={SQL Server};SERVER=127.0.0.1,{{SQL_PORT}}; UID=sa;PWD={{SA_PASSWORD}}", "USE Account; SET LOCK_TIMEOUT 5000"
+ODBC_INFO	"AccountLog",			    1,  	0,  "DRIVER={SQL Server};SERVER=127.0.0.1,{{SQL_PORT}}; UID=sa;PWD={{SA_PASSWORD}}", "USE AccountLog; SET LOCK_TIMEOUT 5000"
+ODBC_INFO	"World00_Character",	10,  	0,  "DRIVER={SQL Server};SERVER=127.0.0.1,{{SQL_PORT}}; UID=sa;PWD={{SA_PASSWORD}}", "USE World00_Character; SET LOCK_TIMEOUT 5000"
+ODBC_INFO	"World00_GameLog",		11,  	0,  "DRIVER={SQL Server};SERVER=127.0.0.1,{{SQL_PORT}}; UID=sa;PWD={{SA_PASSWORD}}", "USE World00_GameLog; SET LOCK_TIMEOUT 5000"
+ODBC_INFO	"StatisticsData",		  2,  	0,  "DRIVER={SQL Server};SERVER=127.0.0.1,{{SQL_PORT}}; UID=sa;PWD={{SA_PASSWORD}}", "USE StatisticsData; SET LOCK_TIMEOUT 5000"
+ODBC_INFO	"OperatorTool",			  3,  	0,  "DRIVER={SQL Server};SERVER=127.0.0.1,{{SQL_PORT}}; UID=sa;PWD={{SA_PASSWORD}}", "USE OperatorTool; SET LOCK_TIMEOUT 5000"
 #END
