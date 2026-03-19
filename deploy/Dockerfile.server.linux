@@ -54,9 +54,11 @@ RUN printf '[global]\n\
     port = 1433\n\
     tds version = 7.4\n' > /etc/freetds/freetds.conf
 
-# Initialise Wine prefix (win64 supports 32-bit apps via WoW64 redirection).
+# Initialise Wine prefix as 32-bit (all game exes are 32-bit Windows).
+# 32-bit prefix is required for MDAC 2.8 (ADODB) installation.
 # Use Xvfb for the init since wineboot may try to open windows.
 ENV WINEPREFIX=/root/.wine
+ENV WINEARCH=win32
 RUN Xvfb :99 -screen 0 800x600x24 & \
     export DISPLAY=:99 && \
     sleep 1 && \
