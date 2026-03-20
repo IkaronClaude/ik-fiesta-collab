@@ -105,11 +105,27 @@ else if (!string.IsNullOrEmpty(certPath))
             certPath, cfg["HTTPS_CERT_PASSWORD"])));
 }
 
+// --- OpenAPI / Swagger (opt-in via ENABLE_SWAGGER=true) ---
+var enableSwagger = string.Equals(cfg["ENABLE_SWAGGER"], "true", StringComparison.OrdinalIgnoreCase);
+if (enableSwagger)
+    builder.Services.AddOpenApi();
+
 // --- Build ---
 var app = builder.Build();
 
 // --- DB init: create tWebCredential if it doesn't exist ---
 await DbInit.EnsureCreatedAsync(app.Services);
+
+// --- Swagger UI ---
+if (enableSwagger)
+{
+    app.MapOpenApi();
+    app.UseSwaggerUI(o =>
+    {
+        o.SwaggerEndpoint("openapi/v1.json", "Fiesta API");
+        o.RoutePrefix = "swagger";
+    });
+}
 
 // --- Middleware order ---
 if (!string.IsNullOrEmpty(leDomain) || !string.IsNullOrEmpty(certPath))
@@ -124,7 +140,11 @@ app.MapGet("/api/config", (CaptchaService captcha) => Results.Ok(new
 {
     captchaProvider = captcha.Provider,
     captchaSiteKey  = captcha.SiteKey
-})).AllowAnonymous();
+}))
+.WithTags("Config")
+.WithSummary("Get public config")
+.WithDescription("Returns captcha provider and site key for the SPA frontend.")
+.AllowAnonymous();
 
 // --- Routes ---
 app.MapAuthEndpoints();

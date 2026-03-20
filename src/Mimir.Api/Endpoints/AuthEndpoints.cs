@@ -28,6 +28,12 @@ public static class AuthEndpoints
             var token = tokens.CreateToken(result.Value.UserNo, result.Value.IsAdmin);
             return Results.Ok(new LoginResponse(token));
         })
+        .WithTags("Auth")
+        .WithSummary("Log in with web credentials")
+        .WithDescription("Verifies BCrypt web password and returns a JWT. After a failed attempt, requiresCaptcha is set and subsequent requests must include a captcha token.")
+        .Produces<LoginResponse>()
+        .Produces(StatusCodes.Status401Unauthorized)
+        .Produces(StatusCodes.Status429TooManyRequests)
         .RequireRateLimiting("login");
 
         // POST /api/auth/set-web-password — update BCrypt web password (JWT required)
@@ -38,6 +44,10 @@ public static class AuthEndpoints
                 await accounts.SetWebPasswordAsync(userNo, req.NewPassword);
                 return Results.NoContent();
             })
+            .WithTags("Auth")
+            .WithSummary("Change web password")
+            .WithDescription("Updates the BCrypt web password for the authenticated user.")
+            .Produces(StatusCodes.Status204NoContent)
             .RequireAuthorization();
 
         // POST /api/auth/set-ingame-password — update MD5 game password (JWT required)
@@ -48,6 +58,10 @@ public static class AuthEndpoints
                 await accounts.SetIngamePasswordAsync(userNo, req.NewPassword);
                 return Results.NoContent();
             })
+            .WithTags("Auth")
+            .WithSummary("Change in-game password")
+            .WithDescription("Updates the MD5 game password for the authenticated user.")
+            .Produces(StatusCodes.Status204NoContent)
             .RequireAuthorization();
     }
 

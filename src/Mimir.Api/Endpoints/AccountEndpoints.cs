@@ -25,6 +25,13 @@ public static class AccountEndpoints
                 return Results.Conflict(new { error = "Username already exists." });
             }
         })
+        .WithTags("Accounts")
+        .WithSummary("Register a new account")
+        .WithDescription("Creates a game account with separate web and in-game passwords. Captcha required if configured.")
+        .Produces<AccountResponse>(StatusCodes.Status201Created)
+        .Produces(StatusCodes.Status400BadRequest)
+        .Produces(StatusCodes.Status409Conflict)
+        .Produces(StatusCodes.Status429TooManyRequests)
         .RequireRateLimiting("register");
 
         // GET /api/accounts/me — own account info (JWT required)
@@ -34,6 +41,10 @@ public static class AccountEndpoints
             var account = await accounts.GetAccountAsync(userNo);
             return account is null ? Results.NotFound() : Results.Ok(account);
         })
+        .WithTags("Accounts")
+        .WithSummary("Get own account info")
+        .Produces<AccountResponse>()
+        .Produces(StatusCodes.Status404NotFound)
         .RequireAuthorization();
 
         // GET /api/accounts/me/characters — own character list (JWT required)
@@ -44,6 +55,9 @@ public static class AccountEndpoints
                 var characters = await chars.GetCharactersByUserAsync(userNo);
                 return Results.Ok(characters);
             })
+            .WithTags("Accounts")
+            .WithSummary("List own characters")
+            .Produces<List<CharacterResponse>>()
             .RequireAuthorization();
 
         // GET /api/accounts/me/cash — own premium balance (JWT required)
@@ -53,6 +67,10 @@ public static class AccountEndpoints
             var cash = await accounts.GetCashAsync(userNo);
             return cash is null ? Results.NotFound() : Results.Ok(cash);
         })
+        .WithTags("Accounts")
+        .WithSummary("Get own cash balance")
+        .Produces<CashResponse>()
+        .Produces(StatusCodes.Status404NotFound)
         .RequireAuthorization();
 
         // POST /api/accounts/me/cash — add cash to own account (admin required)
@@ -63,6 +81,11 @@ public static class AccountEndpoints
                 var cash = await accounts.AddCashAsync(userNo, req.Amount);
                 return cash is null ? Results.NotFound() : Results.Ok(cash);
             })
+            .WithTags("Admin")
+            .WithSummary("Add cash to own account")
+            .WithDescription("Adds premium currency to the authenticated admin's account.")
+            .Produces<CashResponse>()
+            .Produces(StatusCodes.Status404NotFound)
             .RequireAuthorization("admin");
 
         // POST /api/accounts/{id}/cash — add cash to any account (admin required)
@@ -72,6 +95,11 @@ public static class AccountEndpoints
                 var cash = await accounts.AddCashAsync(id, req.Amount);
                 return cash is null ? Results.NotFound() : Results.Ok(cash);
             })
+            .WithTags("Admin")
+            .WithSummary("Add cash to any account")
+            .WithDescription("Adds premium currency to the specified account by user ID.")
+            .Produces<CashResponse>()
+            .Produces(StatusCodes.Status404NotFound)
             .RequireAuthorization("admin");
 
         // POST /api/accounts/me/inventory — give item to own account (admin required)
@@ -82,6 +110,10 @@ public static class AccountEndpoints
                 await accounts.GiveItemAsync(userNo, req.GoodsNo, req.Amount);
                 return Results.NoContent();
             })
+            .WithTags("Admin")
+            .WithSummary("Give item to own account")
+            .WithDescription("Inserts a shop item into the authenticated admin's inventory.")
+            .Produces(StatusCodes.Status204NoContent)
             .RequireAuthorization("admin");
 
         // POST /api/accounts/{id}/inventory — give item to any account (admin required)
@@ -91,6 +123,10 @@ public static class AccountEndpoints
                 await accounts.GiveItemAsync(id, req.GoodsNo, req.Amount);
                 return Results.NoContent();
             })
+            .WithTags("Admin")
+            .WithSummary("Give item to any account")
+            .WithDescription("Inserts a shop item into the specified account's inventory.")
+            .Produces(StatusCodes.Status204NoContent)
             .RequireAuthorization("admin");
     }
 

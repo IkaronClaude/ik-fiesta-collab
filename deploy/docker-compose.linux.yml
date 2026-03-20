@@ -273,6 +273,7 @@ services:
       - "LETSENCRYPT_DOMAIN=${LETSENCRYPT_DOMAIN:-}"
       - "LETSENCRYPT_EMAIL=${LETSENCRYPT_EMAIL:-}"
       - "LETSENCRYPT_CERT_DIR=/certs"
+      - "ENABLE_SWAGGER=${ENABLE_SWAGGER:-true}"
     volumes:
       - ${CERT_DIR:-./certs}:/certs
     depends_on:
