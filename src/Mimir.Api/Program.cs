@@ -122,7 +122,7 @@ if (enableSwagger)
     app.MapOpenApi();
     app.UseSwaggerUI(o =>
     {
-        o.SwaggerEndpoint("openapi/v1.json", "Fiesta API");
+        o.SwaggerEndpoint("/openapi/v1.json", "Fiesta API");
         o.RoutePrefix = "swagger";
     });
 }
