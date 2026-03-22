@@ -26,7 +26,7 @@ public class ShineTableFormatRoundTripTests
 
     private static readonly IReadOnlyList<ColumnDefinition> AllTypesColumns =
     [
-        new() { Name = "ID", Type = ColumnType.UInt32, Length = 4 },
+        new() { Name = "ID", Type = ColumnType.Int32, Length = 4 },
         new() { Name = "Name", Type = ColumnType.String, Length = 64 },
         new() { Name = "Count", Type = ColumnType.UInt16, Length = 2 },
         new() { Name = "Flag", Type = ColumnType.Byte, Length = 1 },
@@ -40,7 +40,7 @@ public class ShineTableFormatRoundTripTests
         var original = MakeTable("TestTable", AllTypesColumns,
             new Dictionary<string, object?>
             {
-                ["ID"] = (uint)1,
+                ["ID"] = 1,
                 ["Name"] = "Sword of Testing",
                 ["Count"] = (ushort)10,
                 ["Flag"] = (byte)1,
@@ -49,7 +49,7 @@ public class ShineTableFormatRoundTripTests
             },
             new Dictionary<string, object?>
             {
-                ["ID"] = (uint)999,
+                ["ID"] = 999,
                 ["Name"] = "Shield",
                 ["Count"] = (ushort)0,
                 ["Flag"] = (byte)0,
@@ -67,7 +67,7 @@ public class ShineTableFormatRoundTripTests
         result.Rows.Count.ShouldBe(2);
 
         // Row 0
-        result.Rows[0]["ID"].ShouldBe((uint)1);
+        result.Rows[0]["ID"].ShouldBe(1);
         result.Rows[0]["Name"].ShouldBe("Sword of Testing");
         result.Rows[0]["Count"].ShouldBe((ushort)10);
         result.Rows[0]["Flag"].ShouldBe((byte)1);
@@ -75,7 +75,7 @@ public class ShineTableFormatRoundTripTests
         result.Rows[0]["Key"].ShouldBe("SwordTest");
 
         // Row 1 - verify zeros and dash
-        result.Rows[1]["ID"].ShouldBe((uint)999);
+        result.Rows[1]["ID"].ShouldBe(999);
         result.Rows[1]["Name"].ShouldBe("Shield");
         result.Rows[1]["Count"].ShouldBe((ushort)0);
         result.Rows[1]["Flag"].ShouldBe((byte)0);
@@ -102,7 +102,7 @@ public class ShineTableFormatRoundTripTests
         var row = parsed[0].Rows[0];
 
         // Null numerics write as "0", null strings write as "-"
-        row["ID"].ShouldBe((uint)0);
+        row["ID"].ShouldBe(0);
         row["Name"].ShouldBe("-");
         row["Count"].ShouldBe((ushort)0);
         row["Flag"].ShouldBe((byte)0);
@@ -114,7 +114,7 @@ public class ShineTableFormatRoundTripTests
         var table1 = MakeTable("MobRegen", AllTypesColumns.Take(3).ToList(),
             new Dictionary<string, object?>
             {
-                ["ID"] = (uint)100,
+                ["ID"] = 100,
                 ["Name"] = "Slime",
                 ["Count"] = (ushort)5
             });
@@ -122,7 +122,7 @@ public class ShineTableFormatRoundTripTests
         var table2 = MakeTable("MobGroup", AllTypesColumns.Take(3).ToList(),
             new Dictionary<string, object?>
             {
-                ["ID"] = (uint)200,
+                ["ID"] = 200,
                 ["Name"] = "Group1",
                 ["Count"] = (ushort)3
             });
@@ -152,23 +152,28 @@ public class ShineTableFormatRoundTripTests
     }
 
     [Fact]
-    public void RoundTrip_LargeUInt32Values()
+    public void RoundTrip_NegativeInt32Values()
     {
         var columns = new List<ColumnDefinition>
         {
-            new() { Name = "Flags", Type = ColumnType.UInt32, Length = 4 }
+            new() { Name = "Delta", Type = ColumnType.Int32, Length = 4 }
         };
 
-        var original = MakeTable("FlagTest", columns,
+        var original = MakeTable("DeltaTest", columns,
             new Dictionary<string, object?>
             {
-                ["Flags"] = uint.MaxValue // 4294967295
+                ["Delta"] = -4
+            },
+            new Dictionary<string, object?>
+            {
+                ["Delta"] = int.MinValue
             });
 
         var lines = ShineTableFormatParser.Write([original]);
         var parsed = ShineTableFormatParser.Parse("Test.txt", lines.ToArray());
 
-        parsed[0].Rows[0]["Flags"].ShouldBe(uint.MaxValue);
+        parsed[0].Rows[0]["Delta"].ShouldBe(-4);
+        parsed[0].Rows[1]["Delta"].ShouldBe(int.MinValue);
     }
 
     [Fact]
@@ -176,14 +181,14 @@ public class ShineTableFormatRoundTripTests
     {
         var columns = new List<ColumnDefinition>
         {
-            new() { Name = "ID", Type = ColumnType.UInt32, Length = 4 },
+            new() { Name = "ID", Type = ColumnType.Int32, Length = 4 },
             new() { Name = "Name", Type = ColumnType.String, Length = 64 },
         };
 
         var table = MakeTable("Items", columns,
             new Dictionary<string, object?>
             {
-                ["ID"] = (uint)42,
+                ["ID"] = 42,
                 ["Name"] = "TestItem"
             });
 
@@ -200,11 +205,11 @@ public class ShineTableFormatRoundTripTests
     {
         var columns = new List<ColumnDefinition>
         {
-            new() { Name = "ID", Type = ColumnType.UInt32, Length = 4 },
+            new() { Name = "ID", Type = ColumnType.Int32, Length = 4 },
         };
 
         var table = MakeTable("Test", columns,
-            new Dictionary<string, object?> { ["ID"] = (uint)1 });
+            new Dictionary<string, object?> { ["ID"] = 1 });
 
         var lines = ShineTableFormatParser.Write([table]);
 
@@ -217,12 +222,12 @@ public class ShineTableFormatRoundTripTests
         // Write produces #End; re-parsing that output must not lose any tables
         var columns = new List<ColumnDefinition>
         {
-            new() { Name = "ID", Type = ColumnType.UInt32, Length = 4 },
+            new() { Name = "ID", Type = ColumnType.Int32, Length = 4 },
             new() { Name = "Name", Type = ColumnType.String, Length = 32 },
         };
 
         var table = MakeTable("Items", columns,
-            new Dictionary<string, object?> { ["ID"] = (uint)5, ["Name"] = "Sword" });
+            new Dictionary<string, object?> { ["ID"] = 5, ["Name"] = "Sword" });
 
         var lines = ShineTableFormatParser.Write([table]);
         // Confirm #End is present
@@ -231,7 +236,7 @@ public class ShineTableFormatRoundTripTests
         var parsed = ShineTableFormatParser.Parse("Test.txt", lines.ToArray());
         parsed.Count.ShouldBe(1);
         parsed[0].Rows.Count.ShouldBe(1);
-        parsed[0].Rows[0]["ID"].ShouldBe((uint)5);
+        parsed[0].Rows[0]["ID"].ShouldBe(5);
     }
 
     [Fact]

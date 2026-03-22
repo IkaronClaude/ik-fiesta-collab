@@ -44,7 +44,7 @@ internal static class ShineTableFormatParser
     {
         ColumnType.Byte => "BYTE",
         ColumnType.UInt16 => "WORD",
-        ColumnType.UInt32 => "DWRD",
+        ColumnType.Int32 or ColumnType.UInt32 => "DWRD",
         ColumnType.Float => "FLOAT",
         // SourceTypeCode == 0 means the original source used the "INDEX" keyword explicitly.
         // Any other string column (SourceTypeCode == explicit length, or null) writes STRING[N].
@@ -291,7 +291,7 @@ internal static class ShineTableFormatParser
         {
             "BYTE" => (ColumnType.Byte, 1, null),
             "WORD" => (ColumnType.UInt16, 2, null),
-            "DWRD" or "DWORD" => (ColumnType.UInt32, 4, null),
+            "DWRD" or "DWORD" => (ColumnType.Int32, 4, null),
             "FLOAT" => (ColumnType.Float, 4, null),
             _ => (ColumnType.String, 32, null)
         };
@@ -306,6 +306,7 @@ internal static class ShineTableFormatParser
                 ColumnType.String => field,
                 ColumnType.Byte => (byte)0,
                 ColumnType.UInt16 => (ushort)0,
+                ColumnType.Int32 => 0,
                 ColumnType.UInt32 => (uint)0,
                 ColumnType.Float => 0f,
                 _ => field
@@ -315,7 +316,9 @@ internal static class ShineTableFormatParser
         return type switch
         {
             ColumnType.Byte when byte.TryParse(field, out byte b) => b,
+            ColumnType.Byte when sbyte.TryParse(field, out sbyte sb) => unchecked((byte)sb),
             ColumnType.UInt16 when ushort.TryParse(field, out ushort u) => u,
+            ColumnType.UInt16 when short.TryParse(field, out short sh) => unchecked((ushort)sh),
             ColumnType.UInt32 when uint.TryParse(field, out uint u) => u,
             ColumnType.Int32 when int.TryParse(field, out int v) => v,
             ColumnType.Float when float.TryParse(field, out float f) => f,
