@@ -308,6 +308,82 @@ Add `KEEP_ALIVE=1` to a service's environment in `docker-compose.yml` to keep th
 > **SQL Server SA password**: set with `mimir deploy secret set SA_PASSWORD YourPassword` before first start.
 > Connect: `sqlcmd -S localhost,1433 -U sa -P <your-password> -C`
 
+### Linux VPS Deployment
+
+The same Docker stack runs on a Linux VPS using Wine to execute the Windows game server binaries. See `deploy/docker-compose.linux.yml` and the `Dockerfile.*.linux` files.
+
+**Key differences from local Windows deployment:**
+
+- Game processes run under Wine + Xvfb (headless X11)
+- SQL Server uses the official Linux `mcr.microsoft.com/mssql/server` image
+- Server binaries are volume-mounted from a `DEPLOY_PATH` directory (not baked into the image)
+- ODBC connectivity uses 32-bit FreeTDS (`tdsodbc:i386`)
+
+**First-time VPS setup:**
+
+```bash
+# On VPS: clone Mimir tooling
+git clone https://github.com/IkaronClaude/ProjectMimir.git ~/ProjectMimir
+
+# Transfer server binaries and database backups to VPS
+scp -r Z:/ServerSource/* user@vps:~/fiesta-files/
+
+# Create project directory and configure
+cd ~/my-server
+cat > .mimir-deploy.env << 'EOF'
+DEPLOY_PATH=/root/fiesta-files
+KEEP_ALIVE=0
+PORT_OFFSET=0
+PATCH_PORT=127.0.0.1:8081
+EOF
+
+# Interactive setup (creates env files, builds images, restores databases)
+bash ~/ProjectMimir/deploy/setup.sh
+```
+
+### GitHub Actions Deployment
+
+You can add a one-button deploy workflow to your **project repo** (not ProjectMimir). This SSHs to the VPS and runs the full deploy cycle.
+
+**1. Add secrets to your GitHub repo** (Settings → Secrets and variables → Actions):
+
+| Secret | Value |
+|--------|-------|
+| `VPS_HOST` | Your VPS hostname (e.g. `ssh.example.com`) |
+| `VPS_USER` | SSH user (e.g. `root`) |
+| `VPS_SSH_KEY` | Private key (`ssh-keygen -t ed25519`, add `.pub` to VPS `~/.ssh/authorized_keys`) |
+
+**2. Create `.github/workflows/deploy-prod.yml`** in your project repo:
+
+```yaml
+name: Deploy to Production
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            set -e
+            cd ~/ProjectMimir && git pull
+            cd ~/my-server && git checkout ${{ github.ref_name }} && git pull
+            bash ~/ProjectMimir/mimir.sh deploy server
+```
+
+**3. Trigger** from GitHub → Actions → "Deploy to Production" → Run workflow.
+
+The deploy cycle builds data and packs patches first, then restarts containers at the end to minimize downtime. The pack baseline is only seeded on the very first build — subsequent deploys produce incremental patches.
+
+> **Tip:** Add a GitHub environment called `production` with required reviewers for an approval gate before deploys.
+
 ---
 
 ## Project Structure
