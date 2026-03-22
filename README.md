@@ -337,6 +337,11 @@ PORT_OFFSET=0
 PATCH_PORT=8081
 EOF
 
+# Set database password (not committed to git)
+cat > .mimir-deploy.secrets << EOF
+SA_PASSWORD=YourStrongPassword123!
+EOF
+
 # Interactive setup (creates env files, builds images, restores databases)
 bash ~/ProjectMimir/deploy/setup.sh
 ```
