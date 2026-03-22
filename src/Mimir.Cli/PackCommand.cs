@@ -134,8 +134,15 @@ public static class PackCommand
         if (changedFiles.Count == 0)
             return ("No changes to pack.", previousManifest?.Version ?? 0);
 
+        changedFiles.Sort(StringComparer.OrdinalIgnoreCase);
+
         // Step 5: Determine version
         var nextVersion = (previousManifest?.Version ?? 0) + 1;
+
+        // Log changed files
+        Console.WriteLine($"  Changed files ({changedFiles.Count}):");
+        foreach (var f in changedFiles)
+            Console.WriteLine($"    {f}");
 
         // Step 6: Create zip with only changed files
         var patchesDir = Path.Combine(outputDir, "patches");
