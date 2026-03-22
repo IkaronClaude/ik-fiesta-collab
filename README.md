@@ -330,11 +330,11 @@ scp -r Z:/ServerSource/* user@vps:~/fiesta-files/
 
 # Create project directory and configure
 cd ~/my-server
-cat > .mimir-deploy.env << 'EOF'
-DEPLOY_PATH=/root/fiesta-files
+cat > .mimir-deploy.env << EOF
+DEPLOY_PATH=$HOME/fiesta-files
 KEEP_ALIVE=0
 PORT_OFFSET=0
-PATCH_PORT=127.0.0.1:8081
+PATCH_PORT=8081
 EOF
 
 # Interactive setup (creates env files, builds images, restores databases)
