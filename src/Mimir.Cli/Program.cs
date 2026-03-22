@@ -1081,12 +1081,16 @@ buildCommand.SetHandler(async (DirectoryInfo? projectOpt, DirectoryInfo? outputO
         }
 
         // Seed pack baseline from source import files for patchable envs.
-        // Using source files as baseline ensures players receive Mimir's rebuilt SHN versions
-        // (which differ from originals due to roundtrip zeroing of padded string garbage bytes)
-        // in the first patch, allowing client integrity checks to pass.
+        // Only seed if no manifest exists yet — re-seeding would reset the version
+        // counter and break incremental patching.
         if (eName != "" && allEnvs.TryGetValue(eName, out var seedEnvConfig) && seedEnvConfig.SeedPackBaseline)
         {
-            if (seedEnvConfig.ImportPath == null)
+            var manifestPath = Path.Combine(project.FullName, $".mimir-pack-manifest-{eName}.json");
+            if (File.Exists(manifestPath))
+            {
+                logger.LogDebug("Pack manifest already exists for {Env}, skipping baseline seed.", eName);
+            }
+            else if (seedEnvConfig.ImportPath == null)
             {
                 logger.LogWarning("Cannot seed pack baseline for {Env}: import-path not set.", eName);
             }
