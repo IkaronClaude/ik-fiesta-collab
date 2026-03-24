@@ -114,12 +114,13 @@ if (enableSwagger)
 // --- Build ---
 var app = builder.Build();
 
-app.UseForwardedHeaders(new ForwardedHeadersOptions
+var forwardedHeadersOptions = new ForwardedHeadersOptions
 {
     ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedHost,
-    KnownIPNetworks = { },
-    KnownProxies = { }
-});
+};
+forwardedHeadersOptions.KnownIPNetworks.Clear();
+forwardedHeadersOptions.KnownProxies.Clear();
+app.UseForwardedHeaders(forwardedHeadersOptions);
 
 var pathBase = Environment.GetEnvironmentVariable("ASPNETCORE_PATHBASE");
 if (!string.IsNullOrEmpty(pathBase))
