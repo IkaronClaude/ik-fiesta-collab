@@ -109,7 +109,32 @@ else if (!string.IsNullOrEmpty(certPath))
 // --- OpenAPI / Swagger (opt-in via ENABLE_SWAGGER=true) ---
 var enableSwagger = string.Equals(cfg["ENABLE_SWAGGER"], "true", StringComparison.OrdinalIgnoreCase);
 if (enableSwagger)
-    builder.Services.AddOpenApi();
+    builder.Services.AddOpenApi(options =>
+    {
+        options.AddDocumentTransformer((doc, _, _) =>
+        {
+            var components = doc.Components ??= new();
+            var schemes = components.SecuritySchemes ??= new Dictionary<string, Microsoft.OpenApi.IOpenApiSecurityScheme>();
+            schemes["Bearer"] = new Microsoft.OpenApi.OpenApiSecurityScheme
+            {
+                Type = Microsoft.OpenApi.SecuritySchemeType.Http,
+                Scheme = "bearer",
+                BearerFormat = "JWT",
+                Description = "Paste the token from /api/auth/login"
+            };
+            return Task.CompletedTask;
+        });
+        options.AddOperationTransformer((operation, context, _) =>
+        {
+            if (context.Description.ActionDescriptor.EndpointMetadata
+                .Any(m => m is Microsoft.AspNetCore.Authorization.IAuthorizeData))
+            {
+                var schemeRef = new Microsoft.OpenApi.OpenApiSecuritySchemeReference("Bearer", null);
+                operation.Security = [new() { [schemeRef] = new List<string>() }];
+            }
+            return Task.CompletedTask;
+        });
+    });
 
 // --- Build ---
 var app = builder.Build();
