@@ -285,6 +285,23 @@ mimir deploy set WEBAPP_DOCKERFILE=Dockerfile
 mimir deploy webapp
 ```
 
+**Reverse Proxy / Path Base:**
+
+The API supports running behind a reverse proxy on a subpath. Set `ASPNETCORE_PATHBASE` to the subpath prefix (e.g. `/api`) so the app generates correct URLs in OpenAPI specs and redirects. The app includes `UseForwardedHeaders` middleware that trusts `X-Forwarded-For`, `X-Forwarded-Proto`, and `X-Forwarded-Host` from any proxy — make sure nginx (or your reverse proxy) sends these headers so the OpenAPI spec shows the correct scheme and hostname.
+
+Example nginx block:
+
+```nginx
+location /api/ {
+    proxy_pass http://127.0.0.1:5000/api/;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-Host $host;
+}
+```
+
 **CORS** (needed when the browser fetches the API from a different port):
 
 ```bat
