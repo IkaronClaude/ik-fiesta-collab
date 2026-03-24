@@ -3,6 +3,7 @@ using System.Text;
 using System.Threading.RateLimiting;
 using LettuceEncrypt;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.IdentityModel.Tokens;
 using Mimir.Api.Db;
@@ -113,6 +114,17 @@ if (enableSwagger)
 // --- Build ---
 var app = builder.Build();
 
+app.UseForwardedHeaders(new ForwardedHeadersOptions
+{
+    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedHost,
+    KnownNetworks = { },
+    KnownProxies = { }
+});
+
+var pathBase = Environment.GetEnvironmentVariable("ASPNETCORE_PATHBASE");
+if (!string.IsNullOrEmpty(pathBase))
+    app.UsePathBase(pathBase);
+
 // --- DB init: create tWebCredential if it doesn't exist ---
 await DbInit.EnsureCreatedAsync(app.Services);
 
@@ -120,9 +132,10 @@ await DbInit.EnsureCreatedAsync(app.Services);
 if (enableSwagger)
 {
     app.MapOpenApi();
+    var swaggerPrefix = string.IsNullOrEmpty(pathBase) ? "" : pathBase;
     app.UseSwaggerUI(o =>
     {
-        o.SwaggerEndpoint("/openapi/v1.json", "Fiesta API");
+        o.SwaggerEndpoint($"{swaggerPrefix}/openapi/v1.json", "Fiesta API");
         o.RoutePrefix = "swagger";
     });
 }
