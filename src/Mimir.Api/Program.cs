@@ -113,25 +113,28 @@ if (enableSwagger)
     {
         options.AddDocumentTransformer((doc, _, _) =>
         {
-            var components = doc.Components ??= new();
-            var schemes = components.SecuritySchemes ??= new Dictionary<string, Microsoft.OpenApi.IOpenApiSecurityScheme>();
-            schemes["Bearer"] = new Microsoft.OpenApi.OpenApiSecurityScheme
+            doc.Components ??= new Microsoft.OpenApi.OpenApiComponents();
+            doc.Components.SecuritySchemes = new Dictionary<string, Microsoft.OpenApi.IOpenApiSecurityScheme>
             {
-                Type = Microsoft.OpenApi.SecuritySchemeType.Http,
-                Scheme = "bearer",
-                BearerFormat = "JWT",
-                Description = "Paste the token from /api/auth/login"
+                ["Bearer"] = new Microsoft.OpenApi.OpenApiSecurityScheme
+                {
+                    Type = Microsoft.OpenApi.SecuritySchemeType.Http,
+                    Scheme = "bearer",
+                    In = Microsoft.OpenApi.ParameterLocation.Header,
+                    BearerFormat = "JWT",
+                    Description = "Paste the token from /api/auth/login"
+                }
             };
-            return Task.CompletedTask;
-        });
-        options.AddOperationTransformer((operation, context, _) =>
-        {
-            if (context.Description.ActionDescriptor.EndpointMetadata
-                .Any(m => m is Microsoft.AspNetCore.Authorization.IAuthorizeData))
+
+            foreach (var operation in doc.Paths?.Values.SelectMany(path => path.Operations ?? []) ?? [])
             {
-                var schemeRef = new Microsoft.OpenApi.OpenApiSecuritySchemeReference("Bearer", null);
-                operation.Security = [new() { [schemeRef] = new List<string>() }];
+                operation.Value.Security ??= [];
+                operation.Value.Security.Add(new Microsoft.OpenApi.OpenApiSecurityRequirement
+                {
+                    [new Microsoft.OpenApi.OpenApiSecuritySchemeReference("Bearer", doc)] = []
+                });
             }
+
             return Task.CompletedTask;
         });
     });
