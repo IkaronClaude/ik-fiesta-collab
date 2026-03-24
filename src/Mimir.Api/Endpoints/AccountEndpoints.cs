@@ -20,6 +20,10 @@ public static class AccountEndpoints
                 var account = await accounts.CreateAccountAsync(req);
                 return Results.Created($"/api/accounts/{account.UserNo}", account);
             }
+            catch (InvalidOperationException ex) when (ex.Message.Contains("already exists"))
+            {
+                return Results.Conflict(new { error = ex.Message });
+            }
             catch (SqlException ex) when (ex.Number == 2627 || ex.Number == 2601)
             {
                 return Results.Conflict(new { error = "Username already exists." });

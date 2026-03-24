@@ -22,11 +22,10 @@ public class AccountService
         var passwordHash = BCrypt.Net.BCrypt.HashPassword(req.WebPassword);
 
         await using var conn = await _db.OpenAccountAsync();
-        using var tx = conn.BeginTransaction();
 
-        // Create game account via stored procedure.
+        // Create game account via stored procedure (SP manages its own transaction).
         int userNo;
-        await using (var insertCmd = new SqlCommand("usp_User_insert", conn, tx)
+        await using (var insertCmd = new SqlCommand("usp_User_insert", conn)
         {
             CommandType = CommandType.StoredProcedure
         })
@@ -39,7 +38,16 @@ public class AccountService
             insertCmd.Parameters.AddWithValue("@isMail", false);
             var outParam = insertCmd.Parameters.Add("@userNo", SqlDbType.Int);
             outParam.Direction = ParameterDirection.Output;
+            var retParam = insertCmd.Parameters.Add("@return", SqlDbType.Int);
+            retParam.Direction = ParameterDirection.ReturnValue;
             await insertCmd.ExecuteNonQueryAsync();
+
+            var ret = (int)retParam.Value;
+            if (ret == -2)
+                throw new InvalidOperationException("Username already exists.");
+            if (ret < 0)
+                throw new InvalidOperationException($"Account creation failed (SP returned {ret}).");
+
             userNo = (int)outParam.Value;
         }
 
@@ -47,15 +55,13 @@ public class AccountService
 
         // Insert web credential for API login.
         await using (var credCmd = new SqlCommand(
-            "INSERT INTO tWebCredential (nUserNo, sPasswordHash) VALUES (@userNo, @hash)",
-            conn, tx))
+            "INSERT INTO tWebCredential (nUserNo, sPasswordHash) VALUES (@userNo, @hash)", conn))
         {
             credCmd.Parameters.AddWithValue("@userNo", userNo);
             credCmd.Parameters.AddWithValue("@hash", passwordHash);
             await credCmd.ExecuteNonQueryAsync();
         }
 
-        tx.Commit();
         return new AccountResponse(userNo, req.Username, req.Email, created);
     }
 
