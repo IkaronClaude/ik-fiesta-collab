@@ -1,12 +1,12 @@
 # Fiesta Online game server — Linux + Wine variant
-# Runs 32-bit Windows game server exes under Wine on Debian.
+# Runs 32-bit Windows game server exes under Wine on Ubuntu 24.04.
 # Same interface as Dockerfile.server: one container per process via
 # PROCESS_NAME + PROCESS_EXE env vars.
 #
 # Usage: mimir deploy set MIMIR_OS linux
 #        mimir deploy rebuild-game
 
-FROM debian:bookworm-slim
+FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
