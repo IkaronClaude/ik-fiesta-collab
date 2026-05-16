@@ -44,7 +44,7 @@ fi
 # Start a persistent Xvfb (Wine needs X11 even for headless server processes)
 # Clean stale lock files from container restarts
 rm -f /tmp/.X99-lock /tmp/.X11-unix/X99 2>/dev/null || true
-Xvfb :99 -screen 0 800x600x24 &
+Xvfb :99 -screen 0 800x600x24 -nolisten tcp &
 export DISPLAY=:99
 sleep 1
 
