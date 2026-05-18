@@ -189,11 +189,29 @@ Write-Host "Old logs cleared."
 # Don't run the exe directly - it calls StartServiceCtrlDispatcher() which blocks forever.
 # Register the service with sc.exe create, then Start-Service starts it properly via SCM.
 
-if ($processName -match '^Zone(\d+)$') {
-    $serviceName = ('_Zone{0}' -f $env:ZONE_NUMBER)
+# Every Fiesta exe embeds its expected SCM service name in a per-process
+# *ServerInfo.txt line `MY_SERVER "_Name", ...`. If our sc.exe registration
+# doesn't match the embedded name, the exe takes a "service upload only"
+# code path on first run: it self-registers the expected name and exits,
+# requiring a second start to recover. Read the embedded name so we
+# register it correctly the first time. Falls through to the legacy
+# computed default for exes without a MY_SERVER line.
+$serviceName = $null
+$myServerMatch = Get-ChildItem -Path $processDir -Filter '*.txt' -Recurse -Depth 3 -ErrorAction SilentlyContinue |
+    Select-String -Pattern '^\s*MY_SERVER\s+"([^"]+)"' -ErrorAction SilentlyContinue |
+    Select-Object -First 1
+if ($myServerMatch -and $myServerMatch.Matches[0].Groups[1].Value) {
+    $serviceName = $myServerMatch.Matches[0].Groups[1].Value
+    Write-Host ('  SERVICE_NAME discovered from MY_SERVER: {0}' -f $serviceName)
 }
-else {
-    $serviceName = ('_{0}' -f $processName)
+if (-not $serviceName) {
+    if ($processName -match '^Zone(\d+)$') {
+        $serviceName = ('_Zone{0}' -f $env:ZONE_NUMBER)
+    }
+    else {
+        $serviceName = ('_{0}' -f $processName)
+    }
+    Write-Host ('  SERVICE_NAME fallback (no MY_SERVER found): {0}' -f $serviceName)
 }
 
 Write-Host ('Registering service: {0} -> {1}' -f $serviceName, $exePath)

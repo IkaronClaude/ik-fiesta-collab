@@ -193,10 +193,31 @@ echo "Old logs cleared."
 
 # --- Step 6: Register and start Windows service via Wine SCM ---
 
-if [[ "${PROCESS_NAME}" =~ ^Zone([0-9]+)$ ]]; then
+# Every Fiesta exe embeds its expected SCM service name in a per-process
+# *ServerInfo.txt line `MY_SERVER "_Name", ...`. If our sc.exe registration
+# doesn't match the embedded name, the exe takes a "service upload only"
+# code path on first run: it self-registers the expected name in the wine
+# registry and exits, requiring a second start to recover. Read the
+# embedded name so we register it correctly the first time.
+#
+# Zones nest the config under ZoneServerInfo/ZoneServerInfo.txt; flat
+# services have theirs next to the exe -- find -maxdepth 3 covers both.
+# `|| true` swallows the empty-match case (exes without a MY_SERVER line)
+# so `set -eo pipefail` doesn't abort us; we fall through to the legacy
+# computed default.
+DISCOVERED_NAME=$(find "${PROCESS_DIR}" -maxdepth 3 -type f -name '*.txt' \
+    -exec grep -hE '^[[:space:]]*MY_SERVER[[:space:]]+"' {} + 2>/dev/null \
+    | head -1 \
+    | sed -nE 's/^[[:space:]]*MY_SERVER[[:space:]]+"([^"]+)".*/\1/p') || true
+if [ -n "${DISCOVERED_NAME}" ]; then
+    SERVICE_NAME="${DISCOVERED_NAME}"
+    echo "  SERVICE_NAME discovered from MY_SERVER: ${SERVICE_NAME}"
+elif [[ "${PROCESS_NAME}" =~ ^Zone([0-9]+)$ ]]; then
     SERVICE_NAME="_Zone${ZONE_NUMBER}"
+    echo "  SERVICE_NAME fallback (no MY_SERVER found): ${SERVICE_NAME}"
 else
     SERVICE_NAME="_${PROCESS_NAME}"
+    echo "  SERVICE_NAME fallback (no MY_SERVER found): ${SERVICE_NAME}"
 fi
 
 WIN_EXE="Z:\\server\\${PROCESS_NAME}\\${PROCESS_EXE}"
