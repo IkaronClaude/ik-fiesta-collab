@@ -50,5 +50,5 @@ jobs:
           file: Dockerfile
           push: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/ik-fiesta-collab:latest
-            ghcr.io/${{ github.repository_owner }}/ik-fiesta-collab:${{ github.sha }}
+            ghcr.io/ikaronclaude/ik-fiesta-collab:latest
+            ghcr.io/ikaronclaude/ik-fiesta-collab:${{ github.sha }}
