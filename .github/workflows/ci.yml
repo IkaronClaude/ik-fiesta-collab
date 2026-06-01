@@ -9,27 +9,46 @@ on:
 jobs:
   build-and-test:
     runs-on: windows-latest
-
     steps:
       - uses: actions/checkout@v4
-
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
-
       - name: Restore
-        run: dotnet restore Mimir.sln
-
+        run: dotnet restore ik-fiesta-collab.sln
       - name: Build
-        run: dotnet build Mimir.sln --no-restore --configuration Release
-
+        run: dotnet build ik-fiesta-collab.sln --no-restore --configuration Release
       - name: Test
-        run: dotnet test Mimir.sln --no-build --configuration Release --logger "trx;LogFileName=results.trx"
-
+        run: dotnet test ik-fiesta-collab.sln --no-build --configuration Release --logger "trx;LogFileName=results.trx"
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: test-results
           path: "**/*.trx"
+
+  image:
+    # Build + push the `fiesta` content-toolkit image to GHCR on pushes to main.
+    # Consumed by ik-fiesta-collab-pipelines to run `fiesta build` (JSON -> SHN/txt).
+    needs: build-and-test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/ik-fiesta-collab:latest
+            ghcr.io/${{ github.repository_owner }}/ik-fiesta-collab:${{ github.sha }}

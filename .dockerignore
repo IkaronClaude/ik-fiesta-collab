@@ -1,0 +1,11 @@
+**/bin/
+**/obj/
+.git/
+.github/
+tests/
+build/
+deploy/
+*.md
+1024/
+Debian/
+KnownIPNetworks/
