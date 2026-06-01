@@ -1,8 +1,13 @@
-# Mimir
+# ik-fiesta-collab
 
-[![CI](https://github.com/IkaronClaude/ProjectMimir/actions/workflows/ci.yml/badge.svg)](https://github.com/IkaronClaude/ProjectMimir/actions/workflows/ci.yml)
+[![CI](https://github.com/IkaronClaude/ik-fiesta-collab/actions/workflows/ci.yml/badge.svg)](https://github.com/IkaronClaude/ik-fiesta-collab/actions/workflows/ci.yml)
 
-Server administration toolkit for Fiesta Online private servers. Converts game data files into a git-friendly JSON project format, provides SQL querying, bulk editing, validation, and builds back to server format. Supports multi-environment workflows (server + client data) and client patch distribution.
+Server administration toolkit for Fiesta Online private servers. Converts game data files into a git-friendly JSON project format, provides SQL querying, bulk editing, validation, and builds back to server format. Supports multi-environment workflows (server + client data).
+
+> Formerly **Mimir** (renamed 2026-06). The CLI command is now **`fiesta`**; the
+> project-marker file is still `mimir.json` pending a full rebrand. Client-patch
+> packing/serving moved to
+> [ik-fiesta-patch-server](https://github.com/IkaronClaude/ik-fiesta-patch-server).
 
 ## How It Works
 
