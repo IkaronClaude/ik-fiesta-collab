@@ -1080,27 +1080,6 @@ buildCommand.SetHandler(async (DirectoryInfo? projectOpt, DirectoryInfo? outputO
             }
         }
 
-        // Seed pack baseline from source import files for patchable envs.
-        // Only seed if no manifest exists yet — re-seeding would reset the version
-        // counter and break incremental patching.
-        if (eName != "" && allEnvs.TryGetValue(eName, out var seedEnvConfig) && seedEnvConfig.SeedPackBaseline)
-        {
-            var manifestPath = Path.Combine(project.FullName, $".mimir-pack-manifest-{eName}.json");
-            if (File.Exists(manifestPath))
-            {
-                logger.LogDebug("Pack manifest already exists for {Env}, skipping baseline seed.", eName);
-            }
-            else if (seedEnvConfig.ImportPath == null)
-            {
-                logger.LogWarning("Cannot seed pack baseline for {Env}: import-path not set.", eName);
-            }
-            else
-            {
-                var count = await Mimir.Cli.PackCommand.SeedBaselineAsync(
-                    project.FullName, eName, seedEnvConfig.ImportPath, providers.Values.ToList());
-                logger.LogInformation("Pack baseline seeded from source files ({Count} files)", count);
-            }
-        }
     }
 
 }, buildProjectOption, buildOutputOption, buildEnvOption, buildAllOption);
@@ -1689,66 +1668,6 @@ shnCommand.SetHandler(context =>
     }
 });
 
-// --- pack command ---
-var packCommand = new Command("pack", "Package client build output into incremental patch zips");
-var packProjectOption = MakeProjectOption();
-var packOutputArg = new Argument<DirectoryInfo>("output-dir", "Path to output directory for patches and patch-index.json");
-var packEnvOption = new Option<string>("--env", () => "client", "Environment to pack (default: client)");
-packEnvOption.AddAlias("-e");
-var packBaseUrlOption = new Option<string?>("--base-url", "URL prefix for patch URLs in the index (e.g. https://patches.example.com/)");
-packCommand.AddOption(packProjectOption);
-packCommand.AddArgument(packOutputArg);
-packCommand.AddOption(packEnvOption);
-packCommand.AddOption(packBaseUrlOption);
-
-packCommand.SetHandler(async (DirectoryInfo? projectOpt, DirectoryInfo outputDir, string envName, string? baseUrl) =>
-{
-    var logger = sp.GetRequiredService<ILogger<Program>>();
-    var project = ResolveProjectOrExit(projectOpt, logger);
-    var projectService = sp.GetRequiredService<IProjectService>();
-
-    var manifest = await projectService.LoadProjectAsync(project.FullName);
-    var envConfig = EnvironmentStore.Load(project.FullName, envName);
-    if (envConfig == null)
-    {
-        logger.LogError("Environment '{Env}' not found. Use 'mimir env {Env} init' to configure it.", envName, envName);
-        return;
-    }
-
-    // Pack is only valid for client environments (those with pack baseline seeding enabled).
-    var isPackable = envConfig.SeedPackBaseline || envConfig.Type == "client";
-    if (!isPackable)
-    {
-        logger.LogError(
-            "Environment '{Env}' is not a packable (client) environment. " +
-            "Pack is only valid for client environments. " +
-            "To configure: mimir env {Env2} set type client && mimir env {Env3} set seed-pack-baseline true",
-            envName, envName, envName);
-        return;
-    }
-
-    // Determine build directory: use configured buildPath or default build/<env>
-    var buildPath = envConfig.BuildPath ?? Path.Combine("build", envName);
-    var buildDir = Path.IsPathRooted(buildPath) ? buildPath : Path.Combine(project.FullName, buildPath);
-
-    if (!Directory.Exists(buildDir))
-    {
-        logger.LogError("Build directory does not exist: {Path}. Run 'mimir build --all' first.", buildDir);
-        return;
-    }
-
-    // Use the parent of the env build dir as the build root (pack expects build/<env>/ structure)
-    var buildRoot = Path.GetDirectoryName(buildDir)!;
-
-    var (message, version) = await Mimir.Cli.PackCommand.ExecuteAsync(
-        project.FullName, buildRoot, outputDir.FullName, envName, baseUrl);
-
-    if (version > 0)
-        logger.LogInformation("{Message}", message);
-    else
-        Console.WriteLine(message);
-
-}, packProjectOption, packOutputArg, packEnvOption, packBaseUrlOption);
 
 // --- snapshot command ---
 var snapshotCommand = new Command("snapshot",
@@ -1837,7 +1756,6 @@ rootCommand.AddCommand(validateCommand);
 rootCommand.AddCommand(initTemplateCommand);
 rootCommand.AddCommand(editTemplateCommand);
 rootCommand.AddCommand(shnCommand);
-rootCommand.AddCommand(packCommand);
 rootCommand.AddCommand(snapshotCommand);
 rootCommand.AddCommand(dumpCommand);
 rootCommand.AddCommand(analyzeCommand);
