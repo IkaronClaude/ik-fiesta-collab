@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Fiesta.Collab.Integration.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Fiesta.Collab.Cli\Fiesta.Collab.Cli.csproj" />
+    <ProjectReference Include="..\..\src\Fiesta.Collab.Core\Fiesta.Collab.Core.csproj" />
+    <ProjectReference Include="..\..\src\Fiesta.Collab.Shn\Fiesta.Collab.Shn.csproj" />
+    <ProjectReference Include="..\..\src\Fiesta.Collab.ShineTable\Fiesta.Collab.ShineTable.csproj" />
+    <ProjectReference Include="..\..\src\Fiesta.Collab.Sql\Fiesta.Collab.Sql.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0-preview.1.25080.5" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.0-preview.1.25080.5" />
+  </ItemGroup>
+
+</Project>

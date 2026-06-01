@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Fiesta.Collab.Shn.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Fiesta.Collab.Shn\Fiesta.Collab.Shn.csproj" />
+  </ItemGroup>
+
+</Project>

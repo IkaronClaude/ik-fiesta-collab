@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Fiesta.Collab.Sql.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Fiesta.Collab.Sql\Fiesta.Collab.Sql.csproj" />
+    <ProjectReference Include="..\..\src\Fiesta.Collab.Shn\Fiesta.Collab.Shn.csproj" />
+  </ItemGroup>
+
+</Project>

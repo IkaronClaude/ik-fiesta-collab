@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Fiesta.Collab.ShineTable.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Fiesta.Collab.ShineTable\Fiesta.Collab.ShineTable.csproj" />
+  </ItemGroup>
+
+</Project>
