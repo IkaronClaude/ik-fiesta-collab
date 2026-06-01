@@ -1,9 +1,9 @@
 @echo off
 REM ============================================================
-REM  Example read-only queries against the Mimir project
+REM  Example read-only queries against the fiesta project
 REM ============================================================
 
-set MIMIR=dotnet run --project ..\src\Mimir.Cli --
+set MIMIR=dotnet run --project ..\src\Fiesta.Collab.Cli --
 set PROJECT=..\test-project
 
 echo === Mimir Query Examples ===

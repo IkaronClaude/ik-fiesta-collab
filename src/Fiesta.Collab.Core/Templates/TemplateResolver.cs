@@ -12,7 +12,7 @@ public sealed class TemplateResolver
         Converters = { new JsonStringEnumConverter() }
     };
 
-    public const string TemplateFileName = "mimir.template.json";
+    public const string TemplateFileName = "fiesta.template.json";
 
     public static async Task<ProjectTemplate> LoadAsync(string projectDir, CancellationToken ct = default)
     {

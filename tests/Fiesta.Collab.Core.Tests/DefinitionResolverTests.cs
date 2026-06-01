@@ -40,7 +40,7 @@ public class DefinitionResolverTests
             ]
         };
 
-        var manifest = new MimirProject
+        var manifest = new FiestaProject
         {
             Tables = new()
             {
@@ -80,7 +80,7 @@ public class DefinitionResolverTests
             ]
         };
 
-        var manifest = new MimirProject
+        var manifest = new FiestaProject
         {
             Tables = new()
             {
@@ -107,7 +107,7 @@ public class DefinitionResolverTests
         try
         {
             // Place definitions file in parent
-            var defsPath = Path.Combine(parentDir, "mimir.definitions.json");
+            var defsPath = Path.Combine(parentDir, "fiesta.definitions.json");
             await File.WriteAllTextAsync(defsPath, """
             {
               "tables": { "TestTable": { "idColumn": "ID" } },

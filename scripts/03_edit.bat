@@ -4,7 +4,7 @@ REM  Edit example: modify data via SQL and save back to JSON
 REM  This uses the single-shot edit command.
 REM ============================================================
 
-set MIMIR=dotnet run --project ..\src\Mimir.Cli --
+set MIMIR=dotnet run --project ..\src\Fiesta.Collab.Cli --
 set PROJECT=..\test-project
 
 echo === Mimir Edit (single-shot) ===

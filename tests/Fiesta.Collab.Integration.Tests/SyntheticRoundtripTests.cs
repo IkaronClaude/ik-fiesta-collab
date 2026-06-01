@@ -29,7 +29,7 @@ public class SyntheticRoundtripTests : IAsyncLifetime
 
     // Pipeline results populated during InitializeAsync
     private ProjectTemplate _template = null!;
-    private MimirProject _manifest = null!;
+    private FiestaProject _manifest = null!;
 
     // Original file bytes for bit-equality checks (SHN + TXT)
     private readonly Dictionary<string, byte[]> _originalFileBytes = new();
@@ -311,9 +311,9 @@ public class SyntheticRoundtripTests : IAsyncLifetime
                 _originalFileBytes[$"env-b/{Path.GetRelativePath(_envBDir, file).Replace('\\', '/')}"] = await File.ReadAllBytesAsync(file);
         }
 
-        // --- Write mimir.json and environment configs ---
+        // --- Write fiesta.json and environment configs ---
         var projectService = _sp.GetRequiredService<IProjectService>();
-        var project = new MimirProject();
+        var project = new FiestaProject();
         await projectService.SaveProjectAsync(_projectDir, project);
         EnvironmentStore.Save(_projectDir, "env-a", new EnvironmentConfig { ImportPath = _envADir });
         EnvironmentStore.Save(_projectDir, "env-b", new EnvironmentConfig { ImportPath = _envBDir });

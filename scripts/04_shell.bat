@@ -18,7 +18,7 @@ REM    mimir> .save
 REM    mimir> .quit
 REM ============================================================
 
-set MIMIR=dotnet run --project ..\src\Mimir.Cli --
+set MIMIR=dotnet run --project ..\src\Fiesta.Collab.Cli --
 set PROJECT=..\test-project
 
 echo === Mimir Interactive Shell ===

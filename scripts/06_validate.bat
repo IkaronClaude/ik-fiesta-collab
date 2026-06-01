@@ -4,7 +4,7 @@ REM  Validate project against constraint rules
 REM  Checks FK references defined in mimir.constraints.json
 REM ============================================================
 
-set MIMIR=dotnet run --project ..\src\Mimir.Cli --
+set MIMIR=dotnet run --project ..\src\Fiesta.Collab.Cli --
 set PROJECT=..\test-project
 
 echo === Mimir Validate ===

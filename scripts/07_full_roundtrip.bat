@@ -11,10 +11,10 @@ REM    7. Build server env to SHN
 REM    8. Re-import built SHN to a fresh project
 REM    9. Verify change survived the round-trip
 REM
-REM  Requires: test-project/mimir.json with environments configured
+REM  Requires: test-project/fiesta.json with environments configured
 REM ============================================================
 
-set MIMIR=dotnet run --project ..\src\Mimir.Cli --
+set MIMIR=dotnet run --project ..\src\Fiesta.Collab.Cli --
 set PROJECT=..\test-project
 set BUILD_OUT=..\test-project\build
 set REIMPORT=..\reimport-project
@@ -53,9 +53,9 @@ echo.
 
 echo [8/9] Re-importing built server SHN to fresh project...
 if exist "%REIMPORT%" rmdir /s /q "%REIMPORT%"
-REM Create a single-env mimir.json for the reimport project
+REM Create a single-env fiesta.json for the reimport project
 mkdir "%REIMPORT%" 2>nul
-echo {"version":2,"environments":{"server":{"importPath":"..\\test-project\\build\\server"}},"tables":{}} > "%REIMPORT%\mimir.json"
+echo {"version":2,"environments":{"server":{"importPath":"..\\test-project\\build\\server"}},"tables":{}} > "%REIMPORT%\fiesta.json"
 %MIMIR% init-template "%REIMPORT%"
 %MIMIR% import "%REIMPORT%"
 echo.

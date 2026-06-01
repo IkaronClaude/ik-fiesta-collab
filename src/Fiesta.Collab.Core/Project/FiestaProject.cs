@@ -3,11 +3,11 @@ using System.Text.Json.Serialization;
 namespace Fiesta.Collab.Core.Project;
 
 /// <summary>
-/// The mimir.json project manifest. Tracks all table files in the project.
+/// The fiesta.json project manifest. Tracks all table files in the project.
 /// Schemas and data live in the individual table .json files.
 /// Environment config lives in environments/<name>.json files (see EnvironmentStore).
 /// </summary>
-public sealed class MimirProject
+public sealed class FiestaProject
 {
     [JsonPropertyName("version")]
     public int Version { get; init; } = 1;

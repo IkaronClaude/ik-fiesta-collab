@@ -14,7 +14,7 @@ public sealed class DefinitionResolver
         Converters = { new JsonStringEnumConverter() }
     };
 
-    public const string DefinitionsFileName = "mimir.definitions.json";
+    public const string DefinitionsFileName = "fiesta.definitions.json";
 
     public static async Task<ProjectDefinitions> LoadAsync(string projectDir, CancellationToken ct = default)
     {
@@ -51,7 +51,7 @@ public sealed class DefinitionResolver
     /// Resolves all constraint rules against the manifest, producing concrete
     /// (sourceTable, sourceColumn, targetTable, targetColumn, emptyValues) tuples.
     /// </summary>
-    public static List<ResolvedConstraint> Resolve(ProjectDefinitions definitions, MimirProject manifest)
+    public static List<ResolvedConstraint> Resolve(ProjectDefinitions definitions, FiestaProject manifest)
     {
         var resolved = new List<ResolvedConstraint>();
         var tables = definitions.Tables ?? [];

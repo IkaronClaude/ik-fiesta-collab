@@ -1,7 +1,0 @@
-# Exclude large directories from server-files that aren't needed at build time
-server-files/9Data/
-server-files/*.txt
-server-files/*.ini
-server-files/*.log
-server-files/*.bat
-server-files/*.cfg

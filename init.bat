@@ -12,11 +12,11 @@ echo.
 
 :: --- Locate mimir CLI ---
 :: Prefer a published/installed exe on PATH; fall back to dotnet run.
-set "MIMIR_CMD=mimir"
-where mimir >nul 2>&1
+set "MIMIR_CMD=fiesta"
+where fiesta >nul 2>&1
 if errorlevel 1 (
-    echo  [info] 'mimir' not found on PATH. Will use: dotnet run --project "%~dp0src/Mimir.Cli"
-    set "MIMIR_CMD=dotnet run --project "%~dp0src/Mimir.Cli" --"
+    echo  [info] 'mimir' not found on PATH. Will use: dotnet run --project "%~dp0src/Fiesta.Collab.Cli"
+    set "MIMIR_CMD=dotnet run --project "%~dp0src/Fiesta.Collab.Cli" --"
 )
 
 :: --- Project directory ---
@@ -25,8 +25,8 @@ if "!PROJ_DIR!"=="" ( echo ERROR: No project directory specified. & exit /b 1 )
 :: Strip trailing backslash
 if "!PROJ_DIR:~-1!"=="\" set "PROJ_DIR=!PROJ_DIR:~0,-1!"
 
-if exist "!PROJ_DIR!\mimir.json" (
-    echo  [info] mimir.json already exists at !PROJ_DIR! - skipping mimir init.
+if exist "!PROJ_DIR!\fiesta.json" (
+    echo  [info] fiesta.json already exists at !PROJ_DIR! - skipping mimir init.
     goto :env_setup
 )
 

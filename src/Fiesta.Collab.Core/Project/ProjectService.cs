@@ -13,17 +13,17 @@ public sealed class ProjectService : IProjectService
         Converters = { new JsonStringEnumConverter() }
     };
 
-    public const string ManifestFileName = "mimir.json";
+    public const string ManifestFileName = "fiesta.json";
 
-    public async Task<MimirProject> LoadProjectAsync(string projectDir, CancellationToken ct = default)
+    public async Task<FiestaProject> LoadProjectAsync(string projectDir, CancellationToken ct = default)
     {
         var path = Path.Combine(projectDir, ManifestFileName);
         await using var stream = File.OpenRead(path);
-        return await JsonSerializer.DeserializeAsync<MimirProject>(stream, JsonOptions, ct)
+        return await JsonSerializer.DeserializeAsync<FiestaProject>(stream, JsonOptions, ct)
                ?? throw new InvalidDataException($"Failed to deserialize {path}");
     }
 
-    public async Task SaveProjectAsync(string projectDir, MimirProject project, CancellationToken ct = default)
+    public async Task SaveProjectAsync(string projectDir, FiestaProject project, CancellationToken ct = default)
     {
         Directory.CreateDirectory(projectDir);
         var path = Path.Combine(projectDir, ManifestFileName);

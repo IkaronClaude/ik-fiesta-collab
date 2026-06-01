@@ -4,7 +4,7 @@ using Fiesta.Collab.Shn.Crypto;
 namespace Fiesta.Collab.Cli;
 
 /// <summary>
-/// Standalone SHN file inspector — reads and displays SHN files without a Mimir project.
+/// Standalone SHN file inspector — reads and displays SHN files without a fiesta project.
 /// Useful for diagnosing row order, schema, and fidelity issues.
 /// </summary>
 public static class ShnInspectCommand

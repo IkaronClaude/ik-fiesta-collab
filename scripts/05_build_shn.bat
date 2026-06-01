@@ -5,7 +5,7 @@ REM  Output goes to test-project\build\{env}\, preserving
 REM  original directory structure per environment.
 REM ============================================================
 
-set MIMIR=dotnet run --project ..\src\Mimir.Cli --
+set MIMIR=dotnet run --project ..\src\Fiesta.Collab.Cli --
 set PROJECT=..\test-project
 set OUTPUT=..\test-project\build
 

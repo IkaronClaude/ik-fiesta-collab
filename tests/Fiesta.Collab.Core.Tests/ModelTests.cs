@@ -138,7 +138,7 @@ public class ModelTests
         env.BuildPath.ShouldBe("./build/server");
     }
 
-    // --- EnvironmentConfig serialization (now stored in environments/<name>.json, not mimir.json) ---
+    // --- EnvironmentConfig serialization (now stored in environments/<name>.json, not fiesta.json) ---
 
     [Fact]
     public void EnvironmentConfig_SerializesCorrectly()
@@ -160,11 +160,11 @@ public class ModelTests
     }
 
     [Fact]
-    public void MimirProject_DoesNotContainEnvironments()
+    public void FiestaProject_DoesNotContainEnvironments()
     {
-        var project = new MimirProject { Version = 1 };
+        var project = new FiestaProject { Version = 1 };
         var json = JsonSerializer.Serialize(project, JsonOptions);
-        // environments are now stored in environments/<name>.json, not mimir.json
+        // environments are now stored in environments/<name>.json, not fiesta.json
         json.ShouldNotContain("\"environments\"");
     }
 

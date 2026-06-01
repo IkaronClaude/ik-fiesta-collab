@@ -261,7 +261,7 @@ public class RealWorldRoundtripTests
 
     // ==================== Pipeline ====================
 
-    private async Task<(MimirProject manifest, string buildDir, ServiceProvider sp)> RunFullPipeline()
+    private async Task<(FiestaProject manifest, string buildDir, ServiceProvider sp)> RunFullPipeline()
     {
         var rootDir = Path.Combine(Path.GetTempPath(), $"mimir-real-{Guid.NewGuid():N}");
         var projectDir = Path.Combine(rootDir, "project");
@@ -276,8 +276,8 @@ public class RealWorldRoundtripTests
         var providers = sp.GetServices<IDataProvider>().ToList();
         var logger = sp.GetRequiredService<ILogger<RealWorldRoundtripTests>>();
 
-        // Write mimir.json and environment configs
-        var project = new MimirProject();
+        // Write fiesta.json and environment configs
+        var project = new FiestaProject();
         await projectService.SaveProjectAsync(projectDir, project);
         EnvironmentStore.Save(projectDir, "server", new EnvironmentConfig { ImportPath = _serverPath! });
         EnvironmentStore.Save(projectDir, "client", new EnvironmentConfig { ImportPath = _clientPath! });

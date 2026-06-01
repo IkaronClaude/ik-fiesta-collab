@@ -25,7 +25,7 @@ public class SyntheticMultiPathTests : IAsyncLifetime
     private string _projectDir = null!;
     private string _buildDir = null!;
     private ServiceProvider _sp = null!;
-    private MimirProject _manifest = null!;
+    private FiestaProject _manifest = null!;
     private byte[] _primaryFileBytes = null!;
     private byte[] _deeperFileBytes = null!;
 
@@ -81,7 +81,7 @@ public class SyntheticMultiPathTests : IAsyncLifetime
 
         // Set up project
         var projectService = _sp.GetRequiredService<IProjectService>();
-        var project = new MimirProject();
+        var project = new FiestaProject();
         await projectService.SaveProjectAsync(_projectDir, project);
         EnvironmentStore.Save(_projectDir, "server", new EnvironmentConfig { ImportPath = _envDir });
 
