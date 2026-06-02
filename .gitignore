@@ -448,6 +448,6 @@ deploy/server-files/
 # .mimir-deploy.secret-keys IS committed (lists which secrets are required)
 .mimir-deploy.secrets
 
-# Internal working notes — not for public release (purged from history 2026-06-02)
-CLAUDE.md
-TRACKER.md
+# Internal working notes / scratch — not for public release
+# (CLAUDE.md + TRACKER.md were also purged from history 2026-06-02)
+claude/
