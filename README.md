@@ -96,7 +96,7 @@ CI builds + tests on every push and publishes the `fiesta` image to
 
 - [ik-fiesta-patch-server](https://github.com/IkaronClaude/ik-fiesta-patch-server) — pack/serve client patches from `build` output.
 - [ik-fiesta-collab-pipelines](https://github.com/IkaronClaude/ik-fiesta-collab-pipelines) — example JSON→SHN→deploy CI pipeline.
-- [fiesta-docker](https://github.com/IkaronClaude/fiesta-docker) — BYO Docker/k8s images for the server runtime + SQL + proxy.
+- [ik-fiesta-docker](https://github.com/IkaronClaude/ik-fiesta-docker) — BYO Docker/k8s images for the server runtime + SQL + proxy.
 
 ## License
 
