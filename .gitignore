@@ -447,3 +447,7 @@ deploy/server-files/
 # Mimir deploy secrets (local secret values — never commit)
 # .mimir-deploy.secret-keys IS committed (lists which secrets are required)
 .mimir-deploy.secrets
+
+# Internal working notes — not for public release (purged from history 2026-06-02)
+CLAUDE.md
+TRACKER.md
