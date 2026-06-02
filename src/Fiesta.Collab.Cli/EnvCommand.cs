@@ -4,8 +4,8 @@ using Fiesta.Collab.Core.Project;
 namespace Fiesta.Collab.Cli;
 
 /// <summary>
-/// Handles all mimir env &lt;name&gt; &lt;verb&gt; logic.
-/// Format: mimir env &lt;name|all&gt; &lt;verb&gt; [args...]
+/// Handles all fiesta env &lt;name&gt; &lt;verb&gt; logic.
+/// Format: fiesta env &lt;name|all&gt; &lt;verb&gt; [args...]
 /// Verbs: init (name only), set, get, list, remove
 /// </summary>
 public static class EnvCommand
@@ -31,7 +31,7 @@ public static class EnvCommand
             (c, v) => c.ImportPath = v),
 
         new("build-path",
-            "Output directory for mimir build. Default: build/<name>",
+            "Output directory for fiesta build. Default: build/<name>",
             c => c.BuildPath,
             (c, v) => c.BuildPath = v),
 
@@ -46,7 +46,7 @@ public static class EnvCommand
             (c, v) => c.DeployPath = v),
 
         new("passthrough",
-            "true/false. When true, mimir init-template adds copyFile actions for all non-table files under import-path. Automatically enabled for --type server.",
+            "true/false. When true, fiesta init-template adds copyFile actions for all non-table files under import-path. Automatically enabled for --type server.",
             c => c.Passthrough ? "true" : "false",
             (c, v) =>
             {
@@ -78,7 +78,7 @@ public static class EnvCommand
 
         if (tokens.Count == 1)
         {
-            // mimir env <name> — show list for that env (or all envs if "all")
+            // fiesta env <name> — show list for that env (or all envs if "all")
             if (envNameArg == "all")
             {
                 foreach (var n in EnvironmentStore.ListNames(projectDir))
@@ -98,7 +98,7 @@ public static class EnvCommand
         {
             if (envNameArg == "all")
             {
-                logger.LogError("'all' is not supported for init. Specify a name: mimir env <name> init");
+                logger.LogError("'all' is not supported for init. Specify a name: fiesta env <name> init");
                 return Task.CompletedTask;
             }
             DoInit(projectDir, envNameArg, rest, logger);
@@ -112,7 +112,7 @@ public static class EnvCommand
 
         if (envNameArg == "all" && targets.Count == 0)
         {
-            logger.LogWarning("No environments configured. Use: mimir env <name> init");
+            logger.LogWarning("No environments configured. Use: fiesta env <name> init");
             return Task.CompletedTask;
         }
 
@@ -137,7 +137,7 @@ public static class EnvCommand
     {
         if (EnvironmentStore.Exists(projectDir, envName))
         {
-            logger.LogError("Environment '{Name}' already exists. Use 'mimir env {Name} set' to modify it.", envName, envName);
+            logger.LogError("Environment '{Name}' already exists. Use 'fiesta env {Name} set' to modify it.", envName, envName);
             return;
         }
 
@@ -194,7 +194,7 @@ public static class EnvCommand
         logger.LogInformation("Created environment '{Name}'{Type}", envName, type != null ? $" (type: {type})" : "");
         if (deployPath != null)
             logger.LogInformation("  deploy-path       = {V}", deployPath);
-        logger.LogInformation("  import-path       = {V}", importPath ?? "(unset — use: mimir env {N} set import-path <path>)");
+        logger.LogInformation("  import-path       = {V}", importPath ?? "(unset — use: fiesta env {N} set import-path <path>)");
         logger.LogInformation("  build-path        = {V}", config.BuildPath);
         logger.LogInformation("  overrides-path    = {V}", config.OverridesPath);
         if (passthrough)
@@ -206,12 +206,12 @@ public static class EnvCommand
     {
         if (!EnvironmentStore.Exists(projectDir, envName))
         {
-            logger.LogError("Environment '{Name}' does not exist. Use 'mimir env {Name} init' first.", envName, envName);
+            logger.LogError("Environment '{Name}' does not exist. Use 'fiesta env {Name} init' first.", envName, envName);
             return;
         }
         if (args.Count < 2)
         {
-            logger.LogError("Usage: mimir env {Name} set <key> <value>", envName);
+            logger.LogError("Usage: fiesta env {Name} set <key> <value>", envName);
             return;
         }
 
@@ -248,7 +248,7 @@ public static class EnvCommand
         }
         if (args.Count < 1)
         {
-            logger.LogError("Usage: mimir env {Name} get <key>", envName);
+            logger.LogError("Usage: fiesta env {Name} get <key>", envName);
             return;
         }
 
@@ -270,7 +270,7 @@ public static class EnvCommand
         var config = exists ? EnvironmentStore.Load(projectDir, envName) : null;
 
         var keyWidth = Properties.Max(p => p.Key.Length);
-        Console.WriteLine($"[{envName}]{(exists ? "" : "  (not configured — run: mimir env " + envName + " init)")}");
+        Console.WriteLine($"[{envName}]{(exists ? "" : "  (not configured — run: fiesta env " + envName + " init)")}");
         foreach (var prop in Properties)
         {
             var value = config != null ? (prop.Get(config) ?? "(unset)") : "(unset)";
@@ -293,7 +293,7 @@ public static class EnvCommand
 
     private static void PrintUsage(string projectDir)
     {
-        Console.WriteLine("Usage: mimir env <name|all> <verb> [args]");
+        Console.WriteLine("Usage: fiesta env <name|all> <verb> [args]");
         Console.WriteLine();
         Console.WriteLine("Verbs:");
         Console.WriteLine("  init [path] [--type server|client]  Create environment (init only, not all)");
@@ -317,7 +317,7 @@ public static class EnvCommand
         }
         else
         {
-            Console.WriteLine("No environments configured. Run: mimir env <name> init [importPath]");
+            Console.WriteLine("No environments configured. Run: fiesta env <name> init [importPath]");
         }
     }
 }

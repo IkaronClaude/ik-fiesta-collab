@@ -1057,9 +1057,9 @@ public class SyntheticRoundtripTests : IAsyncLifetime
     {
         var services = new ServiceCollection();
         services.AddLogging(b => b.SetMinimumLevel(LogLevel.Warning));
-        services.AddMimirCore();
-        services.AddMimirShn();
-        services.AddMimirTextTables();
+        services.AddFiestaCore();
+        services.AddFiestaShn();
+        services.AddFiestaTextTables();
         return services.BuildServiceProvider();
     }
 

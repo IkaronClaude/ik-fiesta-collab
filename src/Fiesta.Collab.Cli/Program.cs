@@ -13,10 +13,10 @@ using Fiesta.Collab.Sql;
 
 var services = new ServiceCollection();
 services.AddLogging(b => b.AddConsole().SetMinimumLevel(LogLevel.Information));
-services.AddMimirCore();
-services.AddMimirShn();
-services.AddMimirTextTables();
-services.AddMimirSql();
+services.AddFiestaCore();
+services.AddFiestaShn();
+services.AddFiestaTextTables();
+services.AddFiestaSql();
 
 var sp = services.BuildServiceProvider();
 
@@ -168,7 +168,7 @@ importCommand.SetHandler(async (DirectoryInfo? projectOpt, bool reimport) =>
     var allEnvs = EnvironmentStore.LoadAll(project.FullName);
     if (allEnvs.Count == 0)
     {
-        logger.LogError("No environments configured. Use: mimir env <name> init <importPath>");
+        logger.LogError("No environments configured. Use: fiesta env <name> init <importPath>");
         return;
     }
 
@@ -183,7 +183,7 @@ importCommand.SetHandler(async (DirectoryInfo? projectOpt, bool reimport) =>
     {
         if (envConfig.ImportPath == null)
         {
-            logger.LogWarning("Skipping environment {Env}: import-path not set. Use: mimir env {Env} set import-path <path>", envName, envName);
+            logger.LogWarning("Skipping environment {Env}: import-path not set. Use: fiesta env {Env} set import-path <path>", envName, envName);
             continue;
         }
         var sourceDir = new DirectoryInfo(envConfig.ImportPath);
@@ -555,7 +555,7 @@ buildCommand.SetHandler(async (DirectoryInfo? projectOpt, DirectoryInfo? outputO
         }
         else
         {
-            logger.LogError("Environment '{Env}' not found. Use 'mimir env {Env} init' to configure it.", envName, envName);
+            logger.LogError("Environment '{Env}' not found. Use 'fiesta env {Env} init' to configure it.", envName, envName);
             return;
         }
         envsToBuild[envName] = outputDir;
@@ -1013,7 +1013,7 @@ shellCommand.SetHandler(async (DirectoryInfo? projectOpt) =>
 
     while (true)
     {
-        Console.Write("mimir> ");
+        Console.Write("fiesta> ");
         var line = Console.ReadLine();
         if (line == null) break; // EOF
         line = line.Trim();
@@ -1149,7 +1149,7 @@ initTemplateCommand.SetHandler(async (DirectoryInfo? projectOpt, string[] passth
     var allEnvs = EnvironmentStore.LoadAll(project.FullName);
     if (allEnvs.Count == 0)
     {
-        logger.LogError("No environments configured. Use: mimir env <name> init <importPath>");
+        logger.LogError("No environments configured. Use: fiesta env <name> init <importPath>");
         return;
     }
 
@@ -1588,8 +1588,8 @@ static DirectoryInfo ResolveProjectOrExit(DirectoryInfo? provided, ILogger logge
         return new DirectoryInfo(found);
     }
 
-    Console.Error.WriteLine("error: not a mimir project (or any parent up to root: fiesta.json not found)");
-    Console.Error.WriteLine("hint: create a project with 'mimir init <name> --env server=<path>'");
+    Console.Error.WriteLine("error: not a fiesta project (or any parent up to root: fiesta.json not found)");
+    Console.Error.WriteLine("hint: create a project with 'fiesta init <name> --env server=<path>'");
     Environment.Exit(1);
     return null!; // unreachable
 }

@@ -6,7 +6,7 @@ namespace Fiesta.Collab.Shn;
 
 public static class ServiceCollectionExtensions
 {
-    public static IServiceCollection AddMimirShn(this IServiceCollection services)
+    public static IServiceCollection AddFiestaShn(this IServiceCollection services)
     {
         services.AddSingleton<IShnCrypto, ShnCrypto>();
         services.AddSingleton<IDataProvider, ShnDataProvider>();

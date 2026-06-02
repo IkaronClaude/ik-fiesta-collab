@@ -4,7 +4,7 @@ namespace Fiesta.Collab.Sql;
 
 public static class ServiceCollectionExtensions
 {
-    public static IServiceCollection AddMimirSql(this IServiceCollection services)
+    public static IServiceCollection AddFiestaSql(this IServiceCollection services)
     {
         services.AddTransient<ISqlEngine, SqlEngine>();
         return services;

@@ -5,8 +5,8 @@ namespace Fiesta.Collab.Core.Project;
 public sealed class EnvironmentConfig
 {
     /// <summary>
-    /// Explicit environment type: "server" or "client". Set via <c>mimir env &lt;name&gt; init --type</c>.
-    /// Determines valid operations (e.g. <c>mimir pack</c> requires type client).
+    /// Explicit environment type: "server" or "client". Set via <c>fiesta env &lt;name&gt; init --type</c>.
+    /// Determines valid operations (e.g. <c>fiesta pack</c> requires type client).
     /// </summary>
     [JsonPropertyName("type")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -30,7 +30,7 @@ public sealed class EnvironmentConfig
 
     /// <summary>
     /// Optional path to server binary files (exes, DLLs, GamigoZR, etc.) that live
-    /// outside the data directory. Separates "data Mimir builds" from "binaries Mimir
+    /// outside the data directory. Separates "data fiesta builds" from "binaries fiesta
     /// doesn't touch". Used by deploy scripts to locate binaries for the server image.
     /// Typically set to the server root (e.g. Z:/Server) while <c>buildPath</c> targets
     /// the 9Data subdir (e.g. build/server/9Data).
@@ -40,7 +40,7 @@ public sealed class EnvironmentConfig
     public string? DeployPath { get; set; }
 
     /// <summary>
-    /// When true, <c>mimir init-template</c> treats this environment as a passthrough
+    /// When true, <c>fiesta init-template</c> treats this environment as a passthrough
     /// source: all non-table files (binaries, config files, etc.) found under
     /// <c>importPath</c> are added as <c>copyFile</c> actions in the template so they
     /// are copied verbatim to build output. Automatically set for <c>--type server</c>.
@@ -50,8 +50,8 @@ public sealed class EnvironmentConfig
     public bool Passthrough { get; set; }
 
     /// <summary>
-    /// When true, <c>mimir import</c> seeds the pack baseline manifest from this
-    /// environment's importPath after each import, so that <c>mimir pack</c> only
+    /// When true, <c>fiesta import</c> seeds the pack baseline manifest from this
+    /// environment's importPath after each import, so that <c>fiesta pack</c> only
     /// distributes files that differ from the stock source. Set this on client envs;
     /// leave unset (false) for server envs that are never packed.
     /// </summary>

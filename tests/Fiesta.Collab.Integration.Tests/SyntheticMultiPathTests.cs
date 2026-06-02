@@ -386,8 +386,8 @@ public class SyntheticMultiPathTests : IAsyncLifetime
     {
         var services = new ServiceCollection();
         services.AddLogging(b => b.SetMinimumLevel(LogLevel.Warning));
-        services.AddMimirCore();
-        services.AddMimirShn();
+        services.AddFiestaCore();
+        services.AddFiestaShn();
         return services.BuildServiceProvider();
     }
 
