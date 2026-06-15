@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using Microsoft.Extensions.Logging.Abstractions;
 using Fiesta.Collab.Shn.Crypto;
 using Shouldly;
@@ -380,6 +381,122 @@ public class QuestDataProviderTests : IDisposable
         await _provider.WriteAsync(outputPath, tables);
 
         File.ReadAllBytes(outputPath).ShouldBe(originalBytes);
+    }
+
+    // ── Decoded-field tests (offsets are in the "data" frame = record offset − 2) ──
+
+    private static void SetU16(byte[] f, int off, ushort v) => BitConverter.GetBytes(v).CopyTo(f, off);
+
+    [Fact]
+    public async Task ReadAsync_DecodesStartNpc()
+    {
+        var fixedData = new byte[678];
+        BitConverter.GetBytes((ushort)1).CopyTo(fixedData, 2);  // QuestID
+        SetU16(fixedData, 28, 111);                             // StartNPC (record +30)
+
+        var path = WriteTempQuestFile("QuestData.shn", version: 6, quests: [MakeQuestRaw(fixedData, "", "", "")]);
+        var row = (await _provider.ReadAsync(path))[0].Rows[0];
+
+        row["StartNPC"].ShouldBe((ushort)111);
+    }
+
+    [Fact]
+    public async Task ReadAsync_DecodesMobs()
+    {
+        var fixedData = new byte[678];
+        BitConverter.GetBytes((ushort)1).CopyTo(fixedData, 2);
+        // mob[0] @ data+72: en=1, isNpc=1, id=29 (Julia), toKill=0, amt=0
+        int mo = 72;
+        fixedData[mo] = 1; fixedData[mo + 1] = 1; SetU16(fixedData, mo + 2, 29); fixedData[mo + 4] = 0; fixedData[mo + 5] = 0;
+        // mob[1] @ data+78: en=1, isNpc=0, id=500, toKill=1, amt=10
+        mo = 78;
+        fixedData[mo] = 1; fixedData[mo + 1] = 0; SetU16(fixedData, mo + 2, 500); fixedData[mo + 4] = 1; fixedData[mo + 5] = 10;
+
+        var path = WriteTempQuestFile("QuestData.shn", version: 6, quests: [MakeQuestRaw(fixedData, "", "", "")]);
+        var row = (await _provider.ReadAsync(path))[0].Rows[0];
+
+        var mobs = JsonDocument.Parse(row["Mobs"]!.ToString()!).RootElement;
+        mobs.GetArrayLength().ShouldBe(2);
+        mobs[0].GetProperty("IsNpc").GetBoolean().ShouldBeTrue();
+        mobs[0].GetProperty("Id").GetUInt16().ShouldBe((ushort)29);
+        mobs[1].GetProperty("Id").GetUInt16().ShouldBe((ushort)500);
+        mobs[1].GetProperty("ToKill").GetBoolean().ShouldBeTrue();
+        mobs[1].GetProperty("Amount").GetByte().ShouldBe((byte)10);
+    }
+
+    [Fact]
+    public async Task ReadAsync_DecodesItemsAndRewards()
+    {
+        var fixedData = new byte[678];
+        BitConverter.GetBytes((ushort)1).CopyTo(fixedData, 2);
+        // item[0] @ data+102: en=1, type=5, id=3028, amt=10
+        int io = 102;
+        fixedData[io] = 1; fixedData[io + 1] = 5; SetU16(fixedData, io + 2, 3028); SetU16(fixedData, io + 4, 10);
+        // reward[0] @ data+514: Fixed EXP 1234
+        int ro = 514;
+        fixedData[ro] = 1; fixedData[ro + 1] = 0; BitConverter.GetBytes((ulong)1234).CopyTo(fixedData, ro + 4);
+        // reward[1] @ data+526: Choice Item id=777 count=1
+        ro = 526;
+        fixedData[ro] = 2; fixedData[ro + 1] = 2; SetU16(fixedData, ro + 4, 777); SetU16(fixedData, ro + 6, 1);
+
+        var path = WriteTempQuestFile("QuestData.shn", version: 6, quests: [MakeQuestRaw(fixedData, "", "", "")]);
+        var row = (await _provider.ReadAsync(path))[0].Rows[0];
+
+        var items = JsonDocument.Parse(row["Items"]!.ToString()!).RootElement;
+        items.GetArrayLength().ShouldBe(1);
+        items[0].GetProperty("Id").GetUInt16().ShouldBe((ushort)3028);
+        items[0].GetProperty("Amount").GetUInt16().ShouldBe((ushort)10);
+
+        var rewards = JsonDocument.Parse(row["Rewards"]!.ToString()!).RootElement;
+        rewards.GetArrayLength().ShouldBe(2);
+        rewards[0].GetProperty("Type").GetString().ShouldBe("Exp");
+        rewards[0].GetProperty("Amount").GetUInt64().ShouldBe(1234UL);
+        rewards[1].GetProperty("Method").GetString().ShouldBe("Choice");
+        rewards[1].GetProperty("ItemId").GetUInt16().ShouldBe((ushort)777);
+
+        row["ExpReward"].ShouldBe(1234UL);
+    }
+
+    [Fact]
+    public async Task ReadAsync_DecodedFields_DoNotBreakRoundTrip()
+    {
+        // Adding decoded columns must not affect byte-identical round-trip.
+        var fixedData = new byte[678];
+        BitConverter.GetBytes((ushort)5).CopyTo(fixedData, 2);
+        SetU16(fixedData, 28, 88);
+        var original = BuildQuestFile(version: 6, quests: [MakeQuestRaw(fixedData, "SAY 1 NPC\nACCEPT\nEND", "", "DONE\nEND")]);
+
+        var inputPath = Path.Combine(_tempDir, "QuestData.shn");
+        File.WriteAllBytes(inputPath, original);
+        var tables = await _provider.ReadAsync(inputPath);
+        var outputPath = Path.Combine(_tempDir, "QuestData_out.shn");
+        await _provider.WriteAsync(outputPath, tables);
+
+        File.ReadAllBytes(outputPath).ShouldBe(original);
+    }
+
+    // ── Real-file decode (BYO data: skipped unless the client file is present) ──
+
+    [Fact]
+    public async Task ReadAsync_RealClientFile_DecodesKnownQuests()
+    {
+        const string real = @"Z:/ClientProd2/ressystem/QuestData.shn";
+        if (!File.Exists(real))
+            return; // BYO data not mounted — skip (no real game files in the repo)
+
+        var rows = (await _provider.ReadAsync(real))[0].Rows;
+        rows.Count.ShouldBeGreaterThan(2000); // live client has 2304 quests
+
+        var q1 = rows.Single(r => Convert.ToUInt16(r["QuestID"]) == 1);
+        q1["StartNPC"].ShouldBe((ushort)111); // Element Helper Remi
+        ((string)q1["StartScript"]!).ShouldContain("ACCEPT");
+
+        var q2 = rows.Single(r => Convert.ToUInt16(r["QuestID"]) == 2);
+        q2["StartNPC"].ShouldBe((ushort)29); // Healer Julia
+        ((string)q2["FinishScript"]!).ShouldContain("LINK 3"); // chains to quest 3
+
+        var q8 = rows.Single(r => Convert.ToUInt16(r["QuestID"]) == 8);
+        q8["StartNPC"].ShouldBe((ushort)88); // Weapon Title Merchant Zach
     }
 
     // ── Helpers ──
