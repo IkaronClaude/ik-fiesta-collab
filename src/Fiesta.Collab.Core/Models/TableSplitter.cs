@@ -43,7 +43,8 @@ public static class TableSplitter
                 Name = outputName,
                 Type = col.Type,
                 Length = length,
-                SourceTypeCode = sourceTypeCode
+                SourceTypeCode = sourceTypeCode,
+                SourceName = col.SourceName
                 // No Environments — output is a clean non-merged table
             });
         }

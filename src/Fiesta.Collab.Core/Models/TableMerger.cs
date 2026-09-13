@@ -44,6 +44,7 @@ public static class TableMerger
                         Type = tCol.Type,
                         Length = tCol.Length,
                         SourceTypeCode = tCol.SourceTypeCode,
+                        SourceName = tCol.SourceName,
                         Environments = tCol.Environments // keep existing env annotations
                     });
                 }
@@ -56,6 +57,7 @@ public static class TableMerger
                         Type = tCol.Type,
                         Length = tCol.Length,
                         SourceTypeCode = tCol.SourceTypeCode,
+                        SourceName = tCol.SourceName,
                         Environments = tCol.Environments
                     });
 
@@ -66,6 +68,7 @@ public static class TableMerger
                         Type = sCol.Type,
                         Length = sCol.Length,
                         SourceTypeCode = sCol.SourceTypeCode,
+                        SourceName = sCol.SourceName,
                         Environments = [envName]
                     });
                     splitRenames[splitName] = tCol.Name;
@@ -80,6 +83,7 @@ public static class TableMerger
                     Type = tCol.Type,
                     Length = tCol.Length,
                     SourceTypeCode = tCol.SourceTypeCode,
+                        SourceName = tCol.SourceName,
                     Environments = tCol.Environments
                 });
             }
@@ -97,6 +101,7 @@ public static class TableMerger
                 Type = sCol.Type,
                 Length = sCol.Length,
                 SourceTypeCode = sCol.SourceTypeCode,
+                        SourceName = sCol.SourceName,
                 Environments = [envName]
             });
         }
@@ -271,6 +276,7 @@ public static class TableMerger
                     Type = sCol.Type,
                     Length = sCol.Length,
                     SourceTypeCode = sCol.SourceTypeCode,
+                        SourceName = sCol.SourceName,
                     Environments = [envName]
                 });
                 splitRenames[splitName] = colName;
