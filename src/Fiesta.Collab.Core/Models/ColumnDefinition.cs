@@ -22,6 +22,15 @@ public sealed class ColumnDefinition
     public int? SourceTypeCode { get; init; }
 
     /// <summary>
+    /// The exact column name in the source file when it differs from <see cref="Name"/> (SHN files carry
+    /// names like "R", " " or "" that get a generated Undefined{n} name). Null when identical.
+    /// Preserved for lossless round-tripping.
+    /// </summary>
+    [JsonPropertyName("sourceName")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? SourceName { get; init; }
+
+    /// <summary>
     /// Which environments this column belongs to.
     /// null = present in ALL environments (shared).
     /// ["server"] = server-only column.

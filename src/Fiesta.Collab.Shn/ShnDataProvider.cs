@@ -161,7 +161,8 @@ public sealed class ShnDataProvider : IDataProvider
                     Name = columnName,
                     Type = MapShnType(typeCode),
                     Length = length,
-                    SourceTypeCode = (int)typeCode
+                    SourceTypeCode = (int)typeCode,
+                    SourceName = columnName == name ? null : name
                 },
                 TypeCode = typeCode
             });
@@ -220,7 +221,7 @@ public sealed class ShnDataProvider : IDataProvider
     {
         foreach (var col in columns)
         {
-            string nameToWrite = col.Name.StartsWith("Undefined") ? " " : col.Name;
+            string nameToWrite = col.SourceName ?? (col.Name.StartsWith("Undefined") ? " " : col.Name);
             WritePaddedString(writer, nameToWrite, 48);
             writer.Write((uint)(col.SourceTypeCode ?? throw new InvalidOperationException(
                 $"Column {col.Name} missing SourceTypeCode, cannot write SHN")));
@@ -292,7 +293,7 @@ public sealed class ShnDataProvider : IDataProvider
         var buffer = reader.ReadBytes(length);
         int end = 0;
         while (end < length && buffer[end] != 0x00) end++;
-        return end > 0 ? ShnEncoding.GetString(buffer, 0, end) : string.Empty;
+        return end > 0 ? LosslessEucKr.GetString(buffer, 0, end) : string.Empty;
     }
 
     private static string ReadNullTerminatedString(BinaryReader reader)
@@ -302,14 +303,14 @@ public sealed class ShnDataProvider : IDataProvider
         int len = (int)(reader.BaseStream.Position - start - 1);
         if (len <= 0) return string.Empty;
         reader.BaseStream.Position = start;
-        var result = ShnEncoding.GetString(reader.ReadBytes(len));
+        var result = LosslessEucKr.GetString(reader.ReadBytes(len));
         reader.ReadByte(); // consume the null terminator
         return result;
     }
 
     private static void WritePaddedString(BinaryWriter writer, string value, int length)
     {
-        var bytes = ShnEncoding.GetBytes(value);
+        var bytes = LosslessEucKr.GetBytes(value);
         if (bytes.Length > length)
             throw new ArgumentOutOfRangeException(nameof(value),
                 $"String '{value}' ({bytes.Length} bytes) exceeds padded length {length}");
@@ -343,7 +344,7 @@ public sealed class ShnDataProvider : IDataProvider
 
     private static void WriteNullTerminatedString(BinaryWriter writer, string value, ref short varLength)
     {
-        var bytes = ShnEncoding.GetBytes(value);
+        var bytes = LosslessEucKr.GetBytes(value);
         writer.Write(bytes);
         writer.Write((byte)0x00);
         varLength += (short)bytes.Length; // extra bytes beyond the 1-byte column length
