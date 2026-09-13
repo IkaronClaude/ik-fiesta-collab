@@ -108,6 +108,15 @@ internal static class ShineTableFormatParser
                 continue;
             }
 
+            // #delimiter \x20 (some files spell it #delimeter): extra field separator besides tab
+            if (raw.StartsWith("#delimiter", StringComparison.OrdinalIgnoreCase) ||
+                raw.StartsWith("#delimeter", StringComparison.OrdinalIgnoreCase))
+            {
+                preprocessor.ParseDelimiter(raw);
+                i++;
+                continue;
+            }
+
             // Table start
             if (raw.StartsWith("#table", StringComparison.OrdinalIgnoreCase))
             {
@@ -126,7 +135,7 @@ internal static class ShineTableFormatParser
             // #RecordIn TABLE_NAME field1 field2... - file-level rows routed to a named table
             if (raw.StartsWith("#recordin", StringComparison.OrdinalIgnoreCase))
             {
-                var parts = SplitFields(raw);
+                var parts = SplitFields(raw, preprocessor);
                 if (parts.Length >= 2 && tablesByName.TryGetValue(parts[1], out var target))
                 {
                     var cols = target.Schema.Columns;
@@ -157,7 +166,7 @@ internal static class ShineTableFormatParser
     {
         // Parse #table line: "#table TableName" or "#table TableName ;comment"
         string tableLine = lines[startLine].Trim();
-        string[] tableParts = SplitFields(tableLine);
+        string[] tableParts = SplitFields(tableLine, preprocessor);
         string tableName = tableParts.Length > 1 ? tableParts[1] : "Unknown";
 
         List<ColumnDefinition>? columns = null;
@@ -184,14 +193,14 @@ internal static class ShineTableFormatParser
 
             if (lower.StartsWith("#columntype"))
             {
-                columnTypes = SplitFields(raw).Skip(1).ToList();
+                columnTypes = SplitFields(raw, preprocessor).Skip(1).ToList();
                 i++;
                 continue;
             }
 
             if (lower.StartsWith("#columnname"))
             {
-                columnNames = SplitFields(raw).Skip(1).ToList();
+                columnNames = SplitFields(raw, preprocessor).Skip(1).ToList();
                 i++;
                 continue;
             }
@@ -201,7 +210,7 @@ internal static class ShineTableFormatParser
                 // Build column definitions on first record if we haven't yet
                 columns ??= BuildColumns(columnTypes, columnNames);
 
-                var fields = SplitFields(raw).Skip(1).ToList();
+                var fields = SplitFields(raw, preprocessor).Skip(1).ToList();
                 var row = new Dictionary<string, object?>(columns.Count);
 
                 for (int c = 0; c < columns.Count && c < fields.Count; c++)
@@ -329,9 +338,10 @@ internal static class ShineTableFormatParser
     /// <summary>
     /// Split a line on tabs, trimming each field. Handles the tab-separated format.
     /// </summary>
-    private static string[] SplitFields(string line)
+    private static string[] SplitFields(string line, Preprocessor? preprocessor = null)
     {
-        // Fields are tab-separated. Strip inline comments (;)
+        // Fields are tab-separated, plus any #delimiter the file declares (NPC.txt: space). A quoted
+        // field is never split (Script tables quote multi-word dialogue). Strip inline comments (;).
         int commentIdx = -1;
         bool inQuote = false;
         for (int i = 0; i < line.Length; i++)
@@ -341,9 +351,23 @@ internal static class ShineTableFormatParser
         }
 
         string data = commentIdx >= 0 ? line[..commentIdx] : line;
-        return data.Split('\t', StringSplitOptions.RemoveEmptyEntries)
-                    .Select(f => f.Trim())
-                    .ToArray();
+        IReadOnlyList<char> extra = preprocessor?.Delimiters ?? [];
+        var fields = new List<string>();
+        var cur = new System.Text.StringBuilder();
+        inQuote = false;
+        foreach (char ch in data)
+        {
+            if (ch == '"') inQuote = !inQuote;
+            if (!inQuote && (ch == '\t' || extra.Contains(ch)))
+            {
+                if (cur.Length > 0) fields.Add(cur.ToString());
+                cur.Clear();
+                continue;
+            }
+            cur.Append(ch);
+        }
+        if (cur.Length > 0) fields.Add(cur.ToString());
+        return fields.Select(f => f.Trim()).Where(f => f.Length > 0).ToArray();
     }
 }
 
@@ -354,6 +378,23 @@ internal class Preprocessor
 {
     private readonly List<char> _ignoreChars = [];
     private readonly List<(string from, string to)> _exchanges = [];
+    private readonly List<char> _delimiters = [];
+
+    /// <summary>Field separators declared with #delimiter, in addition to tab.</summary>
+    public IReadOnlyList<char> Delimiters => _delimiters;
+
+    public void ParseDelimiter(string line)
+    {
+        // #delimiter \x20  -> space is a field separator too
+        var parts = line.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+        for (int i = 1; i < parts.Length; i++)
+        {
+            string token = parts[i];
+            if (token.StartsWith(';')) break;
+            char? ch = ParseEscape(token);
+            if (ch.HasValue && ch.Value != '\t') _delimiters.Add(ch.Value);
+        }
+    }
 
     public void ParseIgnore(string line)
     {
