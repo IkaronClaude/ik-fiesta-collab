@@ -269,17 +269,28 @@ public static class TableMerger
                 var splitName = $"{colName}__{envName}";
                 var sCol = sourceColMap[colName];
 
-                // Add split column definition
-                mergedColumns.Add(new ColumnDefinition
+                // Only ever once. A merge on a join key that is not unique matches a source row against
+                // several target rows and reaches this loop repeatedly for the same column; appending the
+                // definition again leaves two columns with one name, which every later ToDictionary over
+                // the schema throws on - at BUILD time, with a message that names neither table nor cause.
+                if (mergedColumns.Any(c => c.Name == splitName))
                 {
-                    Name = splitName,
-                    Type = sCol.Type,
-                    Length = sCol.Length,
-                    SourceTypeCode = sCol.SourceTypeCode,
+                    splitRenames[splitName] = colName;
+                }
+                else
+                {
+                    // Add split column definition
+                    mergedColumns.Add(new ColumnDefinition
+                    {
+                        Name = splitName,
+                        Type = sCol.Type,
+                        Length = sCol.Length,
+                        SourceTypeCode = sCol.SourceTypeCode,
                         SourceName = sCol.SourceName,
-                    Environments = [envName]
-                });
-                splitRenames[splitName] = colName;
+                        Environments = [envName]
+                    });
+                    splitRenames[splitName] = colName;
+                }
 
                 // Populate split column for all rows
                 for (int i = 0; i < mergedRows.Count; i++)

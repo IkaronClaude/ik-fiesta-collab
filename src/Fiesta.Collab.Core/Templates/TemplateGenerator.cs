@@ -133,6 +133,23 @@ public static class TemplateGenerator
         return new ProjectTemplate { Actions = actions };
     }
 
+    /// <summary>
+    /// Whether every row of the table carries a distinct, non-null value for this column.
+    ///
+    /// A table with no rows is unique: nothing violates it, and refusing to pair two schemas because one
+    /// side happens to be empty would split tables that merge perfectly well once they have data.
+    /// </summary>
+    private static bool IsUnique(TableFile t, string column)
+    {
+        var seen = new HashSet<string>();
+        foreach (var row in t.Data)
+        {
+            if (!row.TryGetValue(column, out var v) || v is null) return false;
+            if (!seen.Add(v.ToString() ?? "")) return false;
+        }
+        return true;
+    }
+
     private static string? FindJoinColumn(TableFile a, TableFile b)
     {
         var aColNames = a.Columns.Select(c => c.Name).ToHashSet();
@@ -144,26 +161,37 @@ public static class TemplateGenerator
         // and can differ between server and client.
         foreach (var candidate in UkCandidates)
         {
-            if (shared.Contains(candidate))
+            if (shared.Contains(candidate) && IsUnique(a, candidate) && IsUnique(b, candidate))
                 return candidate;
         }
 
         // Fall back to known numeric PK column names
         foreach (var candidate in PkCandidates)
         {
-            if (shared.Contains(candidate))
+            if (shared.Contains(candidate) && IsUnique(a, candidate) && IsUnique(b, candidate))
                 return candidate;
         }
 
         // Fall back to first shared UInt16/UInt32 column
         foreach (var col in a.Columns)
         {
-            if (shared.Contains(col.Name) && col.Type is ColumnType.UInt16 or ColumnType.UInt32)
+            if (shared.Contains(col.Name) && col.Type is ColumnType.UInt16 or ColumnType.UInt32
+                && IsUnique(a, col.Name) && IsUnique(b, col.Name))
                 return col.Name;
         }
 
-        // Fall back to first shared column
-        return shared.FirstOrDefault();
+        // Fall back to first shared column that can actually identify a row
+        foreach (var name in shared)
+        {
+            if (IsUnique(a, name) && IsUnique(b, name))
+                return name;
+        }
+
+        // Nothing identifies a row: the caller keeps both versions as separate tables, which is right.
+        // Joining on a repeated key matches one source row against several targets, which inflates the
+        // conflict count, appends each split column once per match and leaves a schema with duplicate
+        // column names that only fails later, in the build.
+        return null;
     }
 
     private static string? FindPrimaryKey(TableFile table)
