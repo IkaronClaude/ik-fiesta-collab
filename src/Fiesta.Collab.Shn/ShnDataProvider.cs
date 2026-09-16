@@ -159,7 +159,7 @@ public sealed class ShnDataProvider : IDataProvider
                 Definition = new ColumnDefinition
                 {
                     Name = columnName,
-                    Type = MapShnType(typeCode),
+                    Type = MapShnType(typeCode, length),
                     Length = length,
                     SourceTypeCode = (int)typeCode,
                     SourceName = columnName == name ? null : name
@@ -194,19 +194,17 @@ public sealed class ShnDataProvider : IDataProvider
 
             foreach (var col in columns)
             {
+                // Strings and floats are the only type-driven reads. Everything else is an integer of the
+                // width the HEADER declares, because the width is not a property of the type code: 29 is
+                // 8 bytes in the 2016 tables and 4 in the 2026 ones. An unrecognised code is read the same
+                // way rather than throwing - a numeric column of a known width can always be read, and
+                // refusing one means a newer client cannot be opened at all.
                 object value = col.TypeCode switch
                 {
-                    1 or 12 or 16 => reader.ReadByte(),
-                    2 => reader.ReadUInt16(),
-                    3 or 11 or 18 or 27 => reader.ReadUInt32(),
-                    5 => reader.ReadSingle(),
                     9 or 10 or 24 => ReadPaddedString(reader, col.Definition.Length),
-                    13 or 21 => reader.ReadInt16(),
-                    20 => reader.ReadSByte(),
-                    22 => reader.ReadInt32(),
                     26 => ReadNullTerminatedString(reader),
-                    29 => reader.ReadUInt64(),
-                    _ => throw new InvalidDataException($"Unknown SHN column type {col.TypeCode}")
+                    5 => reader.ReadSingle(),
+                    _ => ReadInteger(reader, col.Definition.Length, IsSigned(col.TypeCode), col.TypeCode)
                 };
                 row[col.Definition.Name] = value;
             }
@@ -215,6 +213,35 @@ public sealed class ShnDataProvider : IDataProvider
         }
 
         return rows;
+    }
+
+
+    /// <summary>Type codes whose values are signed; every other numeric code is unsigned.</summary>
+    private static bool IsSigned(uint typeCode) => typeCode is 13 or 20 or 21 or 22;
+
+    /// <summary>
+    /// A little-endian integer of exactly <paramref name="length"/> bytes, returned in the narrowest type
+    /// that holds it so values compare and round-trip as themselves.
+    /// </summary>
+    private static object ReadInteger(BinaryReader reader, int length, bool signed, uint typeCode)
+    {
+        if (length is <= 0 or > 8)
+            throw new InvalidDataException($"SHN column type {typeCode} has an unusable width of {length}");
+
+        var bytes = reader.ReadBytes(length);
+        if (bytes.Length != length)
+            throw new EndOfStreamException($"SHN column type {typeCode}: wanted {length} bytes, got {bytes.Length}");
+
+        ulong raw = 0;
+        for (var i = length - 1; i >= 0; i--) raw = (raw << 8) | bytes[i];
+
+        if (!signed)
+            return length switch { 1 => (byte)raw, 2 => (ushort)raw, <= 4 => (uint)raw, _ => raw };
+
+        // Sign-extend from the declared width.
+        var shift = 64 - length * 8;
+        var v = (long)(raw << shift) >> shift;
+        return length switch { 1 => (sbyte)v, 2 => (short)v, <= 4 => (int)v, _ => v };
     }
 
     private static void WriteColumns(BinaryWriter writer, IReadOnlyList<ColumnDefinition> columns)
@@ -320,18 +347,32 @@ public sealed class ShnDataProvider : IDataProvider
             writer.Write((byte)0);
     }
 
-    private static ColumnType MapShnType(uint typeCode) => typeCode switch
+    /// <summary>
+    /// The project column type for a SHN column. Strings and floats come from the type code; every other
+    /// column is an integer whose type follows the header's DECLARED WIDTH, because the width is not a
+    /// property of the code - 29 is 8 bytes in the 2016 tables and 4 in the 2026 ones.
+    ///
+    /// An unrecognised code maps by width too rather than throwing. Refusing one means a whole table is
+    /// lost (MobLoca died on "Unknown SHN type code 28"), and a numeric column of a known width is always
+    /// readable and writable.
+    /// </summary>
+    private static ColumnType MapShnType(uint typeCode, int length) => typeCode switch
     {
-        1 or 12 or 16 => ColumnType.Byte,
-        2 => ColumnType.UInt16,
-        3 or 11 or 18 or 27 => ColumnType.UInt32,
-        5 => ColumnType.Float,
         9 or 10 or 24 or 26 => ColumnType.String,
-        13 or 21 => ColumnType.Int16,
-        20 => ColumnType.SByte,
-        22 => ColumnType.Int32,
-        29 => ColumnType.UInt64,
-        _ => throw new InvalidDataException($"Unknown SHN type code {typeCode}")
+        5 => ColumnType.Float,
+        _ when IsSigned(typeCode) => length switch
+        {
+            1 => ColumnType.SByte,
+            2 => ColumnType.Int16,
+            _ => ColumnType.Int32,
+        },
+        _ => length switch
+        {
+            1 => ColumnType.Byte,
+            2 => ColumnType.UInt16,
+            <= 4 => ColumnType.UInt32,
+            _ => ColumnType.UInt64,
+        }
     };
 
     private static uint CalculateDefaultRecordLength(IReadOnlyList<ColumnDefinition> columns)
