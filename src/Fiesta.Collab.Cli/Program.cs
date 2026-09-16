@@ -463,6 +463,10 @@ importCommand.SetHandler(async (DirectoryInfo? projectOpt, bool reimport) =>
     logger.LogInformation("Import complete: {Total} tables ({Merged} merged, {Conflicts} conflicts)",
         manifest.Tables.Count, merged, totalConflicts);
 
+    // An import rebuilds data/ from the sources, so every edit made since the last one is gone unless it
+    // was recorded. Replaying them here is what makes re-importing safe.
+    await Fiesta.Collab.Cli.Migrations.RunAsync(project.FullName, sp, logger);
+
 
     static Dictionary<string, object>? ExtractFormatMetadata(Dictionary<string, object>? meta)
     {
@@ -896,10 +900,13 @@ validateCommand.SetHandler(async (DirectoryInfo? projectOpt) =>
 var editCommand = new Command("edit", "Run SQL to modify project data and save changes back to JSON");
 var editProjectOption = MakeProjectOption();
 var editSqlArg = new Argument<string>("sql", "SQL statement(s) to execute (UPDATE, INSERT, DELETE)");
+var editRecordOption = new Option<string?>("--record",
+    "Also record this SQL as migrations/NNNN-<slug>.sql, so a later import replays it");
 editCommand.AddOption(editProjectOption);
+editCommand.AddOption(editRecordOption);
 editCommand.AddArgument(editSqlArg);
 
-editCommand.SetHandler(async (DirectoryInfo? projectOpt, string sql) =>
+editCommand.SetHandler(async (DirectoryInfo? projectOpt, string sql, string? record) =>
 {
     var logger = sp.GetRequiredService<ILogger<Program>>();
     var project = ResolveProjectOrExit(projectOpt, logger);
@@ -964,7 +971,16 @@ editCommand.SetHandler(async (DirectoryInfo? projectOpt, string sql) =>
     logger.LogInformation("Saved {Count} tables back to project", saved);
     Console.WriteLine($"{affected} rows modified, {saved} tables saved.");
 
-}, editProjectOption, editSqlArg);
+    // Recorded only after the edit succeeded: a migration that was never applied cleanly is worse than
+    // no migration, because the next import would replay it as though it had been.
+    if (record != null)
+    {
+        var path = Fiesta.Collab.Cli.Migrations.NextPath(project.FullName, record);
+        File.WriteAllText(path, sql.TrimEnd() + Environment.NewLine);
+        logger.LogInformation("Recorded {Path}", Path.GetRelativePath(project.FullName, path));
+    }
+
+}, editProjectOption, editSqlArg, editRecordOption);
 
 // --- shell command (interactive SQL) ---
 var shellCommand = new Command("shell", "Interactive SQL shell against a fiesta project");
@@ -1372,7 +1388,25 @@ rootCommand.AddCommand(importCommand);
 rootCommand.AddCommand(reimportCommand);
 rootCommand.AddCommand(buildCommand);
 rootCommand.AddCommand(queryCommand);
+
+var migrateCommand = new Command("migrate", "Re-apply every migrations/*.sql to the project data, in filename order");
+var migrateProjectOpt = MakeProjectOption();
+migrateCommand.AddOption(migrateProjectOpt);
+migrateCommand.SetHandler(async (DirectoryInfo? projectOpt) =>
+{
+    var logger = sp.GetRequiredService<ILogger<Program>>();
+    var project = ResolveProjectOrExit(projectOpt, logger);
+    var files = Fiesta.Collab.Cli.Migrations.Files(project.FullName);
+    if (files.Count == 0)
+    {
+        Console.WriteLine("No migrations/*.sql to apply.");
+        return;
+    }
+    await Fiesta.Collab.Cli.Migrations.RunAsync(project.FullName, sp, logger);
+}, migrateProjectOpt);
+
 rootCommand.AddCommand(editCommand);
+rootCommand.AddCommand(migrateCommand);
 rootCommand.AddCommand(shellCommand);
 rootCommand.AddCommand(validateCommand);
 rootCommand.AddCommand(initTemplateCommand);

@@ -25,6 +25,21 @@ opaque blobs. The CLI command is **`fiesta`**.
 3. **Build** back to native server/client format per environment.
 4. **Validate** to catch broken references, orphans, and constraint violations.
 
+Import is the bootstrap, not a routine step — the JSON is the source of truth once it exists. When a
+re-import *is* needed (the upstream data moved, a template rule changed), record your edits so they
+survive it:
+
+```bash
+fiesta edit "UPDATE ItemInfo SET AC = 100 WHERE InxName = 'NoviceSword'" --record novicesword-ac
+# -> migrations/0001-novicesword-ac.sql, committed alongside data/
+
+fiesta import      # rebuilds data/ from the sources, then replays every migration
+fiesta migrate     # or replay them on their own
+```
+
+`migrations/*.sql` run in filename order, and a failing one stops the run rather than leaving later
+migrations applied to a state they were not written against.
+
 (To turn `build` output into client patches, or to deploy the result, see the two
 companion repos above.)
 
@@ -75,6 +90,7 @@ my-server/
 ├── fiesta.json            project manifest (the marker the CLI looks for)
 ├── fiesta.template.json   merge/copy rules across environments
 ├── data/                  the JSON tables — commit these
+├── migrations/*.sql       recorded edits, replayed after every import — commit these
 ├── environments/<env>.json
 └── build/                 generated SHN/txt output (gitignored)
 ```
