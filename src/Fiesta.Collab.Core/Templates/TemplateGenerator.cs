@@ -51,7 +51,16 @@ public static class TemplateGenerator
             foreach (var env in envsPresent.Skip(1))
             {
                 var otherTable = envVersions[env];
-                var joinCol = FindJoinColumn(firstTable, otherTable);
+
+                // Two environments can ship a file of the same name in entirely different FORMATS. 2016's
+                // QuestData.shn is a bespoke monolith; 2026's is an ordinary column-SHN of quest headers.
+                // They share an ID column, so a join looks available and produced one table carrying both
+                // schemas - including NameID from one and NameId from the other, which SQLite rejects
+                // outright ("duplicate column name: NameId") and which no build could have emitted anyway.
+                // Different formats are different tables; keep both.
+                var sameFormat = string.Equals(firstTable.Header.SourceFormat, otherTable.Header.SourceFormat,
+                                               StringComparison.OrdinalIgnoreCase);
+                var joinCol = sameFormat ? FindJoinColumn(firstTable, otherTable) : null;
 
                 if (joinCol != null)
                 {
