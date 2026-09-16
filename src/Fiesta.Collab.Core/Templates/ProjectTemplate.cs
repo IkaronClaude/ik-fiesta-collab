@@ -34,6 +34,18 @@ public sealed class TemplateAction
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? ColumnStrategy { get; init; }
 
+    /// <summary>
+    /// Rows that exist only in the source become part of the SHARED content rather than being tagged to
+    /// the source environment.
+    ///
+    /// The default (false) suits a round-trip project, where every environment must rebuild its own source
+    /// exactly. A content overlay wants the opposite: merging a newer client over an older one should make
+    /// its new rows part of the data every environment builds, not rows only the overlay can see.
+    /// </summary>
+    [JsonPropertyName("sharedRows")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? SharedRows { get; init; }
+
     // setPrimaryKey / setUniqueKey / annotateColumn / setForeignKey
     [JsonPropertyName("table")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

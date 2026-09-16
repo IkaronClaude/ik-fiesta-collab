@@ -276,7 +276,8 @@ importCommand.SetHandler(async (DirectoryInfo? projectOpt, bool reimport) =>
             var strategy = action.ColumnStrategy ?? "auto";
             var conflictStrategy = action.ConflictStrategy ?? "report";
             var targetEnvName = tableTargetEnvs.GetValueOrDefault(action.Into);
-            var result = TableMerger.Merge(target, source, action.On, action.From.Env, strategy, conflictStrategy, targetEnvName);
+            var result = TableMerger.Merge(target, source, action.On, action.From.Env, strategy, conflictStrategy,
+                                           targetEnvName, action.SharedRows ?? false);
             mergedTables[action.Into] = result.Table;
 
             // Accumulate env metadata

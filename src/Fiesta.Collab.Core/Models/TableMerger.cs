@@ -14,7 +14,8 @@ public static class TableMerger
         TableFile target, TableFile source,
         JoinClause on, string envName, string columnStrategy,
         string conflictStrategy = "report",
-        string? targetEnvName = null)
+        string? targetEnvName = null,
+        bool sharedRows = false)
     {
         var conflicts = new List<MergeConflict>();
         var envMetadata = new Dictionary<string, EnvMergeMetadata>();
@@ -257,7 +258,9 @@ public static class TableMerger
                 }
             }
             mergedRows.Add(row);
-            mergedRowEnvs.Add([envName]);
+            // null means "every environment". With sharedRows the source's new rows join the shared
+            // content instead of staying visible only to the environment they came from.
+            mergedRowEnvs.Add(sharedRows ? null : [envName]);
         }
 
         // --- Conflict column splitting (only when conflictStrategy == "split") ---
