@@ -247,4 +247,36 @@ public class SqlEngineTests : IDisposable
         Convert.ToInt64(extracted.Rows[0]["Flag"]).ShouldBe(-8);
         Convert.ToInt64(extracted.Rows[0]["Big"]).ShouldBe(uint.MaxValue);
     }
+
+    /// <summary>
+    /// A value too LARGE for the column type keeps its value too - the same rule as the sign, and it
+    /// applies to the signed types as well. Field.txt states CanParty 1000 against a BYTE, and a MobRegen
+    /// group's RangeDegree is 4294967295 against a DWRD, which these files declare as a signed 32-bit
+    /// column: wrapping turned a party cap of 1000 into 232 and that range into -1.
+    /// </summary>
+    [Fact]
+    public void LoadAndExtract_OutOfRangeValue_KeepsItsValue()
+    {
+        var columns = new List<ColumnDefinition>
+        {
+            new() { Name = "CanParty", Type = ColumnType.Byte, Length = 1 },
+            new() { Name = "RangeDegree", Type = ColumnType.Int32, Length = 4 },
+            new() { Name = "InRange", Type = ColumnType.Byte, Length = 1 },
+        };
+
+        var table = MakeTable("OutOfRange", columns,
+            new Dictionary<string, object?>
+            {
+                ["CanParty"] = 1000,
+                ["RangeDegree"] = 4294967295L,
+                ["InRange"] = (byte)200
+            });
+
+        _engine.LoadTable(table);
+        var extracted = _engine.ExtractTable(table.Schema);
+
+        Convert.ToInt64(extracted.Rows[0]["CanParty"]).ShouldBe(1000);
+        Convert.ToInt64(extracted.Rows[0]["RangeDegree"]).ShouldBe(4294967295L);
+        Convert.ToInt64(extracted.Rows[0]["InRange"]).ShouldBe(200);
+    }
 }

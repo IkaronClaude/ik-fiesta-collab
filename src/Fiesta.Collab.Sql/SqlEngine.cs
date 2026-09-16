@@ -372,7 +372,8 @@ public sealed class SqlEngine : ISqlEngine
         //
         // A value OUT OF RANGE for the column type is kept as it stands rather than wrapped. These
         // tables are written with values the declared type cannot hold - Field.txt states CanParty 1000
-        // against a BYTE, ExpRecalculation's ByLevelDiff starts at -150 against a WORD, and every NPC.txt
+        // against a BYTE, a MobRegen group's RangeDegree is 4294967295 against a DWRD, which the parser
+        // reads as Int32, ExpRecalculation's ByLevelDiff starts at -150 against a WORD, and every NPC.txt
         // facing that points that way is negative - and the 2016 loader wraps them itself. The parser
         // keeps what the file says on the way in; wrapping here on the way out threw it away again just
         // as permanently, so 1000 came back 232 and -150 came back 65386, and both were written back
@@ -391,10 +392,10 @@ public sealed class SqlEngine : ISqlEngine
             return type switch
             {
                 ColumnType.Byte => l is >= byte.MinValue and <= byte.MaxValue ? (byte)l : l,
-                ColumnType.SByte => (sbyte)l,
-                ColumnType.Int16 => (short)l,
+                ColumnType.SByte => l is >= sbyte.MinValue and <= sbyte.MaxValue ? (sbyte)l : l,
+                ColumnType.Int16 => l is >= short.MinValue and <= short.MaxValue ? (short)l : l,
                 ColumnType.UInt16 => l is >= ushort.MinValue and <= ushort.MaxValue ? (ushort)l : l,
-                ColumnType.Int32 => (int)l,
+                ColumnType.Int32 => l is >= int.MinValue and <= int.MaxValue ? (int)l : l,
                 ColumnType.UInt32 => l is >= uint.MinValue and <= uint.MaxValue ? (uint)l : l,
                 ColumnType.UInt64 => unchecked((ulong)l),
                 ColumnType.Float => (float)l,
