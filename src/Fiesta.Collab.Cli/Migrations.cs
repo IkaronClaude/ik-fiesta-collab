@@ -77,19 +77,34 @@ public static class Migrations
         {
             var schema = schemas[name];
             var extracted = engine.ExtractTable(schema);
+
+            // Row environments are positional. A migration that inserts, deletes or reorders rows makes the
+            // old list meaningless - writing it back would hand row 500's visibility to a different row.
+            // There is no way to re-derive it from SQL output, so when the count changes the annotations are
+            // dropped and every row becomes visible to every environment, which is what an unannotated
+            // table means anyway. Migrations that must keep rows environment-specific have to be written
+            // against a table whose row count they do not change.
+            var envs = rowEnvs.GetValueOrDefault(name);
+            if (envs != null && envs.Count != extracted.Rows.Count) envs = null;
+
             await projectService.WriteTableFileAsync(projectPath, entryPath, new TableFile
             {
                 Header = headers[name],
                 Columns = schema.Columns,
                 Data = extracted.Rows,
-                RowEnvironments = rowEnvs.GetValueOrDefault(name)
+                RowEnvironments = envs
             });
         }
         return affected;
     }
 
-    /// <summary>Apply every migration, in order. A failing one stops the run: later migrations are written
-    /// against the state the earlier ones produced, so continuing past a failure corrupts that state.</summary>
+    /// <summary>Apply every migration, in order, in ONE session.
+    ///
+    /// Migrations are written against the state the earlier ones produced, so they share a set of loaded
+    /// tables and are saved once at the end. Loading every table per migration would also be N x T work -
+    /// 31 migrations over 1,417 tables is 44,000 table loads to change a few thousand rows.
+    ///
+    /// A failing migration aborts the run and saves nothing, so a half-applied set never reaches disk.</summary>
     public static async Task RunAsync(string projectPath, IServiceProvider services, ILogger logger)
     {
         var files = Files(projectPath);
@@ -97,8 +112,30 @@ public static class Migrations
 
         var projectService = services.GetRequiredService<IProjectService>();
         var manifest = await projectService.LoadProjectAsync(projectPath);
-        logger.LogInformation("Applying {Count} migration(s)", files.Count);
+        using var engine = services.GetRequiredService<ISqlEngine>();
 
+        var headers = new Dictionary<string, TableHeader>();
+        var schemas = new Dictionary<string, TableSchema>();
+        var rowEnvs = new Dictionary<string, IReadOnlyList<List<string>?>?>();
+
+        foreach (var (name, entryPath) in manifest.Tables)
+        {
+            var tableFile = await projectService.ReadTableFileAsync(projectPath, entryPath);
+            var schema = new TableSchema
+            {
+                TableName = name,
+                SourceFormat = tableFile.Header.SourceFormat,
+                Columns = tableFile.Columns,
+                Metadata = tableFile.Header.Metadata
+            };
+            headers[name] = tableFile.Header;
+            schemas[name] = schema;
+            rowEnvs[name] = tableFile.RowEnvironments;
+            engine.LoadTable(new TableEntry { Schema = schema, Rows = tableFile.Data });
+        }
+
+        logger.LogInformation("Applying {Count} migration(s) to {Tables} tables", files.Count, manifest.Tables.Count);
+        var total = 0;
         foreach (var f in files)
         {
             var sql = File.ReadAllText(f);
@@ -106,17 +143,47 @@ public static class Migrations
             var name = Path.GetFileName(f);
             try
             {
-                using var engine = services.GetRequiredService<ISqlEngine>();
-                var affected = await ApplySqlAsync(projectPath, projectService, engine, manifest, sql);
+                var affected = engine.Execute(sql);
+                total += affected;
                 logger.LogInformation("  {File}: {Affected} row(s) affected", name, affected);
             }
             catch (Exception ex)
             {
                 logger.LogError("  {File}: FAILED - {Message}", name, ex.Message);
                 throw new InvalidOperationException(
-                    $"migration {name} failed; the project is left part-migrated. Fix the migration (or the " +
-                    $"data it expects) and run `fiesta migrate` again.", ex);
+                    $"migration {name} failed; nothing was saved. Fix the migration (or the data it " +
+                    $"expects) and run `fiesta migrate` again.", ex);
             }
         }
+
+        if (total == 0)
+        {
+            logger.LogInformation("No rows changed; nothing to save.");
+            return;
+        }
+
+        var saved = 0;
+        foreach (var (name, entryPath) in manifest.Tables)
+        {
+            var schema = schemas[name];
+            var extracted = engine.ExtractTable(schema);
+
+            // Row environments are positional. A migration that inserts, deletes or reorders rows makes the
+            // old list meaningless - writing it back would hand one row's visibility to another. It cannot
+            // be re-derived from SQL output, so when the count changes the annotations are dropped and every
+            // row becomes visible to every environment, which is what an unannotated table means anyway.
+            var envs = rowEnvs.GetValueOrDefault(name);
+            if (envs != null && envs.Count != extracted.Rows.Count) envs = null;
+
+            await projectService.WriteTableFileAsync(projectPath, entryPath, new TableFile
+            {
+                Header = headers[name],
+                Columns = schema.Columns,
+                Data = extracted.Rows,
+                RowEnvironments = envs
+            });
+            saved++;
+        }
+        logger.LogInformation("Migrations applied: {Total} row(s) affected, {Saved} tables saved", total, saved);
     }
 }
