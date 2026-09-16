@@ -370,6 +370,16 @@ public sealed class SqlEngine : ISqlEngine
 
         // SQLite returns Int64 for all integers - use unchecked casts to handle unsigned values.
         //
+        // A value OUT OF RANGE for the column type is kept as it stands rather than wrapped. These
+        // tables are written with values the declared type cannot hold - Field.txt states CanParty 1000
+        // against a BYTE, ExpRecalculation's ByLevelDiff starts at -150 against a WORD, and every NPC.txt
+        // facing that points that way is negative - and the 2016 loader wraps them itself. The parser
+        // keeps what the file says on the way in; wrapping here on the way out threw it away again just
+        // as permanently, so 1000 came back 232 and -150 came back 65386, and both were written back
+        // that way: a party cap of 232, a level-difference penalty turned into a huge positive number,
+        // and every negative-facing NPC turned around. A binary slot has no room for the excess, so the
+        // SHN writer wraps at the point of writing instead.
+        //
         // A NEGATIVE value keeps its sign even where the column type is unsigned. These tables are
         // written with negatives against a WORD column - ExpRecalculation's ByLevelDiff starts at -150,
         // and every NPC.txt facing is one - and the 2016 loader wraps them itself. The parser keeps the
@@ -380,12 +390,12 @@ public sealed class SqlEngine : ISqlEngine
         {
             return type switch
             {
-                ColumnType.Byte => l < 0 ? (sbyte)l : (byte)l,
+                ColumnType.Byte => l is >= byte.MinValue and <= byte.MaxValue ? (byte)l : l,
                 ColumnType.SByte => (sbyte)l,
                 ColumnType.Int16 => (short)l,
-                ColumnType.UInt16 => l < 0 ? (short)l : (ushort)l,
+                ColumnType.UInt16 => l is >= ushort.MinValue and <= ushort.MaxValue ? (ushort)l : l,
                 ColumnType.Int32 => (int)l,
-                ColumnType.UInt32 => l < 0 ? (int)l : unchecked((uint)l),
+                ColumnType.UInt32 => l is >= uint.MinValue and <= uint.MaxValue ? (uint)l : l,
                 ColumnType.UInt64 => unchecked((ulong)l),
                 ColumnType.Float => (float)l,
                 ColumnType.String => l.ToString(),

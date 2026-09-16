@@ -89,7 +89,10 @@ internal static class ShineTableFormatParser
     // a literal "-" written into it. A value that really is "-" still reads back as "-" and is unaffected.
     private static string FormatValue(object? val, ColumnType type)
     {
-        if (val is null or DBNull) return type == ColumnType.String ? "" : "0";
+        // An ABSENT value writes an empty field whatever the column type. A row that does not carry the
+        // column has no value to state, and "0" is a value: the 35 map rows Field.txt gains end at
+        // CanParty, and writing 0 into their CheckSum and Fiesta columns stated a checksum they never had.
+        if (val is null or DBNull) return "";
         if (val is JsonElement je) val = UnboxJsonElement(je);
         var s = val.ToString() ?? "";
         if (s.Length == 0) return type == ColumnType.String ? "" : "0";

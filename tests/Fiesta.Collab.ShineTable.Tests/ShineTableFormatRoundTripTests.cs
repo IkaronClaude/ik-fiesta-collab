@@ -81,8 +81,19 @@ public class ShineTableFormatRoundTripTests
         result.Rows[1]["Flag"].ShouldBe((byte)0);
     }
 
+    /// <summary>
+    /// An ABSENT value writes an empty field, whatever the column type - it does not become a default.
+    ///
+    /// A row that does not carry a column has no value to state, and "0" and "-" are values. Writing
+    /// them invented content: the 35 map rows Field.txt gains end at CanParty, and a 0 written into
+    /// their CheckSum and Fiesta columns stated a checksum those maps never had. A row whose values are
+    /// ALL absent therefore writes a blank record, which is exactly what the reference build holds - and
+    /// reading one back yields a row with no values, because an empty field carries nothing to read.
+    ///
+    /// A stored zero is not absent: it has a value and still writes "0". RoundTrip_ZeroValues covers that.
+    /// </summary>
     [Fact]
-    public void RoundTrip_NullValues_BecomeDefaults()
+    public void RoundTrip_AbsentValues_WriteEmptyFields()
     {
         var original = MakeTable("NullTest", AllTypesColumns,
             new Dictionary<string, object?>
@@ -96,16 +107,13 @@ public class ShineTableFormatRoundTripTests
             });
 
         var lines = ShineTableFormatParser.Write([original]);
+
+        var record = lines.Single(l => l.StartsWith("#record", StringComparison.OrdinalIgnoreCase));
+        record.Split('	').Skip(1).ShouldAllBe(f => f.Length == 0);
+
         var parsed = ShineTableFormatParser.Parse("Test.txt", lines.ToArray());
-
         parsed.Count.ShouldBe(1);
-        var row = parsed[0].Rows[0];
-
-        // Null numerics write as "0", null strings write as "-"
-        row["ID"].ShouldBe(0);
-        row["Name"].ShouldBe("-");
-        row["Count"].ShouldBe((ushort)0);
-        row["Flag"].ShouldBe((byte)0);
+        parsed[0].Rows[0].ShouldBeEmpty();
     }
 
     [Fact]
