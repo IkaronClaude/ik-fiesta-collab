@@ -83,12 +83,16 @@ internal static class ShineTableFormatParser
         _ => $"STRING[{col.Length}]"
     };
 
+    // An absent or empty string writes an EMPTY field, not a dash. Both mean "none" to the loader - the
+    // reader maps "-" and "" alike to nothing - but they are not the same text, and substituting the dash
+    // invented content the source never had: Scenario.txt ships Marlone14 with an empty ScrString and got
+    // a literal "-" written into it. A value that really is "-" still reads back as "-" and is unaffected.
     private static string FormatValue(object? val, ColumnType type)
     {
-        if (val is null or DBNull) return type == ColumnType.String ? "-" : "0";
+        if (val is null or DBNull) return type == ColumnType.String ? "" : "0";
         if (val is JsonElement je) val = UnboxJsonElement(je);
         var s = val.ToString() ?? "";
-        if (s.Length == 0) return type == ColumnType.String ? "-" : "0";
+        if (s.Length == 0) return type == ColumnType.String ? "" : "0";
         return s;
     }
 
@@ -383,16 +387,26 @@ internal static class ShineTableFormatParser
     {
         // Fields are tab-separated, plus any #delimiter the file declares (NPC.txt: space). A quoted
         // field is never split (Script tables quote multi-word dialogue). Strip inline comments (;).
+        //
+        // A ";" opens a comment only where it OPENS A FIELD - at the start of the line or straight after
+        // a delimiter, which is where every comment in these files actually sits. Treating one anywhere
+        // as a comment cut a mob's line off mid-sentence: MobChat ships "Flee if you are scared; you do
+        // not want me to catch you." unquoted, and the half after the semicolon was dropped on import
+        // and gone from everything written afterwards.
+        IReadOnlyList<char> extra = preprocessor?.Delimiters ?? [];
         int commentIdx = -1;
         bool inQuote = false;
+        bool atFieldStart = true;
         for (int i = 0; i < line.Length; i++)
         {
-            if (line[i] == '"') inQuote = !inQuote;
-            if (line[i] == ';' && !inQuote) { commentIdx = i; break; }
+            char c = line[i];
+            if (c == '"') inQuote = !inQuote;
+            if (c == ';' && !inQuote && atFieldStart) { commentIdx = i; break; }
+            if (!inQuote && (c == '	' || extra.Contains(c))) atFieldStart = true;
+            else if (c != ' ') atFieldStart = false;
         }
 
         string data = commentIdx >= 0 ? line[..commentIdx] : line;
-        IReadOnlyList<char> extra = preprocessor?.Delimiters ?? [];
         var fields = new List<string>();
         var cur = new System.Text.StringBuilder();
         inQuote = false;
