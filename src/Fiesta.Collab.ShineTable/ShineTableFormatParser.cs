@@ -357,13 +357,19 @@ internal static class ShineTableFormatParser
             };
         }
 
+        // A negative value keeps its sign. The column type says WORD, but these tables are written with
+        // negatives anyway - ExpRecalculation's ByLevelDiff starts at -150 - and the 2016 loader wraps them
+        // itself. Wrapping here instead threw the sign away permanently: -150 was stored as 65386 and
+        // written back as 65386, turning a level-difference penalty into a huge positive number. Storing
+        // the number the file states round-trips it and is what SQL should see.
         return type switch
         {
             ColumnType.Byte when byte.TryParse(field, out byte b) => b,
-            ColumnType.Byte when sbyte.TryParse(field, out sbyte sb) => unchecked((byte)sb),
+            ColumnType.Byte when sbyte.TryParse(field, out sbyte sb) => sb,
             ColumnType.UInt16 when ushort.TryParse(field, out ushort u) => u,
-            ColumnType.UInt16 when short.TryParse(field, out short sh) => unchecked((ushort)sh),
+            ColumnType.UInt16 when short.TryParse(field, out short sh) => sh,
             ColumnType.UInt32 when uint.TryParse(field, out uint u) => u,
+            ColumnType.UInt32 when int.TryParse(field, out int iv) => iv,
             ColumnType.Int32 when int.TryParse(field, out int v) => v,
             ColumnType.Float when float.TryParse(field, out float f) => f,
             _ => field
