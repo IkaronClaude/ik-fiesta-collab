@@ -97,6 +97,54 @@ public sealed class TemplateAction
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? OutputName { get; init; }
 
+    // createTable — a table no import source has; its rows arrive by migration
+    /// <summary>createTable: an existing table whose columns, format and directives the new one takes.</summary>
+    [JsonPropertyName("like")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Like { get; init; }
+
+    /// <summary>createTable: the file the new table is written to, e.g. <c>TevaL.txt</c>.</summary>
+    [JsonPropertyName("sourceFile")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? SourceFile { get; init; }
+
+    /// <summary>
+    /// createTable: the #Table section name inside that file, when it differs from the model's. One file
+    /// holds several sections - a MobRegen file holds MobRegenGroup and MobRegen both.
+    /// </summary>
+    [JsonPropertyName("sectionName")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? SectionName { get; init; }
+
+    // copyMapFiles — per-map client files, named after the MAP rather than the client's folder
+    /// <summary>
+    /// copyMapFiles: subdirectories of <see cref="FromPath"/> to look in, in order. A client sorts its
+    /// map folders into field, IDField, KDField and MHField, and which one a map lives in is not
+    /// recorded anywhere, so they are searched.
+    /// </summary>
+    [JsonPropertyName("searchDirs")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? SearchDirs { get; init; }
+
+    /// <summary>copyMapFiles: "Table.Column" naming the maps to copy for - the server's own map list.</summary>
+    [JsonPropertyName("mapsFrom")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? MapsFrom { get; init; }
+
+    /// <summary>
+    /// copyMapFiles: "Table.KeyColumn:FolderColumn" resolving a map name to the client folder that
+    /// holds its files - MapInfo.MapName:MapFolderName. The two differ often enough to matter: the map
+    /// FroTundra lives in Tunnel01, Rou_Val26 in Rou.
+    /// </summary>
+    [JsonPropertyName("foldersFrom")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? FoldersFrom { get; init; }
+
+    /// <summary>copyMapFiles: file extensions to take for each map, e.g. .shbd, .sbi, .aid.</summary>
+    [JsonPropertyName("extensions")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? Extensions { get; init; }
+
     // copyFile — copy a raw file verbatim from env source dir to build output
     [JsonPropertyName("env")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

@@ -337,6 +337,72 @@ importCommand.SetHandler(async (DirectoryInfo? projectOpt, bool reimport) =>
         }
     }
 
+    // Phase 2b: createTable — a table no source has.
+    //
+    // New content is not always an edit of something a source shipped. The 2026 maps need a MobRegen
+    // section each and the new merchants an NPCItemList, and none of those exist in the 2016 server, the
+    // 2016 client or the 2026 client, so no copy or merge can bring them into being - while a migration
+    // cannot reach a table that is not there. This makes the table from an existing one's shape, under a
+    // new name and writing to a new file, and leaves the rows to a migration.
+    foreach (var action in template.Actions.Where(a => a.Action == "createTable"))
+    {
+        if (action.Table == null || action.Like == null || action.Env == null)
+        {
+            logger.LogWarning("CreateTable: table, like and env are all required");
+            continue;
+        }
+        if (mergedTables.ContainsKey(action.Table))
+        {
+            logger.LogDebug("CreateTable: {Table} already exists, leaving it alone", action.Table);
+            continue;
+        }
+        if (!mergedTables.TryGetValue(action.Like, out var model))
+        {
+            logger.LogWarning("CreateTable: model table {Like} not found for {Table}",
+                action.Like, action.Table);
+            continue;
+        }
+
+        // The model's metadata carries where and how the file is written, so it is copied and only the
+        // parts that name THIS table are replaced. Anything the format needs that this code has never
+        // heard of comes along untouched, which is the point of cloning rather than constructing.
+        var meta = model.Header.Metadata == null
+            ? new Dictionary<string, object>()
+            : new Dictionary<string, object>(model.Header.Metadata);
+        if (action.SourceFile != null) meta["sourceFile"] = action.SourceFile;
+        if (action.SectionName != null) meta["tableName"] = action.SectionName;
+        meta["sourceOrigin"] = action.Env;
+
+        mergedTables[action.Table] = new TableFile
+        {
+            Header = new TableHeader
+            {
+                TableName = action.Table,
+                SourceFormat = model.Header.SourceFormat,
+                Metadata = meta
+            },
+            Columns = model.Columns,
+            Data = [],
+            RowEnvironments = []
+        };
+        tablesHandledByActions.Add(action.Table);
+
+        if (!allEnvMetadata.ContainsKey(action.Table)) allEnvMetadata[action.Table] = new();
+        allEnvMetadata[action.Table][action.Env] = new EnvMergeMetadata
+        {
+            ColumnOrder = model.Columns.Select(c => c.Name).ToList(),
+            ColumnOverrides = new(),
+            ColumnRenames = new(),
+            SourceRelDir = allEnvMetadata.TryGetValue(action.Like, out var lm)
+                           && lm.TryGetValue(action.Env, out var lme) ? lme.SourceRelDir : "",
+            OutputName = action.OutputName,
+            FormatMetadata = ExtractFormatMetadata(meta)
+        };
+
+        logger.LogInformation("CreateTable: {Table} like {Like} -> {File}",
+            action.Table, action.Like, action.SourceFile ?? "(model's file)");
+    }
+
     // Phase 3: Tables without merge actions — copy directly if only in one env
     var allTableNames = rawTables.Keys.Select(k => k.tableName).Distinct();
     foreach (var tableName in allTableNames)
@@ -718,6 +784,133 @@ buildCommand.SetHandler(async (DirectoryInfo? projectOpt, DirectoryInfo? outputO
         logger.LogInformation("Built {Count} files for {Env}", built, eName == "" ? "all" : eName);
 
         // Process copyFile actions — copy raw passthrough files (e.g. _ServerGroup.txt)
+        foreach (var action in template.Actions.Where(a => a.Action == "copyFile"))
+        {
+            if (action.Env == null || action.Path == null) continue;
+            // Only process for the matching env (or legacy "" mode = copy all)
+            if (eName != "" && action.Env != eName) continue;
+
+            if (!allEnvs.TryGetValue(action.Env, out var srcEnvConfig))
+            {
+                logger.LogWarning("CopyFile: environment '{Env}' not found", action.Env);
+                continue;
+            }
+
+            if (srcEnvConfig.ImportPath == null)
+            {
+                logger.LogWarning("CopyFile: environment '{Env}' has no import-path configured", action.Env);
+                continue;
+            }
+
+            var normalizedPath = action.Path.Replace('/', Path.DirectorySeparatorChar);
+            var srcFile = Path.Combine(srcEnvConfig.ImportPath, normalizedPath);
+            var destFile = Path.Combine(outputDir, normalizedPath);
+
+            if (!File.Exists(srcFile))
+            {
+                logger.LogWarning("CopyFile: source not found: {Path}", srcFile);
+                continue;
+            }
+
+            Directory.CreateDirectory(Path.GetDirectoryName(destFile)!);
+            File.Copy(srcFile, destFile, overwrite: true);
+            logger.LogInformation("CopyFile: {Path}", action.Path);
+        }
+
+        // copyMapFiles: per-map client files, named after the MAP rather than the client's folder.
+        //
+        // A map's walkability files live in the client under a folder name and the server wants them
+        // under the map name, and the two differ often enough to matter - FroTundra's grid is
+        // Tunnel01.shbd, Rou_Val26's is Rou.shbd, and Eld ships its own as lowercase eld.shbd. The map
+        // list and the folder mapping are read out of the project's tables, so a client that adds maps
+        // contributes their files next build, under the names the server looks for.
+        foreach (var action in template.Actions.Where(a => a.Action == "copyMapFiles"))
+        {
+            if (action.Env == null || action.FromPath == null) continue;
+            if (eName != "" && action.Env != eName) continue;
+            if (action.MapsFrom == null || action.FoldersFrom == null || action.Extensions == null)
+            {
+                logger.LogWarning("CopyMapFiles: mapsFrom, foldersFrom and extensions are all required");
+                continue;
+            }
+
+            var root = System.IO.Path.IsPathRooted(action.FromPath)
+                ? action.FromPath
+                : System.IO.Path.Combine(project.FullName, action.FromPath);
+            if (!Directory.Exists(root))
+            {
+                logger.LogWarning("CopyMapFiles: source directory not found: {Path}", root);
+                continue;
+            }
+
+            async Task<IReadOnlyList<Dictionary<string, object?>>> RowsOf(string table)
+            {
+                if (!manifest.Tables.TryGetValue(table, out var entryPath)) return [];
+                var tf = await projectService.ReadTableFileAsync(project.FullName, entryPath);
+                return tf.Data;
+            }
+
+            static (string Table, string A, string? B) Ref(string spec)
+            {
+                var dot = spec.IndexOf('.');
+                var rest = spec[(dot + 1)..];
+                var colon = rest.IndexOf(':');
+                return colon < 0
+                    ? (spec[..dot], rest, null)
+                    : (spec[..dot], rest[..colon], rest[(colon + 1)..]);
+            }
+
+            var mapsRef = Ref(action.MapsFrom);
+            var foldRef = Ref(action.FoldersFrom);
+
+            var maps = (await RowsOf(mapsRef.Table))
+                .Select(r => r.GetValueOrDefault(mapsRef.A)?.ToString())
+                .Where(v => !string.IsNullOrEmpty(v))
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+
+            var folders = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var r in await RowsOf(foldRef.Table))
+            {
+                var key = r.GetValueOrDefault(foldRef.A)?.ToString();
+                var val = r.GetValueOrDefault(foldRef.B!)?.ToString();
+                if (!string.IsNullOrEmpty(key) && !string.IsNullOrEmpty(val)) folders[key] = val;
+            }
+
+            var mapDest = action.To == null
+                ? outputDir
+                : System.IO.Path.Combine(outputDir, action.To.Replace('/', System.IO.Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(mapDest);
+            var dirs = action.SearchDirs is { Count: > 0 } ? action.SearchDirs : [""];
+
+            int copied = 0, noFolder = 0;
+            foreach (var map in maps)
+            {
+                if (!folders.TryGetValue(map!, out var folder)) { noFolder++; continue; }
+                foreach (var ext in action.Extensions)
+                {
+                    var dest = System.IO.Path.Combine(mapDest, map + ext);
+                    // A file the project already produced wins; this fills gaps. Checked case-sensitively
+                    // on purpose: eld.shbd sitting there is not Eld.shbd, and the server wants the latter.
+                    if (Directory.EnumerateFiles(mapDest, map + ext).Any(
+                            p => System.IO.Path.GetFileName(p).Equals(map + ext, StringComparison.Ordinal)))
+                        continue;
+                    foreach (var sub in dirs)
+                    {
+                        var src = System.IO.Path.Combine(root, sub, folder, folder + ext);
+                        if (!File.Exists(src)) continue;
+                        File.Copy(src, dest, overwrite: true);
+                        copied++;
+                        break;
+                    }
+                }
+            }
+            logger.LogInformation(
+                "CopyMapFiles: {Count} file(s) for {Maps} map(s) from {From} -> {To}{NoFolder}",
+                copied, maps.Count, root, action.To ?? ".",
+                noFolder > 0 ? $" ({noFolder} map(s) with no folder in {foldRef.Table})" : "");
+        }
+
         // copyFiles: a GLOB, evaluated now rather than enumerated when the template was generated, so a
         // client that adds maps contributes their files without anyone regenerating anything.
         foreach (var action in template.Actions.Where(a => a.Action == "copyFiles"))
@@ -757,39 +950,6 @@ buildCommand.SetHandler(async (DirectoryInfo? projectOpt, DirectoryInfo? outputO
             }
             logger.LogInformation("CopyFiles: {Count} file(s) from {From} ({Pattern}) -> {To}",
                 n, from, pattern, action.To ?? ".");
-        }
-
-        foreach (var action in template.Actions.Where(a => a.Action == "copyFile"))
-        {
-            if (action.Env == null || action.Path == null) continue;
-            // Only process for the matching env (or legacy "" mode = copy all)
-            if (eName != "" && action.Env != eName) continue;
-
-            if (!allEnvs.TryGetValue(action.Env, out var srcEnvConfig))
-            {
-                logger.LogWarning("CopyFile: environment '{Env}' not found", action.Env);
-                continue;
-            }
-
-            if (srcEnvConfig.ImportPath == null)
-            {
-                logger.LogWarning("CopyFile: environment '{Env}' has no import-path configured", action.Env);
-                continue;
-            }
-
-            var normalizedPath = action.Path.Replace('/', Path.DirectorySeparatorChar);
-            var srcFile = Path.Combine(srcEnvConfig.ImportPath, normalizedPath);
-            var destFile = Path.Combine(outputDir, normalizedPath);
-
-            if (!File.Exists(srcFile))
-            {
-                logger.LogWarning("CopyFile: source not found: {Path}", srcFile);
-                continue;
-            }
-
-            Directory.CreateDirectory(Path.GetDirectoryName(destFile)!);
-            File.Copy(srcFile, destFile, overwrite: true);
-            logger.LogInformation("CopyFile: {Path}", action.Path);
         }
 
         // Overrides: copy everything from overridesPath verbatim, winning over all other output
