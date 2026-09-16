@@ -13,6 +13,20 @@ internal static class ShineTableFormatParser
     {
         var lines = new List<string>();
 
+        // The preprocessor directives are file-level: every table parsed out of one file carries the same
+        // list, so they are emitted once, before the first #table, exactly as they were read.
+        var directives = tables.Select(DirectivesOf).FirstOrDefault(d => d.Length > 0) ?? [];
+        lines.AddRange(directives);
+
+        // Reading turned '#' into a space; writing has to turn it back, or a space-delimited row gains a
+        // field. Built from the same directive lines so the two directions cannot drift apart.
+        var encoder = new Preprocessor();
+        foreach (var d in directives)
+        {
+            if (d.StartsWith("#exchange", StringComparison.OrdinalIgnoreCase)) encoder.ParseExchange(d);
+            else if (d.StartsWith("#ignore", StringComparison.OrdinalIgnoreCase)) encoder.ParseIgnore(d);
+        }
+
         foreach (var table in tables)
         {
             var meta = table.Schema.Metadata;
@@ -28,7 +42,8 @@ internal static class ShineTableFormatParser
                 var fields = table.Schema.Columns.Select(col =>
                 {
                     var val = row.TryGetValue(col.Name, out var v) ? v : null;
-                    return FormatValue(val, col.Type);
+                    var text = FormatValue(val, col.Type);
+                    return col.Type == ColumnType.String ? encoder.Encode(text) : text;
                 });
                 lines.Add("#record\t" + string.Join('\t', fields));
             }
@@ -38,6 +53,20 @@ internal static class ShineTableFormatParser
 
         lines.Add("#End");
         return lines;
+    }
+
+    /// <summary>The raw preprocessor lines stored on a table by the parser, if any.</summary>
+    private static string[] DirectivesOf(TableEntry table)
+    {
+        if (table.Schema.Metadata?.TryGetValue("directives", out var d) != true) return [];
+        return d switch
+        {
+            string[] a => a,
+            IEnumerable<object> e => e.Select(x => ToStr(x)).Where(x => x.Length > 0).ToArray(),
+            JsonElement { ValueKind: JsonValueKind.Array } je =>
+                je.EnumerateArray().Select(x => x.GetString() ?? "").Where(x => x.Length > 0).ToArray(),
+            _ => [],
+        };
     }
 
     private static string MapTypeBack(ColumnDefinition col) => col.Type switch
@@ -97,6 +126,7 @@ internal static class ShineTableFormatParser
             if (raw.StartsWith("#ignore", StringComparison.OrdinalIgnoreCase))
             {
                 preprocessor.ParseIgnore(raw);
+                preprocessor.Remember(raw);
                 i++;
                 continue;
             }
@@ -104,6 +134,7 @@ internal static class ShineTableFormatParser
             if (raw.StartsWith("#exchange", StringComparison.OrdinalIgnoreCase))
             {
                 preprocessor.ParseExchange(raw);
+                preprocessor.Remember(raw);
                 i++;
                 continue;
             }
@@ -113,6 +144,7 @@ internal static class ShineTableFormatParser
                 raw.StartsWith("#delimeter", StringComparison.OrdinalIgnoreCase))
             {
                 preprocessor.ParseDelimiter(raw);
+                preprocessor.Remember(raw);
                 i++;
                 continue;
             }
@@ -241,7 +273,9 @@ internal static class ShineTableFormatParser
             {
                 ["sourceFile"] = Path.GetFileName(filePath),
                 ["tableName"] = tableName,
-                ["format"] = "table"
+                ["format"] = "table",
+                // Re-emitted by Write, and the source of the inverse #exchange it applies to every value.
+                ["directives"] = preprocessor.Directives.ToArray()
             }
         };
 
@@ -379,9 +413,31 @@ internal class Preprocessor
     private readonly List<char> _ignoreChars = [];
     private readonly List<(string from, string to)> _exchanges = [];
     private readonly List<char> _delimiters = [];
+    private readonly List<string> _directives = [];
 
     /// <summary>Field separators declared with #delimiter, in addition to tab.</summary>
     public IReadOnlyList<char> Delimiters => _delimiters;
+
+    /// <summary>
+    /// The directive lines exactly as they appeared, so a writer can re-emit them.
+    ///
+    /// Without these the round trip is lossy in a way that corrupts data rather than formatting: #exchange
+    /// declares how an embedded space is encoded (Sand#Beach), and a file written without the directive AND
+    /// without the encoding puts a literal space inside a field of a space-delimited table.
+    /// </summary>
+    public IReadOnlyList<string> Directives => _directives;
+
+    public void Remember(string line) => _directives.Add(line);
+
+    /// <summary>The inverse of <see cref="Apply"/>: space back to '#', for writing.</summary>
+    public string Encode(string value)
+    {
+        string result = value;
+        foreach (var (from, to) in _exchanges)
+            if (to.Length > 0)
+                result = result.Replace(to, from);
+        return result;
+    }
 
     public void ParseDelimiter(string line)
     {
