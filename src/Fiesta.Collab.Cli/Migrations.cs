@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Fiesta.Collab.Core.Models;
 using Fiesta.Collab.Core.Project;
 using Fiesta.Collab.Sql;
@@ -107,13 +108,49 @@ public static class Migrations
         if (a.Count != b.Count) return false;
         for (var i = 0; i < a.Count; i++)
             foreach (var c in schema.Columns)
-            {
-                var x = a[i].GetValueOrDefault(c.Name);
-                var y = b[i].GetValueOrDefault(c.Name);
-                if (x is null ? y is not null : !x.Equals(y)) return false;
-            }
+                if (!SameValue(a[i].GetValueOrDefault(c.Name), b[i].GetValueOrDefault(c.Name)))
+                    return false;
         return true;
     }
+
+    /// <summary>
+    /// Value equality across the type changes a SQLite round trip makes.
+    ///
+    /// A column read from JSON as an int comes back from the engine as a long, and JSON numbers arrive as
+    /// JsonElement, so object.Equals says "different" for values that are identical. That made SameData
+    /// false for essentially every table, which dropped the row-environment annotations of all 1,417 of
+    /// them on every migrate - AbState lost the annotations that keep 318 overlay-only rows out of the
+    /// server build, and came out at 1,095 rows against the server's 777.
+    /// </summary>
+    private static bool SameValue(object? x, object? y)
+    {
+        if (x is null || y is null) return x is null && y is null;
+        if (x is JsonElement jx) x = Unbox(jx);
+        if (y is JsonElement jy) y = Unbox(jy);
+        if (x is null || y is null) return x is null && y is null;
+
+        if (IsIntegral(x) && IsIntegral(y))
+            return Convert.ToInt64(x) == Convert.ToInt64(y);
+        if (IsNumeric(x) && IsNumeric(y))
+            return Convert.ToDouble(x).Equals(Convert.ToDouble(y));
+        return string.Equals(x.ToString(), y.ToString(), StringComparison.Ordinal);
+    }
+
+    private static object? Unbox(JsonElement je) => je.ValueKind switch
+    {
+        JsonValueKind.Number when je.TryGetInt64(out var l) => l,
+        JsonValueKind.Number => je.GetDouble(),
+        JsonValueKind.String => je.GetString(),
+        JsonValueKind.True => true,
+        JsonValueKind.False => false,
+        JsonValueKind.Null or JsonValueKind.Undefined => null,
+        _ => je.ToString()
+    };
+
+    private static bool IsIntegral(object v)
+        => v is byte or sbyte or short or ushort or int or uint or long or ulong;
+
+    private static bool IsNumeric(object v) => IsIntegral(v) || v is float or double or decimal;
 
     /// <summary>Apply every migration, in order, in ONE session.
     ///
