@@ -42,8 +42,9 @@ internal static class ShineTableFormatParser
                 var fields = table.Schema.Columns.Select(col =>
                 {
                     var val = row.TryGetValue(col.Name, out var v) ? v : null;
-                    var text = FormatValue(val, col.Type);
-                    return col.Type == ColumnType.String ? encoder.Encode(text) : text;
+                    // No re-encoding: the stored value is already in the file's own form, because reading
+                    // no longer decodes #exchange. See Preprocessor.Apply for why that has to be so.
+                    return FormatValue(val, col.Type);
                 });
                 lines.Add("#record\t" + string.Join('\t', fields));
             }
@@ -174,7 +175,7 @@ internal static class ShineTableFormatParser
                     var row = new Dictionary<string, object?>(cols.Count);
                     for (int c = 0; c < cols.Count && c + 2 < parts.Length; c++)
                     {
-                        string field = preprocessor.Apply(parts[c + 2]);
+                        string field = preprocessor.StripIgnored(parts[c + 2]);
                         row[cols[c].Name] = ConvertValue(field, cols[c].Type);
                     }
                     ((List<Dictionary<string, object?>>)target.Rows).Add(row);
@@ -247,7 +248,7 @@ internal static class ShineTableFormatParser
 
                 for (int c = 0; c < columns.Count && c < fields.Count; c++)
                 {
-                    string field = preprocessor.Apply(fields[c]);
+                    string field = preprocessor.StripIgnored(fields[c]);
                     row[columns[c].Name] = ConvertValue(field, columns[c].Type);
                 }
 
@@ -477,11 +478,28 @@ internal class Preprocessor
         }
     }
 
-    public string Apply(string value)
+    /// <summary>Remove the characters #ignore declares (quotes), keeping the value otherwise as written.</summary>
+    public string StripIgnored(string value)
     {
         string result = value;
         foreach (char c in _ignoreChars)
             result = result.Replace(c.ToString(), "");
+        return result;
+    }
+
+    /// <summary>
+    /// StripIgnored plus the #exchange substitution, i.e. the value as the SERVER finally sees it.
+    ///
+    /// Not used when reading a table. Whether a space is written literally or as '#' is a per-file habit,
+    /// not a rule - Field.txt writes Sand#Beach while Script/AdlF.txt writes "I don't think I can make it"
+    /// with real spaces, and neither declares anything that would let a writer tell them apart. Decoding on
+    /// read throws that away, and then no writer can put it back: encoding everything rewrote 51 script
+    /// files into I#don't#think#I#can#make#it, and encoding nothing rewrote Field.txt's Sand#Beach. Keeping
+    /// the value exactly as written round-trips both, and the exchange stays what it is - a loader concern.
+    /// </summary>
+    public string Apply(string value)
+    {
+        string result = StripIgnored(value);
         foreach (var (from, to) in _exchanges)
             result = result.Replace(from, to);
         return result;
