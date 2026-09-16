@@ -208,4 +208,43 @@ public class SqlEngineTests : IDisposable
         extracted.Rows[0]["S16"].ShouldBe((short)-1000);
         extracted.Rows[0]["S32"].ShouldBe(-99999);
     }
+
+    /// <summary>
+    /// A negative value against an UNSIGNED column survives the round trip.
+    ///
+    /// The shine .txt tables are written with negatives where the declared type is WORD or BYTE -
+    /// ExpRecalculation's ByLevelDiff starts at -150, every NPC.txt facing is one - and the 2016 loader
+    /// wraps them itself. Wrapping on the way out of SQLite threw the sign away as permanently as
+    /// wrapping on the way in did: -150 came back 65386 and was written back 65386, turning a
+    /// level-difference penalty into a huge positive number and re-facing every affected NPC.
+    /// Genuinely unsigned values above the signed range must still come back unsigned, so both are here.
+    /// </summary>
+    [Fact]
+    public void LoadAndExtract_NegativeAgainstUnsignedColumn_KeepsItsSign()
+    {
+        var columns = new List<ColumnDefinition>
+        {
+            new() { Name = "LevelDiff", Type = ColumnType.UInt16, Length = 2 },
+            new() { Name = "Facing", Type = ColumnType.UInt16, Length = 2 },
+            new() { Name = "Flag", Type = ColumnType.Byte, Length = 1 },
+            new() { Name = "Big", Type = ColumnType.UInt32, Length = 4 },
+        };
+
+        var table = MakeTable("SignedAgainstUnsigned", columns,
+            new Dictionary<string, object?>
+            {
+                ["LevelDiff"] = (short)-150,
+                ["Facing"] = (ushort)65474,
+                ["Flag"] = (sbyte)-8,
+                ["Big"] = uint.MaxValue
+            });
+
+        _engine.LoadTable(table);
+        var extracted = _engine.ExtractTable(table.Schema);
+
+        Convert.ToInt64(extracted.Rows[0]["LevelDiff"]).ShouldBe(-150);
+        Convert.ToInt64(extracted.Rows[0]["Facing"]).ShouldBe(65474);
+        Convert.ToInt64(extracted.Rows[0]["Flag"]).ShouldBe(-8);
+        Convert.ToInt64(extracted.Rows[0]["Big"]).ShouldBe(uint.MaxValue);
+    }
 }

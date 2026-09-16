@@ -353,28 +353,39 @@ public sealed class SqlEngine : ISqlEngine
             {
                 ColumnType.String => s,
                 ColumnType.Byte when byte.TryParse(s, out var b) => b,
+                ColumnType.Byte when sbyte.TryParse(s, out var sb2) => sb2,
                 ColumnType.SByte when sbyte.TryParse(s, out var sb) => sb,
                 ColumnType.Int16 when short.TryParse(s, out var i16) => i16,
                 ColumnType.UInt16 when ushort.TryParse(s, out var u16) => u16,
+                // same rule as the long branch: a negative against an unsigned column is kept, not wrapped
+                ColumnType.UInt16 when short.TryParse(s, out var s16) => s16,
                 ColumnType.Int32 when int.TryParse(s, out var i32) => i32,
                 ColumnType.UInt32 when uint.TryParse(s, out var u32) => u32,
+                ColumnType.UInt32 when int.TryParse(s, out var s32) => s32,
                 ColumnType.UInt64 when ulong.TryParse(s, out var u64) => u64,
                 ColumnType.Float when float.TryParse(s, out var f) => f,
                 _ => s
             };
         }
 
-        // SQLite returns Int64 for all integers - use unchecked casts to handle unsigned values
+        // SQLite returns Int64 for all integers - use unchecked casts to handle unsigned values.
+        //
+        // A NEGATIVE value keeps its sign even where the column type is unsigned. These tables are
+        // written with negatives against a WORD column - ExpRecalculation's ByLevelDiff starts at -150,
+        // and every NPC.txt facing is one - and the 2016 loader wraps them itself. The parser keeps the
+        // sign on the way in; wrapping it here on the way out threw it away again just as permanently,
+        // so -150 came back as 65386 and was written back as 65386, turning a level-difference penalty
+        // into a huge positive number and moving every NPC that faced a negative direction.
         if (value is long l)
         {
             return type switch
             {
-                ColumnType.Byte => (byte)l,
+                ColumnType.Byte => l < 0 ? (sbyte)l : (byte)l,
                 ColumnType.SByte => (sbyte)l,
                 ColumnType.Int16 => (short)l,
-                ColumnType.UInt16 => (ushort)l,
+                ColumnType.UInt16 => l < 0 ? (short)l : (ushort)l,
                 ColumnType.Int32 => (int)l,
-                ColumnType.UInt32 => unchecked((uint)l),
+                ColumnType.UInt32 => l < 0 ? (int)l : unchecked((uint)l),
                 ColumnType.UInt64 => unchecked((ulong)l),
                 ColumnType.Float => (float)l,
                 ColumnType.String => l.ToString(),

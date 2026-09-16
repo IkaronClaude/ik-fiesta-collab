@@ -391,11 +391,18 @@ public sealed class ShnDataProvider : IDataProvider
         varLength += (short)bytes.Length; // extra bytes beyond the 1-byte column length
     }
 
-    private static byte ConvertToByte(object? v) => v is JsonElement je ? je.ValueKind == JsonValueKind.String ? byte.Parse(je.GetString()!) : (byte)je.GetUInt32() : Convert.ToByte(v);
+    // A value may be held signed even where the column is unsigned: these tables are written with
+    // negatives against a WORD column (an NPC facing, a level difference), and the model keeps the sign
+    // so a .txt round trip can write it back as the file stated it. A binary slot has no sign to keep,
+    // so it wraps here, at the last moment - Convert.ToUInt16 would throw and GetUInt32 would too.
+    private static long AsLong(JsonElement je) => je.ValueKind == JsonValueKind.String
+        ? long.Parse(je.GetString()!) : je.TryGetInt64(out long l) ? l : (long)je.GetUInt64();
+
+    private static byte ConvertToByte(object? v) => v is JsonElement je ? unchecked((byte)AsLong(je)) : unchecked((byte)Convert.ToInt64(v));
     private static sbyte ConvertToSByte(object? v) => v is JsonElement je ? je.ValueKind == JsonValueKind.String ? sbyte.Parse(je.GetString()!) : (sbyte)je.GetInt32() : Convert.ToSByte(v);
-    private static ushort ConvertToUInt16(object? v) => v is JsonElement je ? je.ValueKind == JsonValueKind.String ? ushort.Parse(je.GetString()!) : (ushort)je.GetUInt32() : Convert.ToUInt16(v);
+    private static ushort ConvertToUInt16(object? v) => v is JsonElement je ? unchecked((ushort)AsLong(je)) : unchecked((ushort)Convert.ToInt64(v));
     private static short ConvertToInt16(object? v) => v is JsonElement je ? je.ValueKind == JsonValueKind.String ? short.Parse(je.GetString()!) : (short)je.GetInt32() : Convert.ToInt16(v);
-    private static uint ConvertToUInt32(object? v) => v is JsonElement je ? je.ValueKind == JsonValueKind.String ? uint.Parse(je.GetString()!) : je.GetUInt32() : Convert.ToUInt32(v);
+    private static uint ConvertToUInt32(object? v) => v is JsonElement je ? unchecked((uint)AsLong(je)) : unchecked((uint)Convert.ToInt64(v));
     private static int ConvertToInt32(object? v) => v is JsonElement je ? je.ValueKind == JsonValueKind.String ? int.Parse(je.GetString()!) : je.GetInt32() : Convert.ToInt32(v);
     private static float ConvertToSingle(object? v) => v is JsonElement je ? je.ValueKind == JsonValueKind.String ? float.Parse(je.GetString()!) : je.GetSingle() : Convert.ToSingle(v);
     private static ulong ConvertToUInt64(object? v) => v is JsonElement je ? je.ValueKind == JsonValueKind.String ? ulong.Parse(je.GetString()!) : je.GetUInt64() : Convert.ToUInt64(v);
