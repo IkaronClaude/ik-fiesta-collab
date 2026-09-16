@@ -222,9 +222,18 @@ importCommand.SetHandler(async (DirectoryInfo? projectOpt, bool reimport) =>
             var key = (action.From.Table, action.From.Env);
             if (rawTables.TryGetValue(key, out var raw))
             {
-                // Tag every row with the source env so that after a subsequent merge,
-                // target-only rows are correctly excluded from other envs at build time.
-                var taggedRowEnvs = Enumerable.Repeat<List<string>?>([action.From.Env], raw.Data.Count).ToList();
+                // Tag every row with the source env so that after a subsequent merge, target-only rows are
+                // correctly excluded from other envs at build time.
+                //
+                // sharedRows says the opposite: this copy seeds the SHARED content, so rows it brings in
+                // belong to every environment even when no other source happens to have them. A content
+                // overlay needs that - the 2016 client's ItemInfo carries 8,101 items that are in neither
+                // the 2026 client nor the 2016 server's own copy, and tagging them "client" kept every one
+                // of them out of the server build.
+                var seedShared = action.SharedRows ?? false;
+                var taggedRowEnvs = seedShared
+                    ? Enumerable.Repeat<List<string>?>(null, raw.Data.Count).ToList()
+                    : Enumerable.Repeat<List<string>?>([action.From.Env], raw.Data.Count).ToList();
                 mergedTables[action.To] = new TableFile
                 {
                     Header = raw.Header,
@@ -233,7 +242,9 @@ importCommand.SetHandler(async (DirectoryInfo? projectOpt, bool reimport) =>
                     RowEnvironments = taggedRowEnvs
                 };
                 tablesHandledByActions.Add(action.To);
-                tableTargetEnvs[action.To] = action.From.Env;
+                // Without a target env, a later merge leaves unmatched target rows shared rather than
+                // tagging them back to the copying environment.
+                if (!seedShared) tableTargetEnvs[action.To] = action.From.Env;
 
                 // Store base env column order and source path
                 if (!allEnvMetadata.ContainsKey(action.To))
