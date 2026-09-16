@@ -7,360 +7,371 @@ using Fiesta.Collab.Core.Providers;
 namespace Fiesta.Collab.Shn;
 
 /// <summary>
-/// Reads <c>QuestData.shn</c>, a bespoke quest-definition format that is NOT a
-/// standard column-SHN (the normal SHN crypto/parser throws on it). It is not
-/// encrypted; everything is little-endian and strings are EUC-KR (cp949).
+/// <c>QuestData.shn</c> exists in two unrelated formats, and which one you have depends on the client
+/// build, so this provider sniffs rather than assumes:
 ///
-/// File layout (reverse-engineered + validated against all 2304 quests of the
-/// live client — script-length sums equal the record size exactly and the file
-/// is consumed to EOF):
+///   <b>Monolith</b> (the 2016 build, client and server share the file) - a bespoke format that is NOT a
+///   column-SHN. The standard SHN parser throws on it. Not encrypted, little-endian, EUC-KR strings.
+///   <b>Columnar</b> (the 2026 build) - an ordinary 33-column SHN of quest headers, with the objectives,
+///   rewards and dialogue split into separate normalised tables.
 ///
-///   [0:2]  u16 marker/version (0x0006 on the live client)
-///   [2:4]  u16 questCount
-///   then questCount records, each:
-///     +0   u32 dataLength (whole record incl. this field; next = off + dataLength)
-///     +4   u16 QuestID            (matches the wire nQuestID)
-///     +16  u8  IsNeedLevel, +17 MinLevel, +18 MaxLevel (best-effort)
-///     +30  u16 StartNPC           (mobId of the giver NPC)
-///     +51  u8  Class              (0 = all classes; best-effort)
-///     +74  Mobs[5]  stride 6:  en u8, isNpc u8, id u16, toKill u8, amount u8
-///     +104 Items[10] stride 6:  en u8, type u8, id u16, amount u16
-///     +164 opaque item-data blob (mostly zero) up to +516
-///     +516 Rewards[12] stride 12: method u8 (0=Disabled,1=Fixed,2=Choice),
-///                                  type u8 (0=EXP,1=Money,2=Item,3=Fame), pad u16,
-///                                  then 8-byte payload — Item: {id u16, count u16, pad u32},
-///                                  otherwise an 8-byte amount (u64).
-///     +660 scriptLengths: StartLen u16, FinishLen u16, ActionLen u16 (note order!)
-///     +666 14-byte opaque scriptdata
-///     +680 scripts in this order: Start, Action, Finish — each EUC-KR and
-///          null-terminated (the terminator is counted in its declared length).
+/// Only the monolith is handled here. A columnar file is declined by <see cref="CanHandle"/> so the normal
+/// SHN provider takes it; that is the version detection, and it is done by reading the file, never by
+/// looking at a client version number or a path.
 ///
-/// NOTE the framing reads dataLength as a <see cref="ushort"/>: every live record
-/// is well under 64 KiB (max 1868 B), and the high two bytes of the u32 are zero,
-/// so they fall harmlessly into the head of <c>fixedData</c>. This keeps the
-/// fixed region a constant <see cref="FixedDataSize"/> bytes and lets the
-/// QuestID/StartNPC/etc. offsets below sit at (record offset − 2).
+/// MONOLITH LAYOUT. Taken from <c>QUEST_DATA</c> in Fiesta.pdb (compiler-computed offsets), not from
+/// hand-reverse-engineering, and validated by round-tripping the live file byte for byte:
 ///
-/// The decoded <c>Mobs</c>/<c>Items</c>/<c>Rewards</c> columns are emitted as
-/// compact JSON for queryability; the raw <c>FixedData</c> hex is retained so
-/// <see cref="WriteAsync"/> can round-trip the file byte-for-byte.
+///   file:   u16 marker (6), u16 questCount, then questCount records
+///   record: a 680-byte QUEST_DATA exactly as laid out in memory, then the three scripts back to back
 ///
-/// The Z:/QuestEditor reference tool (and its <c>QuestData Documentation.txt</c>)
-/// describe an OLDER revision with different offsets (StartNPC@20, fixed=616,
-/// 18-byte scriptdata) — do not trust those for this client.
+///     +0    u32 nQuestDataSize   whole record incl. this field; next = off + size
+///     +4    u16 ID               matches the wire nQuestID
+///     +8    u32 NameID           +12 u32 BrifingID    -> QuestDialog ids (u32, NOT u16)
+///     +16   u8  Region           (NOT a level field)
+///     +17   u8  Type   +18 Repeatable   +19 nDailyQuestType
+///     +24   StartCondition       the accept gate; each b* flag gates the field after it
+///     +88   EndCondition         the hand-in gate, and the objectives:
+///           +92  NPCMobList[5] stride 8     kill / find / talk targets
+///           +132 ItemList[5]    stride 6    collect targets
+///     +192  i32 NumOfActions     +196 Action[10] stride 32
+///     +516  Reward[12] stride 12
+///     +660  u16 SizeOfScriptStart, +662 u16 SizeOfScriptEnd, +664 u16 SizeOfScriptDoing
+///           (note End before Doing in the SIZE triple, while the DATA order is Start, Doing, End)
+///     +668  three dead char* script pointers - heap garbage on disk, preserved verbatim
+///     +680  scripts, each NUL-terminated with the terminator counted in its declared length
+///
+/// An earlier revision of this provider used a hand-RE'd table that is wrong for this client: it read
+/// dataLength as u16, put the level gate at +16 (that is Region), the objectives at +74 stride 6 (they are
+/// at +92 stride 8) and the items at +104 (they are at +132). The offsets below supersede it. The
+/// Z:/QuestEditor reference tool and its documentation describe a different, older revision again.
+///
+/// The queryable columns are decoded for SQL; <c>FixedData</c> keeps the whole 680-byte block so the file
+/// round-trips exactly, and edits to the decoded columns are written back over it on save.
 /// </summary>
 public sealed class QuestDataProvider : IDataProvider
 {
-    // ── Fixed region, measured in the "data" frame (record bytes after the
-    //    2-byte recordLength read), i.e. record offset − 2. ──
-    private const int FixedDataSize = 678;   // record fixed region 680 − 2
+    private const int FixedSize = 680;
+    private const ushort MonolithMarker = 6;
 
-    private const int QuestIdOffset = 2;     // record +4
-    private const int IsNeedLevelOffset = 14; // record +16
-    private const int MinLevelOffset = 15;   // record +17
-    private const int MaxLevelOffset = 16;   // record +18
-    private const int StartNpcOffset = 28;   // record +30
-    private const int ClassOffset = 49;      // record +51
+    // Head
+    private const int OffSize = 0, OffId = 4, OffNameId = 8, OffBrifingId = 12,
+                      OffRegion = 16, OffType = 17, OffRepeatable = 18, OffDailyType = 19;
+    // Nested structs
+    private const int OffStart = 24, OffEnd = 88, OffNumActions = 192, OffAction = 196, OffReward = 516;
+    // Within StartCondition
+    private const int StIsWaitListView = 0, StIsWaitListProgress = 1,
+                      StNeedsLevel = 2, StLevelMin = 3, StLevelMax = 4, StNeedsNpc = 5, StNpcId = 6;
+    // Within EndCondition
+    private const int EnNpcMobList = 4, EnItemList = 44;
+    private const int NpcMobStride = 8, NpcMobCount = 5, ItemStride = 6, ItemCount = 5;
+    private const int RewardStride = 12, RewardSlots = 12;
+    // Script sizes
+    private const int OffSizeStart = 660, OffSizeEnd = 662, OffSizeDoing = 664;
 
-    private const int MobsOffset = 72;       // record +74
-    private const int MobCount = 5;
-    private const int MobStride = 6;
-
-    private const int ItemsOffset = 102;     // record +104
-    private const int ItemCount = 10;
-    private const int ItemStride = 6;
-
-    private const int RewardsOffset = 514;   // record +516
-    private const int RewardCount = 12;
-    private const int RewardStride = 12;
-
-    private const int ScriptLenOffset = 658; // record +660 (Start, Finish, Action u16)
-
-    private static readonly Encoding EucKr;
-    private static readonly JsonSerializerOptions JsonOpts = new()
-    {
-        WriteIndented = false,
-        Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() }
-    };
-
-    static QuestDataProvider()
-    {
-        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
-        EucKr = Encoding.GetEncoding(949);
-    }
+    private static readonly Encoding Cp949 = CodePagesEncodingProvider.Instance.GetEncoding(949)
+                                             ?? Encoding.GetEncoding(949);
 
     private readonly ILogger<QuestDataProvider> _logger;
 
-    public QuestDataProvider(ILogger<QuestDataProvider> logger)
-    {
-        _logger = logger;
-    }
+    public QuestDataProvider(ILogger<QuestDataProvider> logger) => _logger = logger;
 
     public string FormatId => "questdata";
     public IReadOnlyList<string> SupportedExtensions => [".shn"];
 
+    /// <summary>True only for a monolith QuestData. A columnar one is left to the SHN provider.</summary>
     public bool CanHandle(string filePath)
     {
-        if (!Path.GetExtension(filePath).Equals(".shn", StringComparison.OrdinalIgnoreCase))
+        if (!Path.GetExtension(filePath).Equals(".shn", StringComparison.OrdinalIgnoreCase)) return false;
+        if (!Path.GetFileNameWithoutExtension(filePath).Equals("QuestData", StringComparison.OrdinalIgnoreCase))
             return false;
-
-        if (!Path.GetFileNameWithoutExtension(filePath)
-                 .Equals("QuestData", StringComparison.OrdinalIgnoreCase))
+        try
+        {
+            return IsMonolith(File.ReadAllBytes(filePath), out _, out _);
+        }
+        catch (IOException)
+        {
             return false;
+        }
+    }
 
-        var fi = new FileInfo(filePath);
-        if (fi.Length < 8)
+    /// <summary>
+    /// Walks the record chain to decide the format. A marker check alone is not enough - the columnar file
+    /// begins with an encrypted header whose first bytes can be anything - so the records must actually
+    /// chain from the header to exactly the end of the file.
+    /// </summary>
+    private static bool IsMonolith(byte[] b, out int count, out string why)
+    {
+        count = 0;
+        why = "";
+        if (b.Length < 8) { why = "shorter than a header"; return false; }
+        if (BitConverter.ToUInt16(b, 0) != MonolithMarker)
+        {
+            why = $"marker 0x{BitConverter.ToUInt16(b, 0):x4}, not 0x{MonolithMarker:x4} - columnar or another format";
             return false;
+        }
+        int n = BitConverter.ToUInt16(b, 2);
+        if (n == 0) { why = "quest count 0"; return false; }
 
-        using var fs = File.OpenRead(filePath);
-        using var reader = new BinaryReader(fs);
-
-        ushort version = reader.ReadUInt16();
-        if (version == 0 || version > 100)
-            return false;
-
-        ushort questCount = reader.ReadUInt16();
-        if (questCount == 0)
-            return false;
-
-        // First record must have a reasonable length (fixed region + at least 3 null terminators)
-        ushort firstRecordLength = reader.ReadUInt16();
-        return firstRecordLength >= 100;
+        var off = 4;
+        for (var i = 0; i < n; i++)
+        {
+            if (off + FixedSize > b.Length) { why = $"record {i} runs past the end"; return false; }
+            var size = (int)BitConverter.ToUInt32(b, off + OffSize);
+            var scripts = BitConverter.ToUInt16(b, off + OffSizeStart)
+                        + BitConverter.ToUInt16(b, off + OffSizeEnd)
+                        + BitConverter.ToUInt16(b, off + OffSizeDoing);
+            if (size != FixedSize + scripts)
+            {
+                why = $"record {i} size {size} != 680 + scripts {scripts}";
+                return false;
+            }
+            off += size;
+        }
+        if (off != b.Length) { why = $"records end at {off}, file is {b.Length}"; return false; }
+        count = n;
+        return true;
     }
 
     public Task<IReadOnlyList<TableEntry>> ReadAsync(string filePath, CancellationToken ct = default)
     {
-        var tableName = Path.GetFileNameWithoutExtension(filePath);
-        _logger.LogDebug("Reading quest file {FilePath}", filePath);
+        var b = File.ReadAllBytes(filePath);
+        if (!IsMonolith(b, out var count, out var why))
+            throw new InvalidDataException($"{Path.GetFileName(filePath)} is not a monolith QuestData ({why})");
 
-        using var fs = File.OpenRead(filePath);
-        using var reader = new BinaryReader(fs);
-
-        ushort version = reader.ReadUInt16();
-        ushort questCount = reader.ReadUInt16();
+        _logger.LogDebug("Reading monolith QuestData {File}: {Count} quests", filePath, count);
 
         var columns = new List<ColumnDefinition>
         {
-            new() { Name = "QuestID", Type = ColumnType.UInt16, Length = 2 },
-            new() { Name = "StartNPC", Type = ColumnType.UInt16, Length = 2 },
-            new() { Name = "IsNeedLevel", Type = ColumnType.Byte, Length = 1 },
-            new() { Name = "MinLevel", Type = ColumnType.Byte, Length = 1 },
-            new() { Name = "MaxLevel", Type = ColumnType.Byte, Length = 1 },
-            new() { Name = "Class", Type = ColumnType.Byte, Length = 1 },
-            new() { Name = "ExpReward", Type = ColumnType.UInt64, Length = 8 },
-            new() { Name = "Mobs", Type = ColumnType.String, Length = 0 },
-            new() { Name = "Items", Type = ColumnType.String, Length = 0 },
-            new() { Name = "Rewards", Type = ColumnType.String, Length = 0 },
-            new() { Name = "FixedData", Type = ColumnType.String, Length = FixedDataSize * 2 },
-            new() { Name = "StartScript", Type = ColumnType.String, Length = 0 },
-            new() { Name = "InProgressScript", Type = ColumnType.String, Length = 0 },
-            new() { Name = "FinishScript", Type = ColumnType.String, Length = 0 }
+            Col("ID", ColumnType.UInt16, 2),
+            Col("NameID", ColumnType.UInt32, 4),
+            Col("BrifingID", ColumnType.UInt32, 4),
+            Col("Region", ColumnType.Byte, 1),
+            Col("Type", ColumnType.Byte, 1),
+            Col("Repeatable", ColumnType.Byte, 1),
+            Col("DailyType", ColumnType.Byte, 1),
+            Col("IsWaitListView", ColumnType.Byte, 1),
+            Col("IsWaitListProgress", ColumnType.Byte, 1),
+            Col("NeedsLevel", ColumnType.Byte, 1),
+            Col("LevelMin", ColumnType.Byte, 1),
+            Col("LevelMax", ColumnType.Byte, 1),
+            Col("NeedsNPC", ColumnType.Byte, 1),
+            Col("StartNPC", ColumnType.UInt16, 2),
+            Col("Objectives", ColumnType.String, 0),
+            Col("ItemObjectives", ColumnType.String, 0),
+            Col("Rewards", ColumnType.String, 0),
+            Col("FixedData", ColumnType.String, FixedSize * 2),
+            Col("StartScript", ColumnType.String, 0),
+            Col("DoingScript", ColumnType.String, 0),
+            Col("EndScript", ColumnType.String, 0),
         };
 
-        var rows = new List<Dictionary<string, object?>>(questCount);
-
-        for (int i = 0; i < questCount; i++)
+        var rows = new List<Dictionary<string, object?>>(count);
+        var off = 4;
+        for (var i = 0; i < count; i++)
         {
-            ushort recordLength = reader.ReadUInt16();
-            byte[] data = reader.ReadBytes(recordLength - 2);
+            var size = (int)BitConverter.ToUInt32(b, off + OffSize);
+            var fixedData = b[off..(off + FixedSize)];
 
-            // Fixed region is a constant size for this format version. Validate it
-            // against the script-length fields when those are populated (real data).
-            int fixedDataSize = FixedDataSize;
-            if (data.Length >= ScriptLenOffset + 6)
-            {
-                int sLen = U16(data, ScriptLenOffset);
-                int fLen = U16(data, ScriptLenOffset + 2);
-                int aLen = U16(data, ScriptLenOffset + 4);
-                int scriptTotal = sLen + aLen + fLen;
-                int derived = data.Length - scriptTotal;
-                if (scriptTotal > 0 && derived != FixedDataSize)
-                    _logger.LogWarning(
-                        "Quest {Index} fixed region {Derived} != expected {Expected} (unexpected QuestData version?)",
-                        i, derived, FixedDataSize);
-            }
-
-            byte[] fixedData = data[..fixedDataSize];
-            byte[] scriptBytes = data[fixedDataSize..];
-            var scripts = SplitNullTerminatedStrings(scriptBytes, 3);
-
-            ushort questId = U16(fixedData, QuestIdOffset);
-            ushort startNpc = U16(fixedData, StartNpcOffset);
-
-            var rewards = ReadRewards(fixedData);
-            ulong expReward = 0;
-            foreach (var r in rewards)
-                if (r.Type == RewardType.Exp) expReward += r.Amount;
+            // DATA order is Start, Doing, End; the SIZE triple is Start, End, Doing.
+            int sStart = BitConverter.ToUInt16(fixedData, OffSizeStart);
+            int sEnd = BitConverter.ToUInt16(fixedData, OffSizeEnd);
+            int sDoing = BitConverter.ToUInt16(fixedData, OffSizeDoing);
+            var p = off + FixedSize;
+            var start = Script(b, p, sStart); p += sStart;
+            var doing = Script(b, p, sDoing); p += sDoing;
+            var end = Script(b, p, sEnd);
 
             rows.Add(new Dictionary<string, object?>
             {
-                ["QuestID"] = questId,
-                ["StartNPC"] = startNpc,
-                ["IsNeedLevel"] = fixedData[IsNeedLevelOffset],
-                ["MinLevel"] = fixedData[MinLevelOffset],
-                ["MaxLevel"] = fixedData[MaxLevelOffset],
-                ["Class"] = fixedData[ClassOffset],
-                ["ExpReward"] = expReward,
-                ["Mobs"] = JsonSerializer.Serialize(ReadMobs(fixedData), JsonOpts),
-                ["Items"] = JsonSerializer.Serialize(ReadItems(fixedData), JsonOpts),
-                ["Rewards"] = JsonSerializer.Serialize(rewards, JsonOpts),
+                ["ID"] = BitConverter.ToUInt16(fixedData, OffId),
+                ["NameID"] = BitConverter.ToUInt32(fixedData, OffNameId),
+                ["BrifingID"] = BitConverter.ToUInt32(fixedData, OffBrifingId),
+                ["Region"] = fixedData[OffRegion],
+                ["Type"] = fixedData[OffType],
+                ["Repeatable"] = fixedData[OffRepeatable],
+                ["DailyType"] = fixedData[OffDailyType],
+                ["IsWaitListView"] = fixedData[OffStart + StIsWaitListView],
+                ["IsWaitListProgress"] = fixedData[OffStart + StIsWaitListProgress],
+                ["NeedsLevel"] = fixedData[OffStart + StNeedsLevel],
+                ["LevelMin"] = fixedData[OffStart + StLevelMin],
+                ["LevelMax"] = fixedData[OffStart + StLevelMax],
+                ["NeedsNPC"] = fixedData[OffStart + StNeedsNpc],
+                ["StartNPC"] = BitConverter.ToUInt16(fixedData, OffStart + StNpcId),
+                ["Objectives"] = JsonSerializer.Serialize(ReadObjectives(fixedData)),
+                ["ItemObjectives"] = JsonSerializer.Serialize(ReadItemObjectives(fixedData)),
+                ["Rewards"] = JsonSerializer.Serialize(ReadRewards(fixedData)),
                 ["FixedData"] = Convert.ToHexString(fixedData),
-                ["StartScript"] = scripts[0],
-                ["InProgressScript"] = scripts[1],
-                ["FinishScript"] = scripts[2]
+                ["StartScript"] = start,
+                ["DoingScript"] = doing,
+                ["EndScript"] = end,
             });
+            off += size;
         }
 
         var schema = new TableSchema
         {
-            TableName = tableName,
+            TableName = Path.GetFileNameWithoutExtension(filePath),
             SourceFormat = FormatId,
             Columns = columns,
             Metadata = new Dictionary<string, object>
             {
-                ["version"] = version,
-                ["fixedDataSize"] = FixedDataSize
+                ["questDataFormat"] = "monolith",
+                ["marker"] = MonolithMarker,
             }
         };
-
-        IReadOnlyList<TableEntry> result = [new TableEntry { Schema = schema, Rows = rows }];
-        return Task.FromResult(result);
+        return Task.FromResult<IReadOnlyList<TableEntry>>([new TableEntry { Schema = schema, Rows = rows }]);
     }
 
     public Task WriteAsync(string filePath, IReadOnlyList<TableEntry> tables, CancellationToken ct = default)
     {
-        var data = tables[0];
-        _logger.LogDebug("Writing quest file {FilePath}", filePath);
+        var table = tables[0];
+        using var ms = new MemoryStream();
+        using var w = new BinaryWriter(ms);
+        w.Write(MonolithMarker);
+        w.Write((ushort)table.Rows.Count);
 
-        var metadata = data.Schema.Metadata
-                       ?? throw new InvalidOperationException("Cannot write quest file without metadata (missing version)");
-
-        ushort version = GetMetadataUInt16(metadata, "version");
-
-        using var fs = File.Create(filePath);
-        using var writer = new BinaryWriter(fs);
-
-        writer.Write(version);
-        writer.Write((ushort)data.Rows.Count);
-
-        foreach (var row in data.Rows)
+        foreach (var row in table.Rows)
         {
-            var hexData = row["FixedData"]?.ToString()
-                          ?? throw new InvalidOperationException("FixedData is null");
-            byte[] fixedData = Convert.FromHexString(hexData);
+            var fixedData = Convert.FromHexString(Str(row, "FixedData") ?? "");
+            if (fixedData.Length != FixedSize)
+                throw new InvalidDataException(
+                    $"quest {row.GetValueOrDefault("ID")}: FixedData is {fixedData.Length} bytes, expected {FixedSize}");
 
-            // Patch QuestID into fixed data if the column value differs
-            ushort questId = ConvertToUInt16(row["QuestID"]);
-            BitConverter.GetBytes(questId).CopyTo(fixedData, QuestIdOffset);
+            // The decoded columns are what SQL edits, so they are written back over the raw block. Anything
+            // this provider does not decode keeps the bytes it was read with, which is what makes an
+            // untouched file round-trip exactly.
+            PutU16(fixedData, OffId, row, "ID");
+            PutU32(fixedData, OffNameId, row, "NameID");
+            PutU32(fixedData, OffBrifingId, row, "BrifingID");
+            PutU8(fixedData, OffRegion, row, "Region");
+            PutU8(fixedData, OffType, row, "Type");
+            PutU8(fixedData, OffRepeatable, row, "Repeatable");
+            PutU8(fixedData, OffDailyType, row, "DailyType");
+            PutU8(fixedData, OffStart + StIsWaitListView, row, "IsWaitListView");
+            PutU8(fixedData, OffStart + StIsWaitListProgress, row, "IsWaitListProgress");
+            PutU8(fixedData, OffStart + StNeedsLevel, row, "NeedsLevel");
+            PutU8(fixedData, OffStart + StLevelMin, row, "LevelMin");
+            PutU8(fixedData, OffStart + StLevelMax, row, "LevelMax");
+            PutU8(fixedData, OffStart + StNeedsNpc, row, "NeedsNPC");
+            PutU16(fixedData, OffStart + StNpcId, row, "StartNPC");
 
-            var s1 = EucKr.GetBytes(row["StartScript"]?.ToString() ?? "");
-            var s2 = EucKr.GetBytes(row["InProgressScript"]?.ToString() ?? "");
-            var s3 = EucKr.GetBytes(row["FinishScript"]?.ToString() ?? "");
+            var start = Bytes(Str(row, "StartScript"));
+            var doing = Bytes(Str(row, "DoingScript"));
+            var end = Bytes(Str(row, "EndScript"));
 
-            // Use actual byte length of FixedData — metadata value may belong to a different env
-            ushort recordLength = (ushort)(2 + fixedData.Length + s1.Length + 1 + s2.Length + 1 + s3.Length + 1);
+            BitConverter.GetBytes((ushort)start.Length).CopyTo(fixedData, OffSizeStart);
+            BitConverter.GetBytes((ushort)end.Length).CopyTo(fixedData, OffSizeEnd);
+            BitConverter.GetBytes((ushort)doing.Length).CopyTo(fixedData, OffSizeDoing);
+            BitConverter.GetBytes((uint)(FixedSize + start.Length + doing.Length + end.Length))
+                        .CopyTo(fixedData, OffSize);
 
-            writer.Write(recordLength);
-            writer.Write(fixedData);
-            writer.Write(s1);
-            writer.Write((byte)0);
-            writer.Write(s2);
-            writer.Write((byte)0);
-            writer.Write(s3);
-            writer.Write((byte)0);
+            w.Write(fixedData);
+            w.Write(start);
+            w.Write(doing);
+            w.Write(end);
         }
 
+        File.WriteAllBytes(filePath, ms.ToArray());
+        _logger.LogDebug("Wrote monolith QuestData {File}: {Count} quests", filePath, table.Rows.Count);
         return Task.CompletedTask;
     }
 
-    // ── Decoded sub-structures ──
+    // ---------------------------------------------------------------- decode helpers
 
-    public enum RewardMethod : byte { Disabled = 0, Fixed = 1, Choice = 2 }
-    public enum RewardType : byte { Exp = 0, Money = 1, Item = 2, Fame = 3 }
-
-    public sealed record QuestMob(bool IsNpc, ushort Id, bool ToKill, byte Amount);
-    public sealed record QuestItemReq(byte Type, ushort Id, ushort Amount);
-    public sealed record QuestReward(RewardMethod Method, RewardType Type, ushort ItemId, ushort ItemCount, ulong Amount);
-
-    private static List<QuestMob> ReadMobs(byte[] f)
+    private static List<Dictionary<string, object>> ReadObjectives(byte[] f)
     {
-        var list = new List<QuestMob>();
-        for (int m = 0; m < MobCount; m++)
+        var list = new List<Dictionary<string, object>>();
+        for (var i = 0; i < NpcMobCount; i++)
         {
-            int o = MobsOffset + m * MobStride;
-            if (o + MobStride > f.Length || f[o] == 0) continue; // disabled
-            list.Add(new QuestMob(f[o + 1] != 0, U16(f, o + 2), f[o + 4] != 0, f[o + 5]));
+            var o = OffEnd + EnNpcMobList + i * NpcMobStride;
+            if (f[o] == 0) continue;
+            list.Add(new Dictionary<string, object>
+            {
+                ["NPCMobID"] = BitConverter.ToUInt16(f, o + 2),
+                ["Action"] = f[o + 4],       // 0 turn-in NPC, 1 kill, 2 find, 3 talk
+                ["Count"] = f[o + 5],
+                ["TargetGroup"] = f[o + 6],
+            });
         }
         return list;
     }
 
-    private static List<QuestItemReq> ReadItems(byte[] f)
+    private static List<Dictionary<string, object>> ReadItemObjectives(byte[] f)
     {
-        var list = new List<QuestItemReq>();
-        for (int it = 0; it < ItemCount; it++)
+        var list = new List<Dictionary<string, object>>();
+        for (var i = 0; i < ItemCount; i++)
         {
-            int o = ItemsOffset + it * ItemStride;
-            if (o + ItemStride > f.Length || f[o] == 0) continue; // disabled
-            list.Add(new QuestItemReq(f[o + 1], U16(f, o + 2), U16(f, o + 4)));
+            var o = OffEnd + EnItemList + i * ItemStride;
+            if (f[o] == 0) continue;
+            list.Add(new Dictionary<string, object>
+            {
+                ["ItemID"] = BitConverter.ToUInt16(f, o + 2),
+                ["ItemLot"] = BitConverter.ToUInt16(f, o + 4),
+            });
         }
         return list;
     }
 
-    private static List<QuestReward> ReadRewards(byte[] f)
+    private static List<Dictionary<string, object>> ReadRewards(byte[] f)
     {
-        var list = new List<QuestReward>();
-        for (int r = 0; r < RewardCount; r++)
+        var list = new List<Dictionary<string, object>>();
+        for (var i = 0; i < RewardSlots; i++)
         {
-            int o = RewardsOffset + r * RewardStride;
-            if (o + RewardStride > f.Length) break;
-            var method = (RewardMethod)f[o];
-            var type = (RewardType)f[o + 1];
-            if (method == RewardMethod.Disabled) continue;
-            if (type == RewardType.Item)
-                list.Add(new QuestReward(method, type, U16(f, o + 4), U16(f, o + 6), 0));
+            var o = OffReward + i * RewardStride;
+            if (f[o] == 0) continue;      // Use: 0 disabled, 1 fixed, 2 choice
+            var type = f[o + 1];          // 0 exp, 1 money, 2 item, 3 fame
+            var r = new Dictionary<string, object> { ["Slot"] = i, ["Use"] = f[o], ["Type"] = type };
+            if (type == 2)
+            {
+                r["ItemID"] = BitConverter.ToUInt16(f, o + 4);
+                r["ItemLot"] = BitConverter.ToUInt16(f, o + 6);
+            }
             else
-                list.Add(new QuestReward(method, type, 0, 0, BitConverter.ToUInt64(f, o + 4)));
+            {
+                r["Amount"] = BitConverter.ToUInt32(f, o + 4);
+            }
+            list.Add(r);
         }
         return list;
     }
 
-    private static ushort U16(byte[] b, int o) => (ushort)(b[o] | (b[o + 1] << 8));
+    private static string Script(byte[] b, int at, int len)
+        // The declared length includes the NUL terminator; the text is everything before it.
+        => len <= 0 ? "" : Cp949.GetString(b, at, Math.Max(0, len - 1));
 
-    private static List<string> SplitNullTerminatedStrings(byte[] data, int count)
+    private static byte[] Bytes(string? s)
     {
-        var result = new List<string>(count);
-        int offset = 0;
+        var body = Cp949.GetBytes(s ?? "");
+        var outp = new byte[body.Length + 1];   // re-add the terminator the length counts
+        body.CopyTo(outp, 0);
+        return outp;
+    }
 
-        for (int i = 0; i < count; i++)
+    private static ColumnDefinition Col(string name, ColumnType t, int len)
+        => new() { Name = name, Type = t, Length = len };
+
+    private static string? Str(Dictionary<string, object?> row, string name)
+        => row.GetValueOrDefault(name) switch
         {
-            int nullPos = Array.IndexOf(data, (byte)0, offset);
-            if (nullPos < 0)
-                nullPos = data.Length;
+            null => null,
+            JsonElement je => je.ValueKind == JsonValueKind.String ? je.GetString() : je.ToString(),
+            var v => v.ToString()
+        };
 
-            int len = nullPos - offset;
-            result.Add(len > 0 ? EucKr.GetString(data, offset, len) : string.Empty);
-            offset = nullPos + 1;
-        }
-
-        return result;
-    }
-
-    private static ushort GetMetadataUInt16(Dictionary<string, object> metadata, string key)
+    private static ulong Num(Dictionary<string, object?> row, string name)
     {
-        if (metadata.TryGetValue(key, out var val))
-        {
-            if (val is System.Text.Json.JsonElement je) return (ushort)je.GetUInt32();
-            return Convert.ToUInt16(val);
-        }
-        throw new InvalidOperationException($"Missing quest metadata key: {key}");
+        var v = row.GetValueOrDefault(name);
+        if (v is JsonElement je) return je.ValueKind == JsonValueKind.Number ? je.GetUInt64() : 0;
+        return v is null ? 0 : Convert.ToUInt64(v);
     }
 
-    private static ushort ConvertToUInt16(object? v)
-    {
-        if (v is System.Text.Json.JsonElement je)
-            return je.ValueKind == System.Text.Json.JsonValueKind.String
-                ? ushort.Parse(je.GetString()!)
-                : (ushort)je.GetUInt32();
-        return Convert.ToUInt16(v);
-    }
+    private static void PutU8(byte[] f, int at, Dictionary<string, object?> row, string name)
+        => f[at] = (byte)Num(row, name);
+
+    private static void PutU16(byte[] f, int at, Dictionary<string, object?> row, string name)
+        => BitConverter.GetBytes((ushort)Num(row, name)).CopyTo(f, at);
+
+    private static void PutU32(byte[] f, int at, Dictionary<string, object?> row, string name)
+        => BitConverter.GetBytes((uint)Num(row, name)).CopyTo(f, at);
 }
