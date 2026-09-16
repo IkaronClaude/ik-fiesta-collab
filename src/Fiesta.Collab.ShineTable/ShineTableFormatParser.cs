@@ -175,7 +175,7 @@ internal static class ShineTableFormatParser
                     var row = new Dictionary<string, object?>(cols.Count);
                     for (int c = 0; c < cols.Count && c + 2 < parts.Length; c++)
                     {
-                        string field = preprocessor.StripIgnored(parts[c + 2]);
+                        string field = parts[c + 2];   // stored exactly as written; see Preprocessor.Apply
                         row[cols[c].Name] = ConvertValue(field, cols[c].Type);
                     }
                     ((List<Dictionary<string, object?>>)target.Rows).Add(row);
@@ -248,7 +248,7 @@ internal static class ShineTableFormatParser
 
                 for (int c = 0; c < columns.Count && c < fields.Count; c++)
                 {
-                    string field = preprocessor.StripIgnored(fields[c]);
+                    string field = fields[c];      // stored exactly as written; see Preprocessor.Apply
                     row[columns[c].Name] = ConvertValue(field, columns[c].Type);
                 }
 
@@ -478,7 +478,7 @@ internal class Preprocessor
         }
     }
 
-    /// <summary>Remove the characters #ignore declares (quotes), keeping the value otherwise as written.</summary>
+    /// <summary>Remove the characters #ignore declares (quotes). Not used when reading - see Apply.</summary>
     public string StripIgnored(string value)
     {
         string result = value;
@@ -496,6 +496,11 @@ internal class Preprocessor
     /// read throws that away, and then no writer can put it back: encoding everything rewrote 51 script
     /// files into I#don't#think#I#can#make#it, and encoding nothing rewrote Field.txt's Sand#Beach. Keeping
     /// the value exactly as written round-trips both, and the exchange stays what it is - a loader concern.
+    ///
+    /// #ignore is the same story one level down. It tells the LOADER to ignore quotes; it does not mean the
+    /// file omits them, and Script/AdlF.txt keeps "Eglack, I think that kid is alive." quoted on disk.
+    /// Stripping them on read leaves a writer unable to tell a quoted value from an unquoted one, so they
+    /// are kept too, and both directives are re-emitted for the server to act on.
     /// </summary>
     public string Apply(string value)
     {
