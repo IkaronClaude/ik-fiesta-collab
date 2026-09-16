@@ -15,7 +15,8 @@ public static class TableMerger
         JoinClause on, string envName, string columnStrategy,
         string conflictStrategy = "report",
         string? targetEnvName = null,
-        bool sharedRows = false)
+        bool sharedRows = false,
+        IReadOnlyCollection<string>? allEnvs = null)
     {
         var conflicts = new List<MergeConflict>();
         var envMetadata = new Dictionary<string, EnvMergeMetadata>();
@@ -216,7 +217,31 @@ public static class TableMerger
                 }
 
                 mergedRows.Add(merged);
-                mergedRowEnvs.Add(null); // null = shared (present in both envs)
+
+                // The row is in BOTH sides, so its environments are the target's plus the source's - not
+                // "all". null means every environment, and claiming that for a match is only correct when
+                // there are two of them. With three (a 2016 client, a 2016 server and a 2026 overlay) a row
+                // present in the client and the overlay but NOT the server was marked visible everywhere
+                // and appeared in the server build: AbState came out at 1,095 rows against the server
+                // file's 777, which is the row set the 2016 zone cannot survive.
+                var matchedEnv = target.RowEnvironments != null && i < target.RowEnvironments.Count
+                    ? target.RowEnvironments[i]
+                    : null;
+                var seed = matchedEnv ?? (targetEnvName != null ? [targetEnvName] : (List<string>?)null);
+                if (seed is null)
+                {
+                    mergedRowEnvs.Add(null);          // already visible everywhere; stays that way
+                }
+                else
+                {
+                    var union = new List<string>(seed);
+                    if (!union.Contains(envName)) union.Add(envName);
+                    // Covering every environment IS "shared", and recording it as null keeps the annotation
+                    // list empty for the common case. Without allEnvs the set is unknown, and a match is
+                    // recorded as shared - which is exactly right for the two-environment project that is
+                    // the only shape where the question does not arise.
+                    mergedRowEnvs.Add(allEnvs is null || union.Count >= allEnvs.Count ? null : union);
+                }
             }
             else
             {
