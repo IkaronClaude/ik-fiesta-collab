@@ -98,6 +98,23 @@ public static class Migrations
         return affected;
     }
 
+
+    /// <summary>Whether two versions of a table hold the same rows, in the same order, with the same values.</summary>
+    private static bool SameData(IReadOnlyList<Dictionary<string, object?>> a,
+                                 IReadOnlyList<Dictionary<string, object?>> b,
+                                 TableSchema schema)
+    {
+        if (a.Count != b.Count) return false;
+        for (var i = 0; i < a.Count; i++)
+            foreach (var c in schema.Columns)
+            {
+                var x = a[i].GetValueOrDefault(c.Name);
+                var y = b[i].GetValueOrDefault(c.Name);
+                if (x is null ? y is not null : !x.Equals(y)) return false;
+            }
+        return true;
+    }
+
     /// <summary>Apply every migration, in order, in ONE session.
     ///
     /// Migrations are written against the state the earlier ones produced, so they share a set of loaded
@@ -117,6 +134,7 @@ public static class Migrations
         var headers = new Dictionary<string, TableHeader>();
         var schemas = new Dictionary<string, TableSchema>();
         var rowEnvs = new Dictionary<string, IReadOnlyList<List<string>?>?>();
+        var before = new Dictionary<string, IReadOnlyList<Dictionary<string, object?>>>();
 
         foreach (var (name, entryPath) in manifest.Tables)
         {
@@ -131,6 +149,9 @@ public static class Migrations
             headers[name] = tableFile.Header;
             schemas[name] = schema;
             rowEnvs[name] = tableFile.RowEnvironments;
+            // A fingerprint of the row ORDER, to tell a value edit from one that moved rows about. Row
+            // environments are positional, so only the second kind invalidates them.
+            before[name] = tableFile.Data;
             engine.LoadTable(new TableEntry { Schema = schema, Rows = tableFile.Data });
         }
 
@@ -170,10 +191,17 @@ public static class Migrations
 
             // Row environments are positional. A migration that inserts, deletes or reorders rows makes the
             // old list meaningless - writing it back would hand one row's visibility to another. It cannot
-            // be re-derived from SQL output, so when the count changes the annotations are dropped and every
-            // row becomes visible to every environment, which is what an unannotated table means anyway.
+            // be re-derived from SQL output, so the annotations are dropped and every row becomes visible to
+            // every environment, which is what an unannotated table means anyway.
+            //
+            // Comparing counts is not enough, and neither is comparing the key column. A migration that
+            // replaces a table's contents wholesale (DELETE then INSERT - the shape of "take the other
+            // environment's rows") can land on the same count AND the same key order while every value
+            // behind those keys is now a different environment's. SetEffect did exactly that: 1,415 rows in
+            // the JSON, 1,043 in the build, because rows kept an annotation describing what used to sit
+            // there. So any change at all to a table's data drops its annotations.
             var envs = rowEnvs.GetValueOrDefault(name);
-            if (envs != null && envs.Count != extracted.Rows.Count) envs = null;
+            if (envs != null && !SameData(before[name], extracted.Rows, schema)) envs = null;
 
             await projectService.WriteTableFileAsync(projectPath, entryPath, new TableFile
             {
