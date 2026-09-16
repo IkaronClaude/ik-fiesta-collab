@@ -718,6 +718,47 @@ buildCommand.SetHandler(async (DirectoryInfo? projectOpt, DirectoryInfo? outputO
         logger.LogInformation("Built {Count} files for {Env}", built, eName == "" ? "all" : eName);
 
         // Process copyFile actions — copy raw passthrough files (e.g. _ServerGroup.txt)
+        // copyFiles: a GLOB, evaluated now rather than enumerated when the template was generated, so a
+        // client that adds maps contributes their files without anyone regenerating anything.
+        foreach (var action in template.Actions.Where(a => a.Action == "copyFiles"))
+        {
+            if (action.Env == null || action.FromPath == null) continue;
+            if (eName != "" && action.Env != eName) continue;
+
+            var from = Path.IsPathRooted(action.FromPath)
+                ? action.FromPath
+                : Path.Combine(project.FullName, action.FromPath);
+            if (!Directory.Exists(from))
+            {
+                logger.LogWarning("CopyFiles: source directory not found: {Path}", from);
+                continue;
+            }
+
+            var pattern = action.Pattern ?? "*";
+            var recursive = pattern.Contains("**");
+            var leaf = pattern[(pattern.LastIndexOf('/') + 1)..];
+            var files = Directory.EnumerateFiles(from, leaf,
+                recursive ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly);
+
+            var destDir = action.To == null
+                ? outputDir
+                : Path.Combine(outputDir, action.To.Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(destDir);
+
+            var n = 0;
+            foreach (var f in files)
+            {
+                // Flattened into one directory: BlockInfo is a flat folder whatever the client's layout.
+                var dest = Path.Combine(destDir, Path.GetFileName(f));
+                // A file the project already produced wins; this fills gaps, it does not override.
+                if (File.Exists(dest)) continue;
+                File.Copy(f, dest);
+                n++;
+            }
+            logger.LogInformation("CopyFiles: {Count} file(s) from {From} ({Pattern}) -> {To}",
+                n, from, pattern, action.To ?? ".");
+        }
+
         foreach (var action in template.Actions.Where(a => a.Action == "copyFile"))
         {
             if (action.Env == null || action.Path == null) continue;

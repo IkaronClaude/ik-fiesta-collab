@@ -42,6 +42,17 @@ public sealed class TemplateAction
     /// exactly. A content overlay wants the opposite: merging a newer client over an older one should make
     /// its new rows part of the data every environment builds, not rows only the overlay can see.
     /// </summary>
+    /// <summary>copyFiles: directory to take files from. Absolute, or relative to the project.</summary>
+    [JsonPropertyName("fromPath")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? FromPath { get; init; }
+
+    /// <summary>copyFiles: glob against <see cref="FromPath"/>, e.g. <c>**/*.shbd</c>. The output
+    /// directory is the existing <see cref="To"/>, relative to the target environment's build output.</summary>
+    [JsonPropertyName("pattern")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Pattern { get; init; }
+
     [JsonPropertyName("sharedRows")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public bool? SharedRows { get; init; }
