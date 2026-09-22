@@ -1112,7 +1112,7 @@ validateCommand.SetHandler(async (DirectoryInfo? projectOpt) =>
 // --- edit command ---
 var editCommand = new Command("edit", "Run SQL to modify project data and save changes back to JSON");
 var editProjectOption = MakeProjectOption();
-var editSqlArg = new Argument<string>("sql", "SQL statement(s) to execute (UPDATE, INSERT, DELETE)");
+var editSqlArg = new Argument<string>("sql", "SQL statement(s) to execute (UPDATE, INSERT, DELETE), or @file to read them from a file");
 var editRecordOption = new Option<string?>("--record",
     "Also record this SQL as migrations/NNNN-<slug>.sql, so a later import replays it");
 editCommand.AddOption(editProjectOption);
@@ -1127,6 +1127,11 @@ editCommand.SetHandler(async (DirectoryInfo? projectOpt, string sql, string? rec
     using var engine = sp.GetRequiredService<ISqlEngine>();
 
     var manifest = await projectService.LoadProjectAsync(project.FullName);
+
+    // `@path` reads the SQL from a file - a migration can be hundreds of KB, far past a Windows command line
+    // (32 KB), so applying one as an argument is not an option.
+    if (sql.StartsWith("@"))
+        sql = await File.ReadAllTextAsync(sql.Substring(1));
 
     // Load all tables, preserving headers and row-environment annotations for write-back
     var tableHeaders = new Dictionary<string, TableHeader>();
