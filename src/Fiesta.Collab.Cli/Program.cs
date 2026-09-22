@@ -1112,14 +1112,17 @@ validateCommand.SetHandler(async (DirectoryInfo? projectOpt) =>
 // --- edit command ---
 var editCommand = new Command("edit", "Run SQL to modify project data and save changes back to JSON");
 var editProjectOption = MakeProjectOption();
-var editSqlArg = new Argument<string>("sql", "SQL statement(s) to execute (UPDATE, INSERT, DELETE), or @file to read them from a file");
+var editSqlArg = new Argument<string?>("sql", () => null, "SQL statement(s) to execute (UPDATE, INSERT, DELETE)");
+var editFileOption = new Option<FileInfo?>("--file",
+    "Read the SQL from this file instead - a migration can be far longer than a Windows command line (32 KB)");
 var editRecordOption = new Option<string?>("--record",
     "Also record this SQL as migrations/NNNN-<slug>.sql, so a later import replays it");
 editCommand.AddOption(editProjectOption);
 editCommand.AddOption(editRecordOption);
+editCommand.AddOption(editFileOption);
 editCommand.AddArgument(editSqlArg);
 
-editCommand.SetHandler(async (DirectoryInfo? projectOpt, string sql, string? record) =>
+editCommand.SetHandler(async (DirectoryInfo? projectOpt, string? sqlArg, string? record, FileInfo? sqlFile) =>
 {
     var logger = sp.GetRequiredService<ILogger<Program>>();
     var project = ResolveProjectOrExit(projectOpt, logger);
@@ -1128,10 +1131,15 @@ editCommand.SetHandler(async (DirectoryInfo? projectOpt, string sql, string? rec
 
     var manifest = await projectService.LoadProjectAsync(project.FullName);
 
-    // `@path` reads the SQL from a file - a migration can be hundreds of KB, far past a Windows command line
-    // (32 KB), so applying one as an argument is not an option.
-    if (sql.StartsWith("@"))
-        sql = await File.ReadAllTextAsync(sql.Substring(1));
+    // --file: a migration can be hundreds of KB, far past a Windows command line (32 KB). (Not `@path`:
+    // System.CommandLine reads a leading @ as a response file and splits its contents into arguments.)
+    var sql = sqlFile != null ? await File.ReadAllTextAsync(sqlFile.FullName) : sqlArg;
+    if (string.IsNullOrWhiteSpace(sql))
+    {
+        Console.Error.WriteLine("fiesta edit: give the SQL as an argument or with --file <path>");
+        Environment.ExitCode = 2;
+        return;
+    }
 
     // Load all tables, preserving headers and row-environment annotations for write-back
     var tableHeaders = new Dictionary<string, TableHeader>();
@@ -1198,7 +1206,7 @@ editCommand.SetHandler(async (DirectoryInfo? projectOpt, string sql, string? rec
         logger.LogInformation("Recorded {Path}", Path.GetRelativePath(project.FullName, path));
     }
 
-}, editProjectOption, editSqlArg, editRecordOption);
+}, editProjectOption, editSqlArg, editRecordOption, editFileOption);
 
 // --- shell command (interactive SQL) ---
 var shellCommand = new Command("shell", "Interactive SQL shell against a fiesta project");
