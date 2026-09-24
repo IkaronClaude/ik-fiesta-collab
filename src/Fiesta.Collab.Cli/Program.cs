@@ -1247,8 +1247,13 @@ sessionCommand.SetHandler(async (DirectoryInfo? projectOpt) =>
     var schemas = new Dictionary<string, TableSchema>(StringComparer.OrdinalIgnoreCase);
     var rowEnvs = new Dictionary<string, IReadOnlyList<List<string>?>?>(StringComparer.OrdinalIgnoreCase);
     var paths = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-    foreach (var (name, entryPath) in manifest.Tables)
+    // LAZY: a table is loaded the first time an edit names it - most of the ~1,500 are never touched by a batch,
+    // and loading them all took ~26 s of a 2-minute variant build
+    var entries = manifest.Tables.ToDictionary(t => t.Key, t => t.Value, StringComparer.OrdinalIgnoreCase);
+    async Task Ensure(string name)
     {
+        if (schemas.ContainsKey(name)) return;
+        var entryPath = entries[name];
         var tableFile = await projectService.ReadTableFileAsync(project.FullName, entryPath);
         var schema = new TableSchema
         {
@@ -1263,7 +1268,7 @@ sessionCommand.SetHandler(async (DirectoryInfo? projectOpt) =>
         paths[name] = entryPath;
         engine.LoadTable(new TableEntry { Schema = schema, Rows = tableFile.Data });
     }
-    Console.WriteLine($"READY {manifest.Tables.Count}");
+    Console.WriteLine($"READY {manifest.Tables.Count} tables (loaded on first use)");
     Console.Out.Flush();
 
     string? line;
@@ -1283,11 +1288,21 @@ sessionCommand.SetHandler(async (DirectoryInfo? projectOpt) =>
             var sql = await File.ReadAllTextAsync(line[5..].Trim());
             var words = new HashSet<string>(System.Text.RegularExpressions.Regex.Matches(sql, @"[A-Za-z_][A-Za-z0-9_]*")
                 .Select(m => m.Value), StringComparer.OrdinalIgnoreCase);
+            foreach (var name in entries.Keys.Where(words.Contains).ToList())
+                await Ensure(name);
+            // written back: the tables a statement CHANGES (UPDATE / INSERT INTO / DELETE FROM / REPLACE INTO), not every
+            // table the SQL reads; if none can be found, every table it names (the safe side)
+            var targets = new HashSet<string>(System.Text.RegularExpressions.Regex.Matches(sql,
+                    @"\b(?:UPDATE|INSERT\s+(?:OR\s+\w+\s+)?INTO|DELETE\s+FROM|REPLACE\s+INTO)\s+""?([A-Za-z_][A-Za-z0-9_]*)""?",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase)
+                .Select(m => m.Groups[1].Value), StringComparer.OrdinalIgnoreCase);
+            targets.IntersectWith(schemas.Keys);
+            if (targets.Count == 0) targets.UnionWith(schemas.Keys.Where(words.Contains));
             var affected = engine.Execute(sql);
             int saved = 0;
             if (affected != 0)
             {
-                foreach (var name in schemas.Keys.Where(words.Contains).ToList())
+                foreach (var name in targets.ToList())
                 {
                     var extracted = engine.ExtractTable(schemas[name]);
                     await projectService.WriteTableFileAsync(project.FullName, paths[name], new TableFile
