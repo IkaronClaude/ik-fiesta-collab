@@ -1117,13 +1117,22 @@ var editFileOption = new Option<FileInfo?>("--file",
     "Read the SQL from this file instead - a migration can be far longer than a Windows command line (32 KB)");
 var editRecordOption = new Option<string?>("--record",
     "Also record this SQL as migrations/NNNN-<slug>.sql, so a later import replays it");
+var editAllTablesOption = new Option<bool>("--all-tables",
+    "Load and save every table (the old behaviour). By default only the tables the SQL names are loaded and saved " +
+    "- an edit touching 3 tables no longer reads and rewrites all ~1,500 (build speed, Fiesta2026on2016 P0)");
+editCommand.AddOption(editAllTablesOption);
 editCommand.AddOption(editProjectOption);
 editCommand.AddOption(editRecordOption);
 editCommand.AddOption(editFileOption);
 editCommand.AddArgument(editSqlArg);
 
-editCommand.SetHandler(async (DirectoryInfo? projectOpt, string? sqlArg, string? record, FileInfo? sqlFile) =>
+editCommand.SetHandler(async (System.CommandLine.Invocation.InvocationContext ctx) =>
 {
+    var projectOpt = ctx.ParseResult.GetValueForOption(editProjectOption);
+    var sqlArg = ctx.ParseResult.GetValueForArgument(editSqlArg);
+    var record = ctx.ParseResult.GetValueForOption(editRecordOption);
+    var sqlFile = ctx.ParseResult.GetValueForOption(editFileOption);
+    var allTables = ctx.ParseResult.GetValueForOption(editAllTablesOption);
     var logger = sp.GetRequiredService<ILogger<Program>>();
     var project = ResolveProjectOrExit(projectOpt, logger);
     var projectService = sp.GetRequiredService<IProjectService>();
@@ -1146,7 +1155,14 @@ editCommand.SetHandler(async (DirectoryInfo? projectOpt, string? sqlArg, string?
     var tableSchemas = new Dictionary<string, TableSchema>();
     var tableRowEnvironments = new Dictionary<string, IReadOnlyList<List<string>?>?>();
 
-    foreach (var (name, entryPath) in manifest.Tables)
+    // Only the tables the SQL can touch: every word of it that is a table name (quoted or not). Over-matching a
+    // column that happens to share a table's name only loads that table too; a table the SQL uses is never missed,
+    // because SQL cannot reach a table it does not name.
+    var words = new HashSet<string>(System.Text.RegularExpressions.Regex.Matches(sql, @"[A-Za-z_][A-Za-z0-9_]*")
+        .Select(m => m.Value), StringComparer.OrdinalIgnoreCase);
+    var wanted = manifest.Tables.Where(t => allTables || words.Contains(t.Key)).ToList();
+
+    foreach (var (name, entryPath) in wanted)
     {
         var tableFile = await projectService.ReadTableFileAsync(project.FullName, entryPath);
         var schema = new TableSchema
@@ -1163,7 +1179,7 @@ editCommand.SetHandler(async (DirectoryInfo? projectOpt, string? sqlArg, string?
         engine.LoadTable(new TableEntry { Schema = schema, Rows = tableFile.Data });
     }
 
-    logger.LogInformation("Loaded {Count} tables", manifest.Tables.Count);
+    logger.LogInformation("Loaded {Count} of {Total} tables", wanted.Count, manifest.Tables.Count);
 
     // Execute modification SQL
     var affected = engine.Execute(sql);
@@ -1177,7 +1193,7 @@ editCommand.SetHandler(async (DirectoryInfo? projectOpt, string? sqlArg, string?
 
     // Extract all tables and save back to JSON
     int saved = 0;
-    foreach (var (name, entryPath) in manifest.Tables)
+    foreach (var (name, entryPath) in wanted)
     {
         var schema = tableSchemas[name];
         var extracted = engine.ExtractTable(schema);
@@ -1206,7 +1222,93 @@ editCommand.SetHandler(async (DirectoryInfo? projectOpt, string? sqlArg, string?
         logger.LogInformation("Recorded {Path}", Path.GetRelativePath(project.FullName, path));
     }
 
-}, editProjectOption, editSqlArg, editRecordOption, editFileOption);
+});
+
+// --- session command (load once, many edits) ---
+// A batch of migrations used to start one `fiesta edit` per file, each loading all ~1,500 tables into SQLite and
+// writing all of them back (~37 s each; Fiesta2026on2016 P0). `session` loads them ONCE and then reads commands from
+// stdin, one per line, answering each with one line on stdout:
+//     edit <path>   run the SQL file; save back only the tables it names  -> "OK <rows> <tables saved>" | "ERR <msg>"
+//     quit          exit                                                    (end of input does the same)
+// The tables an edit names are written back at once, so a program between two edits (a generated step reading the
+// project's JSON) always sees the current data.
+var sessionCommand = new Command("session", "Load the project once and apply SQL files sent on stdin (edit <path> / quit)");
+var sessionProjectOption = MakeProjectOption();
+sessionCommand.AddOption(sessionProjectOption);
+sessionCommand.SetHandler(async (DirectoryInfo? projectOpt) =>
+{
+    var logger = sp.GetRequiredService<ILogger<Program>>();
+    var project = ResolveProjectOrExit(projectOpt, logger);
+    var projectService = sp.GetRequiredService<IProjectService>();
+    using var engine = sp.GetRequiredService<ISqlEngine>();
+    var manifest = await projectService.LoadProjectAsync(project.FullName);
+
+    var headers = new Dictionary<string, TableHeader>(StringComparer.OrdinalIgnoreCase);
+    var schemas = new Dictionary<string, TableSchema>(StringComparer.OrdinalIgnoreCase);
+    var rowEnvs = new Dictionary<string, IReadOnlyList<List<string>?>?>(StringComparer.OrdinalIgnoreCase);
+    var paths = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    foreach (var (name, entryPath) in manifest.Tables)
+    {
+        var tableFile = await projectService.ReadTableFileAsync(project.FullName, entryPath);
+        var schema = new TableSchema
+        {
+            TableName = name,
+            SourceFormat = tableFile.Header.SourceFormat,
+            Columns = tableFile.Columns,
+            Metadata = tableFile.Header.Metadata
+        };
+        headers[name] = tableFile.Header;
+        schemas[name] = schema;
+        rowEnvs[name] = tableFile.RowEnvironments;
+        paths[name] = entryPath;
+        engine.LoadTable(new TableEntry { Schema = schema, Rows = tableFile.Data });
+    }
+    Console.WriteLine($"READY {manifest.Tables.Count}");
+    Console.Out.Flush();
+
+    string? line;
+    while ((line = Console.ReadLine()) != null)
+    {
+        line = line.Trim();
+        if (line.Length == 0) continue;
+        if (line == "quit") break;
+        if (!line.StartsWith("edit "))
+        {
+            Console.WriteLine($"ERR unknown command: {line}");
+            Console.Out.Flush();
+            continue;
+        }
+        try
+        {
+            var sql = await File.ReadAllTextAsync(line[5..].Trim());
+            var words = new HashSet<string>(System.Text.RegularExpressions.Regex.Matches(sql, @"[A-Za-z_][A-Za-z0-9_]*")
+                .Select(m => m.Value), StringComparer.OrdinalIgnoreCase);
+            var affected = engine.Execute(sql);
+            int saved = 0;
+            if (affected != 0)
+            {
+                foreach (var name in schemas.Keys.Where(words.Contains).ToList())
+                {
+                    var extracted = engine.ExtractTable(schemas[name]);
+                    await projectService.WriteTableFileAsync(project.FullName, paths[name], new TableFile
+                    {
+                        Header = headers[name],
+                        Columns = schemas[name].Columns,
+                        Data = extracted.Rows,
+                        RowEnvironments = rowEnvs.GetValueOrDefault(name)
+                    });
+                    saved++;
+                }
+            }
+            Console.WriteLine($"OK {affected} rows modified, {saved} tables saved.");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("ERR " + ex.Message.Replace((char)10, (char)32).Replace((char)13, (char)32));
+        }
+        Console.Out.Flush();
+    }
+}, sessionProjectOption);
 
 // --- shell command (interactive SQL) ---
 var shellCommand = new Command("shell", "Interactive SQL shell against a fiesta project");
@@ -1632,6 +1734,7 @@ migrateCommand.SetHandler(async (DirectoryInfo? projectOpt) =>
 }, migrateProjectOpt);
 
 rootCommand.AddCommand(editCommand);
+rootCommand.AddCommand(sessionCommand);
 rootCommand.AddCommand(migrateCommand);
 rootCommand.AddCommand(shellCommand);
 rootCommand.AddCommand(validateCommand);
