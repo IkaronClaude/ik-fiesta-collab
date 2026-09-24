@@ -592,12 +592,17 @@ buildOutputOption.AddAlias("-o");
 var buildEnvOption = new Option<string?>("--env", "Environment to build for (e.g. server, client)");
 buildEnvOption.AddAlias("-e");
 var buildAllOption = new Option<bool>("--all", "Build all environments to their configured buildPaths");
+// Only these tables (comma list, or the path of a file with one name per line): a variant build changes a few dozen of ~1,500 and
+// its output is diffed against a full parity build anyway. A table from a multi-section source file brings every
+// table of that file, so the file is always written whole.
+var buildTablesOption = new Option<string?>("--tables", "Build only these tables (comma list or a file of names); multi-section files are built whole");
 buildCommand.AddOption(buildProjectOption);
 buildCommand.AddOption(buildOutputOption);
 buildCommand.AddOption(buildEnvOption);
 buildCommand.AddOption(buildAllOption);
+buildCommand.AddOption(buildTablesOption);
 
-buildCommand.SetHandler(async (DirectoryInfo? projectOpt, DirectoryInfo? outputOpt, string? envName, bool buildAll) =>
+buildCommand.SetHandler(async (DirectoryInfo? projectOpt, DirectoryInfo? outputOpt, string? envName, bool buildAll, string? onlyTables) =>
 {
     var logger = sp.GetRequiredService<ILogger<Program>>();
     var project = ResolveProjectOrExit(projectOpt, logger);
@@ -652,6 +657,40 @@ buildCommand.SetHandler(async (DirectoryInfo? projectOpt, DirectoryInfo? outputO
     // Build a map of tableName → envName → EnvMergeMetadata from persisted JSON metadata
     var envMetadataMap = new Dictionary<string, Dictionary<string, EnvMergeMetadata>>();
 
+    // --tables: the selection plus every table of the same multi-section source file (same data folder, named after
+    // the file's stem; confirmed by sourceFile metadata once loaded, a same-prefix stranger is merely rebuilt too)
+    IEnumerable<KeyValuePair<string, string>> tableSet = manifest.Tables;
+    HashSet<string>? partial = null;   // the selection when --tables: the copy actions below then skip what cannot differ
+    if (!string.IsNullOrWhiteSpace(onlyTables))
+    {
+        var names = File.Exists(onlyTables)       // a path: one name per line (not @file - System.CommandLine expands that)
+            ? File.ReadAllLines(onlyTables).Select(l => l.Trim()).Where(l => l.Length > 0)
+            : onlyTables.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var byName = manifest.Tables.ToDictionary(t => t.Key, t => t.Value, StringComparer.OrdinalIgnoreCase);
+        var selected = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var n in names)
+        {
+            if (!byName.TryGetValue(n, out var entry))
+            {
+                logger.LogError("--tables: no table named {Table}", n);
+                return;
+            }
+            selected.Add(n);
+            var header = (await projectService.ReadTableFileAsync(project.FullName, entry)).Header;
+            var src = header.Metadata?.TryGetValue("sourceFile", out var sf) == true ? sf?.ToString() : null;
+            if (string.IsNullOrEmpty(src)) continue;
+            var stem = Path.GetFileNameWithoutExtension(src);
+            var dir = Path.GetDirectoryName(entry);
+            foreach (var (other, otherPath) in manifest.Tables)
+                if (Path.GetDirectoryName(otherPath) == dir &&
+                    (other.Equals(stem, StringComparison.OrdinalIgnoreCase) || other.StartsWith(stem + "_", StringComparison.OrdinalIgnoreCase)))
+                    selected.Add(other);
+        }
+        tableSet = manifest.Tables.Where(t => selected.Contains(t.Key)).ToList();
+        partial = selected;
+        logger.LogInformation("--tables: building {Count} of {Total} tables", selected.Count, manifest.Tables.Count);
+    }
+
     foreach (var (eName, outputDir) in envsToBuild)
     {
         Directory.CreateDirectory(outputDir);
@@ -662,7 +701,7 @@ buildCommand.SetHandler(async (DirectoryInfo? projectOpt, DirectoryInfo? outputO
         // Buffer for multi-section files that share a sourceFile (e.g. ServerInfo.txt with multiple #DEFINE sections)
         var groupedEntries = new Dictionary<(IDataProvider provider, string dir, string sourceFile), List<TableEntry>>();
 
-        foreach (var (name, entryPath) in manifest.Tables)
+        foreach (var (name, entryPath) in tableSet)
         {
             var tableFile = await projectService.ReadTableFileAsync(project.FullName, entryPath);
 
@@ -787,6 +826,7 @@ buildCommand.SetHandler(async (DirectoryInfo? projectOpt, DirectoryInfo? outputO
         foreach (var action in template.Actions.Where(a => a.Action == "copyFile"))
         {
             if (action.Env == null || action.Path == null) continue;
+            if (partial != null) continue;   // a raw file of the import tree: the same in every build
             // Only process for the matching env (or legacy "" mode = copy all)
             if (eName != "" && action.Env != eName) continue;
 
@@ -827,6 +867,8 @@ buildCommand.SetHandler(async (DirectoryInfo? projectOpt, DirectoryInfo? outputO
         foreach (var action in template.Actions.Where(a => a.Action == "copyMapFiles"))
         {
             if (action.Env == null || action.FromPath == null) continue;
+            // the map list comes from project tables: skipped by a partial build unless it changed one of them
+            if (partial != null && !new[] { action.MapsFrom, action.FoldersFrom }.Any(r => r != null && partial.Contains(r.Split('.')[0]))) continue;
             if (eName != "" && action.Env != eName) continue;
             if (action.MapsFrom == null || action.FoldersFrom == null || action.Extensions == null)
             {
@@ -916,6 +958,7 @@ buildCommand.SetHandler(async (DirectoryInfo? projectOpt, DirectoryInfo? outputO
         foreach (var action in template.Actions.Where(a => a.Action == "copyFiles"))
         {
             if (action.Env == null || action.FromPath == null) continue;
+            if (partial != null) continue;   // a glob over the import tree: the same in every build
             if (eName != "" && action.Env != eName) continue;
 
             var from = Path.IsPathRooted(action.FromPath)
@@ -979,7 +1022,7 @@ buildCommand.SetHandler(async (DirectoryInfo? projectOpt, DirectoryInfo? outputO
 
     }
 
-}, buildProjectOption, buildOutputOption, buildEnvOption, buildAllOption);
+}, buildProjectOption, buildOutputOption, buildEnvOption, buildAllOption, buildTablesOption);
 
 // --- query command ---
 var queryCommand = new Command("query", "Run SQL against a fiesta project");
