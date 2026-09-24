@@ -1341,13 +1341,18 @@ sessionCommand.SetHandler(async (DirectoryInfo? projectOpt) =>
                 .Select(m => m.Groups[1].Value), StringComparer.OrdinalIgnoreCase);
             targets.IntersectWith(schemas.Keys);
             if (targets.Count == 0) targets.UnionWith(schemas.Keys.Where(words.Contains));
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             var affected = engine.Execute(sql);
+            long tExec = sw.ElapsedMilliseconds, tExtract = 0, tWrite = 0;
             int saved = 0;
             if (affected != 0)
             {
                 foreach (var name in targets.ToList())
                 {
+                    var t0 = sw.ElapsedMilliseconds;
                     var extracted = engine.ExtractTable(schemas[name]);
+                    tExtract += sw.ElapsedMilliseconds - t0;
+                    t0 = sw.ElapsedMilliseconds;
                     await projectService.WriteTableFileAsync(project.FullName, paths[name], new TableFile
                     {
                         Header = headers[name],
@@ -1355,10 +1360,11 @@ sessionCommand.SetHandler(async (DirectoryInfo? projectOpt) =>
                         Data = extracted.Rows,
                         RowEnvironments = rowEnvs.GetValueOrDefault(name)
                     });
+                    tWrite += sw.ElapsedMilliseconds - t0;
                     saved++;
                 }
             }
-            Console.WriteLine($"OK {affected} rows modified, {saved} tables saved.");
+            Console.WriteLine($"OK {affected} rows modified, {saved} tables saved [sql {tExec} ms, extract {tExtract} ms, write {tWrite} ms].");
         }
         catch (Exception ex)
         {

@@ -216,19 +216,23 @@ public sealed class SqlEngine : ISqlEngine
 
     public TableEntry ExtractTable(TableSchema schema)
     {
-        var rows = Query($"SELECT * FROM [{schema.TableName}]");
+        // one pass over the reader by ordinal (a generic Query() dictionary per row, then a second typed copy, made
+        // this the slowest part of a session edit: ~1 s for ItemInfo). Same values: a schema column missing from the
+        // result or NULL is null, the rest go through ConvertFromSqlite.
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = $"SELECT * FROM [{schema.TableName}]";
+        using var reader = cmd.ExecuteReader();
+        var ordinals = new Dictionary<string, int>(reader.FieldCount);
+        for (int i = 0; i < reader.FieldCount; i++)
+            ordinals[reader.GetName(i)] = i;
+        var cols = schema.Columns.Select(c => (c.Name, c.Type, Ordinal: ordinals.TryGetValue(c.Name, out var o) ? o : -1)).ToArray();
 
-        var typedRows = new List<Dictionary<string, object?>>(rows.Count);
-        foreach (var row in rows)
+        var typedRows = new List<Dictionary<string, object?>>();
+        while (reader.Read())
         {
-            var typedRow = new Dictionary<string, object?>(row.Count);
-            foreach (var col in schema.Columns)
-            {
-                if (row.TryGetValue(col.Name, out var val) && val is not null)
-                    typedRow[col.Name] = ConvertFromSqlite(val, col.Type);
-                else
-                    typedRow[col.Name] = null;
-            }
+            var typedRow = new Dictionary<string, object?>(cols.Length);
+            foreach (var (name, type, ordinal) in cols)
+                typedRow[name] = ordinal < 0 || reader.IsDBNull(ordinal) ? null : ConvertFromSqlite(reader.GetValue(ordinal), type);
             typedRows.Add(typedRow);
         }
 
