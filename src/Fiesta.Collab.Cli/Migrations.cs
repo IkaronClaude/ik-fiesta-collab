@@ -270,6 +270,24 @@ public static class Migrations
         return Directory.GetFiles(dir, "*.sql").OrderBy(Path.GetFileName, StringComparer.Ordinal).ToList();
     }
 
+    /// <summary>
+    /// The files a variant's layers ship for one environment: &lt;layer&gt;/overrides/&lt;env&gt;/** (flag files a zone plugin
+    /// reads, whole files no table describes), copied onto build/&lt;variant&gt;/&lt;env&gt; after the environment's own
+    /// overrides. Later layers win a path both ship. Relative is the path under the environment's build folder.
+    /// </summary>
+    public static List<(string Source, string Relative)> LayerOverrides(string projectPath, IEnumerable<string> layers, string env)
+    {
+        var byRel = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var layer in layers)
+        {
+            var root = Path.Combine(projectPath, layer, "overrides", env);
+            if (!Directory.Exists(root)) continue;
+            foreach (var f in Directory.GetFiles(root, "*", SearchOption.AllDirectories))
+                byRel[Path.GetRelativePath(root, f)] = f;
+        }
+        return byRel.Select(kv => (kv.Value, kv.Key)).ToList();
+    }
+
     /// <summary>Where a variant's builds and reports go: build/&lt;variant&gt;.</summary>
     public static string VariantDir(string projectPath, string variant) => Path.Combine(projectPath, "build", variant);
 

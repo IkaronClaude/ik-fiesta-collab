@@ -634,11 +634,9 @@ buildCommand.SetHandler(async (DirectoryInfo? projectOpt, DirectoryInfo? outputO
         if (string.IsNullOrWhiteSpace(onlyTables))
         {
             if (overlay.Count == 0)
-            {
-                logger.LogInformation("Variant {Variant} changes no table: nothing to build", variant);
-                return;
-            }
-            onlyTables = string.Join(",", overlay.Keys);
+                logger.LogInformation("Variant {Variant} changes no table: only its layer files are written", variant);
+            else
+                onlyTables = string.Join(",", overlay.Keys);
         }
     }
     var tableByPath = manifest.Tables.GroupBy(t => t.Value).ToDictionary(g => g.Key, g => g.First().Key);
@@ -696,6 +694,11 @@ buildCommand.SetHandler(async (DirectoryInfo? projectOpt, DirectoryInfo? outputO
     // the file's stem; confirmed by sourceFile metadata once loaded, a same-prefix stranger is merely rebuilt too)
     IEnumerable<KeyValuePair<string, string>> tableSet = manifest.Tables;
     HashSet<string>? partial = null;   // the selection when --tables: the copy actions below then skip what cannot differ
+    if (overlay is { Count: 0 } && string.IsNullOrWhiteSpace(onlyTables))
+    {
+        tableSet = [];
+        partial = new HashSet<string>();
+    }
     if (!string.IsNullOrWhiteSpace(onlyTables))
     {
         var names = File.Exists(onlyTables)       // a path: one name per line (not @file - System.CommandLine expands that)
@@ -1053,6 +1056,20 @@ buildCommand.SetHandler(async (DirectoryInfo? projectOpt, DirectoryInfo? outputO
                 }
                 logger.LogInformation("Overrides: copied {Count} file(s) from {Path}", overrideCount, currentEnvConfig.OverridesPath);
             }
+        }
+
+        // the variant's layers ship files of their own (<layer>/overrides/<env>/...), after the env's overrides
+        if (variant != null && eName != "")
+        {
+            var layerFiles = Fiesta.Collab.Cli.Migrations.LayerOverrides(project.FullName, manifest.Variants![variant], eName);
+            foreach (var (source, rel) in layerFiles)
+            {
+                var dest = Path.Combine(outputDir, rel);
+                Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
+                File.Copy(source, dest, overwrite: true);
+            }
+            if (layerFiles.Count > 0)
+                logger.LogInformation("Variant {Variant}: copied {Count} layer override file(s) for {Env}", variant, layerFiles.Count, eName);
         }
 
     }

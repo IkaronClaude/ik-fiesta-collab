@@ -128,4 +128,25 @@ public class VariantTests : IAsyncLifetime
 
         File.Exists(Path.Combine(_dir, "build", "qol", "reports", "cheap.md")).ShouldBeTrue();
     }
+
+    [Fact]
+    public void Layer_override_files_come_in_layer_order_later_layers_win()
+    {
+        void Put(string layer, string rel, string text)
+        {
+            var p = Path.Combine(_dir, layer, "overrides", rel);
+            Directory.CreateDirectory(Path.GetDirectoryName(p)!);
+            File.WriteAllText(p, text);
+        }
+        Put("layer-a", "server/Shine/A.flag", "a");
+        Put("layer-a", "server/Shine/Both.txt", "from a");
+        Put("layer-b", "server/Shine/Both.txt", "from b");
+        Put("layer-b", "client/ressystem/C.txt", "c");
+
+        var files = Migrations.LayerOverrides(_dir, ["layer-a", "layer-b"], "server");
+
+        files.Select(f => f.Relative.Replace('\\', '/')).ShouldBe(["Shine/A.flag", "Shine/Both.txt"], ignoreOrder: true);
+        File.ReadAllText(files.Single(f => f.Relative.EndsWith("Both.txt")).Source).ShouldBe("from b");
+        Migrations.LayerOverrides(_dir, ["layer-a"], "overlay").ShouldBeEmpty();
+    }
 }
