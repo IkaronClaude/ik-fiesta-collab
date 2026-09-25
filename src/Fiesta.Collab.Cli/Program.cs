@@ -631,6 +631,9 @@ buildCommand.SetHandler(async (DirectoryInfo? projectOpt, DirectoryInfo? outputO
             Environment.ExitCode = 1;
             return;
         }
+        // tables a layer created (-- @table) are in no manifest: give them a virtual entry the reads below map back
+        foreach (var name in overlay.Keys.Where(n => !manifest.Tables.ContainsKey(n)).ToList())
+            manifest.Tables[name] = $"variant/{name}.json";
         if (string.IsNullOrWhiteSpace(onlyTables))
         {
             if (overlay.Count == 0)

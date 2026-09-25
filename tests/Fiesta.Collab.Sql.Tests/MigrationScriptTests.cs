@@ -90,4 +90,25 @@ public class MigrationScriptTests : IDisposable
     {
         MigrationScript.Run(_engine, "-- @report all SELECT * FROM Items", "t.sql", _reports).ShouldBe(0);
     }
+
+    [Fact]
+    public void Table_directive_creates_the_table_before_the_statements_and_reports_it()
+    {
+        var decls = new List<TableDeclaration>();
+        MigrationScript.Run(_engine, """
+            -- @table Shop_Tab01 LIKE Items FILE Shop.txt SECTION 1 AS Tab01
+            INSERT INTO Shop_Tab01 (ID, Name, Price) VALUES (7, 'Potion', 5);
+            """, "t.sql", _reports, decls.Add);
+
+        decls.Single().ShouldBe(new TableDeclaration("Shop_Tab01", "Items", "Shop.txt", 1, "Tab01"));
+        _engine.Query("SELECT Name FROM Shop_Tab01")[0]["Name"].ShouldBe("Potion");
+        _engine.Query("SELECT COUNT(*) AS n FROM Items")[0]["n"].ShouldBe(2L);   // the template keeps its rows
+    }
+
+    [Fact]
+    public void Table_directive_is_refused_where_nobody_can_keep_the_table()
+    {
+        Should.Throw<NotSupportedException>(() => MigrationScript.Run(_engine,
+            "-- @table Shop_Tab00 LIKE Items FILE Shop.txt", "t.sql", _reports));
+    }
 }

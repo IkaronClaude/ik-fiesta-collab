@@ -172,4 +172,33 @@ public class VariantTests : IAsyncLifetime
         mobs.Data.Select(r => N(r["ID"])).ShouldBe([1L, 2L, 4L]);
         mobs.RowEnvironments!.Select(e => e is null ? null : string.Join(",", e)).ShouldBe([null, "server", "client"]);
     }
+
+    [Fact]
+    public async Task A_layer_can_create_a_table_like_another_for_its_own_file()
+    {
+        await _ps.WriteTableFileAsync(_dir, "data/Shop_Tab00.json", new TableFile
+        {
+            Header = new TableHeader { TableName = "Shop_Tab00", SourceFormat = "shinetable",
+                                       Metadata = new() { ["sourceFile"] = "Shop.txt", ["tableName"] = "Tab00", ["sectionIndex"] = 0 } },
+            Columns = [new ColumnDefinition { Name = "Rec", Type = ColumnType.UInt32, Length = 4 },
+                       new ColumnDefinition { Name = "Column00", Type = ColumnType.String, Length = 32 }],
+            Data = [new() { ["Rec"] = 0L, ["Column00"] = "Sword" }]
+        });
+        var m = await _ps.LoadProjectAsync(_dir);
+        m.Tables["Shop_Tab00"] = "data/Shop_Tab00.json";
+        await _ps.SaveProjectAsync(_dir, m);
+        Layer("layer-a", "0003-new-shop.sql",
+            "-- @table QoL_Tab01 LIKE Shop_Tab00 FILE QoL.txt SECTION 1 AS Tab01" + System.Environment.NewLine +
+            "INSERT INTO QoL_Tab01 (Rec, Column00) VALUES (0, 'Potion');");
+
+        var changed = await Migrations.ApplyVariantAsync(_dir, "qol", _sp, NullLogger.Instance);
+
+        var t = changed["QoL_Tab01"];
+        t.Data.Single()["Column00"].ShouldBe("Potion");
+        t.Header.TableName.ShouldBe("QoL_Tab01");
+        t.Header.Metadata!["sourceFile"].ShouldBe("QoL.txt");
+        t.Header.Metadata["sectionIndex"].ShouldBe(1);
+        t.Header.Metadata["tableName"].ShouldBe("Tab01");
+        changed.ContainsKey("Shop_Tab00").ShouldBeFalse();
+    }
 }

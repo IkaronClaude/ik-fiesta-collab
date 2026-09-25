@@ -230,7 +230,8 @@ public static class Migrations
         return p;
     }
 
-    private static int Apply(ISqlEngine engine, IEnumerable<string> files, string reportDir, ILogger logger, string again)
+    private static int Apply(ISqlEngine engine, IEnumerable<string> files, string reportDir, ILogger logger, string again,
+                             Action<TableDeclaration>? onTable = null)
     {
         var total = 0;
         foreach (var f in files)
@@ -240,7 +241,7 @@ public static class Migrations
             var name = Path.GetFileName(f);
             try
             {
-                var affected = MigrationScript.Run(engine, sql, name, reportDir);
+                var affected = MigrationScript.Run(engine, sql, name, reportDir, onTable);
                 total += affected;
                 logger.LogInformation("  {File}: {Affected} row(s) affected", name, affected);
             }
@@ -308,14 +309,50 @@ public static class Migrations
 
         using var p = await LoadAsync(projectPath, services);
         logger.LogInformation("Variant {Variant}: {Count} migration(s) from {Layers}", variant, files.Count, string.Join(" + ", layers));
+        var declared = new List<TableDeclaration>();
         var total = Apply(p.Engine, files, Path.Combine(VariantDir(projectPath, variant), "reports"), logger,
-            $"`fiesta build --variant {variant}`");
+            $"`fiesta build --variant {variant}`", d =>
+            {
+                if (p.Schemas.ContainsKey(d.Name) || declared.Any(x => x.Name == d.Name))
+                    throw new InvalidOperationException($"@table {d.Name}: a table of that name exists");
+                if (!p.Schemas.ContainsKey(d.Like))
+                    throw new InvalidOperationException($"@table {d.Name}: no template table {d.Like}");
+                declared.Add(d);
+            });
         var changed = new Dictionary<string, TableFile>();
+        foreach (var d in declared)
+            changed[d.Name] = NewTable(p, d);
         if (total == 0) return changed;
         foreach (var name in p.Manifest.Tables.Keys)
             if (p.Changed(name) is { } t) changed[name] = t;
         logger.LogInformation("Variant {Variant}: {Total} row(s) affected, {Tables} table(s) changed", variant, total, changed.Count);
         return changed;
+    }
+
+    /// <summary>A table a layer created with -- @table: the template's columns and header, with the header naming the new
+    /// file (sourceFile), its section and in-file table name, so the build writes it beside the template's file.</summary>
+    private static TableFile NewTable(Loaded p, TableDeclaration d)
+    {
+        var like = p.Headers[d.Like];
+        var metadata = like.Metadata is null ? new Dictionary<string, object>() : new Dictionary<string, object>(like.Metadata);
+        metadata["sourceFile"] = d.File;
+        metadata["sectionIndex"] = d.Section;
+        if (d.As != null || metadata.ContainsKey("tableName")) metadata["tableName"] = d.As ?? metadata["tableName"];
+        var schema = new TableSchema
+        {
+            TableName = d.Name,
+            SourceFormat = like.SourceFormat,
+            Columns = p.Schemas[d.Like].Columns,
+            Metadata = metadata
+        };
+        var extracted = p.Engine.ExtractTable(schema);
+        return new TableFile
+        {
+            Header = new TableHeader { TableName = d.Name, SourceFormat = like.SourceFormat, Metadata = metadata },
+            Columns = schema.Columns,
+            Data = extracted.Rows,
+            RowEnvironments = extracted.RowEnvironments
+        };
     }
 
     /// <summary>Apply every migration, in order, in ONE session.

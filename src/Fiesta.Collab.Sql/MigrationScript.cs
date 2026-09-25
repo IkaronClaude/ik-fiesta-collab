@@ -7,6 +7,13 @@ namespace Fiesta.Collab.Sql;
 public sealed class MigrationAssertException(string message) : Exception(message);
 
 /// <summary>
+/// A table a migration creates with <c>-- @table Name LIKE Template FILE file.txt [SECTION n] [AS InFileName]</c>: the
+/// template's columns and header, written to <c>file.txt</c> beside the template's own file, as section <c>n</c> (0) under
+/// the in-file table name <c>InFileName</c> (the template's).
+/// </summary>
+public sealed record TableDeclaration(string Name, string Like, string File, int Section, string? As);
+
+/// <summary>
 /// Runs one migration file with its comment directives (docs/DESIGN-variants-and-native-steps.md, section 2):
 /// <list type="bullet">
 /// <item><c>-- @param NAME = value</c>: a named constant; <c>:NAME</c> in the script (outside string literals) and in
@@ -14,20 +21,27 @@ public sealed class MigrationAssertException(string message) : Exception(message
 /// <item><c>-- @assert &lt;SELECT&gt;</c>: after the statements; any row returned fails the migration.</item>
 /// <item><c>-- @report name &lt;SELECT&gt;</c>: after the statements (and the asserts); the result becomes
 /// <c>&lt;reportDir&gt;/name.md</c>, a markdown table.</item>
+/// <item><c>-- @table Name LIKE Template FILE file.txt [SECTION n] [AS InFileName]</c>: BEFORE the statements, an empty
+/// table with the template's columns; the caller (a variant build) keeps it and builds it into that file. Refused
+/// where no caller keeps it (<paramref name="onTable"/> null).</item>
 /// </list>
 /// A directive is one line. Returns the statements' affected-row count.
 /// </summary>
 public static class MigrationScript
 {
-    private static readonly Regex Directive = new(@"^\s*--\s*@(param|assert|report)\b\s*(.*)$", RegexOptions.Multiline);
+    private static readonly Regex Directive = new(@"^\s*--\s*@(param|assert|report|table)\b\s*(.*)$", RegexOptions.Multiline);
+    private static readonly Regex TableDef = new(
+        @"^([A-Za-z_]\w*)\s+LIKE\s+([A-Za-z_]\w*)\s+FILE\s+(\S+)(?:\s+SECTION\s+(\d+))?(?:\s+AS\s+(\S+))?\s*$",
+        RegexOptions.IgnoreCase);
     private static readonly Regex ParamDef = new(@"^([A-Za-z_]\w*)\s*=\s*(.+?)\s*$");
     private static readonly Regex ReportDef = new(@"^([\w.-]+)\s+(.+)$", RegexOptions.Singleline);
 
-    public static int Run(ISqlEngine engine, string sql, string name, string? reportDir)
+    public static int Run(ISqlEngine engine, string sql, string name, string? reportDir, Action<TableDeclaration>? onTable = null)
     {
         var parms = new Dictionary<string, string>(StringComparer.Ordinal);
         var asserts = new List<string>();
         var reports = new List<(string Name, string Query)>();
+        var tables = new List<TableDeclaration>();
         foreach (Match m in Directive.Matches(sql))
         {
             var arg = m.Groups[2].Value.Trim();
@@ -41,12 +55,28 @@ public static class MigrationScript
                 case "assert":
                     asserts.Add(arg);
                     break;
+                case "table":
+                    var t = TableDef.Match(arg);
+                    if (!t.Success)
+                        throw new FormatException($"{name}: bad @table '{arg}' (want Name LIKE Template FILE file.txt [SECTION n] [AS InFileName])");
+                    tables.Add(new TableDeclaration(t.Groups[1].Value, t.Groups[2].Value, t.Groups[3].Value,
+                        t.Groups[4].Success ? int.Parse(t.Groups[4].Value) : 0, t.Groups[5].Success ? t.Groups[5].Value : null));
+                    break;
                 case "report":
                     var r = ReportDef.Match(arg);
                     if (!r.Success) throw new FormatException($"{name}: bad @report '{arg}' (want name SELECT ...)");
                     reports.Add((r.Groups[1].Value, r.Groups[2].Value));
                     break;
             }
+        }
+
+        if (tables.Count > 0 && onTable is null)
+            throw new NotSupportedException($"{name}: @table creates a table only a variant build keeps (fiesta build --variant)");
+        foreach (var t in tables)
+        {
+            // the template's columns (and the _envs column), no rows
+            engine.Execute($"CREATE TABLE [{t.Name}] AS SELECT * FROM [{t.Like}] WHERE 0");
+            onTable!(t);
         }
 
         var body = Substitute(Directive.Replace(sql, ""), parms);
