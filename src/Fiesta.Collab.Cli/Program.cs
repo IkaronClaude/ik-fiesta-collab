@@ -1224,8 +1224,8 @@ editCommand.SetHandler(async (System.CommandLine.Invocation.InvocationContext ct
 
     logger.LogInformation("Loaded {Count} of {Total} tables", wanted.Count, manifest.Tables.Count);
 
-    // Execute modification SQL
-    var affected = engine.Execute(sql);
+    // Execute modification SQL (with its @param / @assert / @report directives)
+    var affected = MigrationScript.Run(engine, sql, sqlFile?.Name ?? "edit", Fiesta.Collab.Cli.Migrations.ReportDir(project.FullName));
     logger.LogInformation("Executed: {Affected} rows affected", affected);
 
     if (affected == 0)
@@ -1342,7 +1342,7 @@ sessionCommand.SetHandler(async (DirectoryInfo? projectOpt) =>
             targets.IntersectWith(schemas.Keys);
             if (targets.Count == 0) targets.UnionWith(schemas.Keys.Where(words.Contains));
             var sw = System.Diagnostics.Stopwatch.StartNew();
-            var affected = engine.Execute(sql);
+            var affected = MigrationScript.Run(engine, sql, Path.GetFileName(line[5..].Trim()), Fiesta.Collab.Cli.Migrations.ReportDir(project.FullName));
             long tExec = sw.ElapsedMilliseconds, tExtract = 0, tWrite = 0;
             int saved = 0;
             if (affected != 0)

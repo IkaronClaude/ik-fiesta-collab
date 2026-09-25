@@ -159,6 +159,9 @@ public static class Migrations
     /// 31 migrations over 1,417 tables is 44,000 table loads to change a few thousand rows.
     ///
     /// A failing migration aborts the run and saves nothing, so a half-applied set never reaches disk.</summary>
+    /// <summary>Where a migration's -- @report tables go: build/reports under the project.</summary>
+    public static string ReportDir(string projectPath) => Path.Combine(projectPath, "build", "reports");
+
     public static async Task RunAsync(string projectPath, IServiceProvider services, ILogger logger)
     {
         var files = Files(projectPath);
@@ -201,7 +204,7 @@ public static class Migrations
             var name = Path.GetFileName(f);
             try
             {
-                var affected = engine.Execute(sql);
+                var affected = MigrationScript.Run(engine, sql, name, ReportDir(projectPath));
                 total += affected;
                 logger.LogInformation("  {File}: {Affected} row(s) affected", name, affected);
             }
