@@ -201,4 +201,15 @@ public class VariantTests : IAsyncLifetime
         t.Header.Metadata["tableName"].ShouldBe("Tab01");
         changed.ContainsKey("Shop_Tab00").ShouldBeFalse();
     }
+
+    [Fact]
+    public void A_recorded_migration_takes_the_number_after_the_highest_not_the_count()
+    {
+        var dir = Path.Combine(_dir, "migrations");
+        Directory.CreateDirectory(dir);
+        foreach (var n in new[] { "0001-a.sql", "0003-b.sql", "0003-c.sql" })   // gaps and a duplicate, as real history has
+            File.WriteAllText(Path.Combine(dir, n), "");
+
+        Path.GetFileName(Migrations.NextPath(_dir, "next")).ShouldBe("0004-next.sql");
+    }
 }

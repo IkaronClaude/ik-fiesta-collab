@@ -44,7 +44,11 @@ public static class Migrations
     public static string NextPath(string projectPath, string slug)
     {
         Directory.CreateDirectory(Dir(projectPath));
-        var n = Files(projectPath).Count + 1;
+        // one past the HIGHEST number, not the count: numbering has gaps and duplicates in real histories, and count + 1
+        // handed out a number already taken (Fiesta2026on2016: a second 0363 beside 0363-invented-npc_shinenpc.sql)
+        var n = Files(projectPath).Select(f => Path.GetFileName(f))
+            .Select(f => int.TryParse(new string(f.TakeWhile(char.IsDigit).ToArray()), out var k) ? k : 0)
+            .DefaultIfEmpty(0).Max() + 1;
         var safe = new string(slug.Select(c => char.IsLetterOrDigit(c) || c == '-' ? c : '-').ToArray()).Trim('-');
         if (safe.Length == 0) safe = "edit";
         return Path.Combine(Dir(projectPath), $"{n:D4}-{safe}.sql");
