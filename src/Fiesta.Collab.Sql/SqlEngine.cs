@@ -18,6 +18,7 @@ public sealed class SqlEngine : ISqlEngine
         _logger = logger;
         _connection = new SqliteConnection("Data Source=:memory:");
         _connection.Open();
+        SqlFunctions.Register(_connection);
 
         Execute("PRAGMA foreign_keys = ON;");
         Execute("PRAGMA journal_mode = WAL;");
