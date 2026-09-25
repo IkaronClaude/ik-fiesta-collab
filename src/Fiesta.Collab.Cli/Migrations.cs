@@ -38,6 +38,9 @@ public static class Migrations
             .ToList();
     }
 
+    /// <summary>Where a migration's -- @report tables go: build/reports under the project.</summary>
+    public static string ReportDir(string projectPath) => Path.Combine(projectPath, "build", "reports");
+
     public static string NextPath(string projectPath, string slug)
     {
         Directory.CreateDirectory(Dir(projectPath));
@@ -113,6 +116,20 @@ public static class Migrations
         return true;
     }
 
+    private static string FirstDifference(IReadOnlyList<Dictionary<string, object?>> a,
+                                          IReadOnlyList<Dictionary<string, object?>> b, TableSchema schema)
+    {
+        if (a.Count != b.Count) return $"rows {a.Count} -> {b.Count}";
+        for (var i = 0; i < a.Count; i++)
+            foreach (var c in schema.Columns)
+            {
+                object? x = a[i].GetValueOrDefault(c.Name), y = b[i].GetValueOrDefault(c.Name);
+                if (!SameValue(x, y))
+                    return $"row {i} {c.Name} ({c.Type}): {x} [{x?.GetType().Name}] -> {y} [{y?.GetType().Name}]";
+            }
+        return "none";
+    }
+
     /// <summary>
     /// Value equality across the type changes a SQLite round trip makes.
     ///
@@ -131,6 +148,11 @@ public static class Migrations
 
         if (IsIntegral(x) && IsIntegral(y))
             return Convert.ToInt64(x) == Convert.ToInt64(y);
+        // A Float column comes out of the engine as a Single while JSON holds the double it was written as: 0.6 vs
+        // 0.6f (0.60000002384) are the same stored value, so compare at float precision. Widening to double made
+        // every table with an inexact float "changed" (ItemViewInfo, MapViewInfo) and cost it its row environments.
+        if ((x is float || y is float) && IsNumeric(x) && IsNumeric(y))
+            return (float)Convert.ToDouble(x) == (float)Convert.ToDouble(y);
         if (IsNumeric(x) && IsNumeric(y))
             return Convert.ToDouble(x).Equals(Convert.ToDouble(y));
         return string.Equals(x.ToString(), y.ToString(), StringComparison.Ordinal);
@@ -152,30 +174,42 @@ public static class Migrations
 
     private static bool IsNumeric(object v) => IsIntegral(v) || v is float or double or decimal;
 
-    /// <summary>Apply every migration, in order, in ONE session.
-    ///
-    /// Migrations are written against the state the earlier ones produced, so they share a set of loaded
-    /// tables and are saved once at the end. Loading every table per migration would also be N x T work -
-    /// 31 migrations over 1,417 tables is 44,000 table loads to change a few thousand rows.
-    ///
-    /// A failing migration aborts the run and saves nothing, so a half-applied set never reaches disk.</summary>
-    /// <summary>Where a migration's -- @report tables go: build/reports under the project.</summary>
-    public static string ReportDir(string projectPath) => Path.Combine(projectPath, "build", "reports");
-
-    public static async Task RunAsync(string projectPath, IServiceProvider services, ILogger logger)
+    /// <summary>The loaded project: every manifest table in one engine, with what write-back needs.</summary>
+    private sealed class Loaded(FiestaProject manifest, ISqlEngine engine) : IDisposable
     {
-        var files = Files(projectPath);
-        if (files.Count == 0) return;
+        public FiestaProject Manifest { get; } = manifest;
+        public ISqlEngine Engine { get; } = engine;
+        public Dictionary<string, TableHeader> Headers { get; } = new();
+        public Dictionary<string, TableSchema> Schemas { get; } = new();
+        public Dictionary<string, IReadOnlyList<List<string>?>?> RowEnvs { get; } = new();
+        public Dictionary<string, IReadOnlyList<Dictionary<string, object?>>> Before { get; } = new();
+        public void Dispose() => Engine.Dispose();
 
+        /// <summary>The table as it now stands in the engine, its row environments dropped when its data changed
+        /// (see RunAsync). Null when nothing changed, unless <paramref name="evenIfSame"/>.</summary>
+        public TableFile? Changed(string name, bool evenIfSame = false)
+        {
+            var schema = Schemas[name];
+            var extracted = Engine.ExtractTable(schema);
+            var same = SameData(Before[name], extracted.Rows, schema);
+            if (!same && Environment.GetEnvironmentVariable("COLLAB_DEBUG_SAMEDATA") == "1")
+                Console.Error.WriteLine($"SameData {name}: {FirstDifference(Before[name], extracted.Rows, schema)}");
+            if (same && !evenIfSame) return null;
+            return new TableFile
+            {
+                Header = Headers[name],
+                Columns = schema.Columns,
+                Data = extracted.Rows,
+                RowEnvironments = same ? RowEnvs.GetValueOrDefault(name) : null
+            };
+        }
+    }
+
+    private static async Task<Loaded> LoadAsync(string projectPath, IServiceProvider services)
+    {
         var projectService = services.GetRequiredService<IProjectService>();
         var manifest = await projectService.LoadProjectAsync(projectPath);
-        using var engine = services.GetRequiredService<ISqlEngine>();
-
-        var headers = new Dictionary<string, TableHeader>();
-        var schemas = new Dictionary<string, TableSchema>();
-        var rowEnvs = new Dictionary<string, IReadOnlyList<List<string>?>?>();
-        var before = new Dictionary<string, IReadOnlyList<Dictionary<string, object?>>>();
-
+        var p = new Loaded(manifest, services.GetRequiredService<ISqlEngine>());
         foreach (var (name, entryPath) in manifest.Tables)
         {
             var tableFile = await projectService.ReadTableFileAsync(projectPath, entryPath);
@@ -186,16 +220,17 @@ public static class Migrations
                 Columns = tableFile.Columns,
                 Metadata = tableFile.Header.Metadata
             };
-            headers[name] = tableFile.Header;
-            schemas[name] = schema;
-            rowEnvs[name] = tableFile.RowEnvironments;
-            // A fingerprint of the row ORDER, to tell a value edit from one that moved rows about. Row
-            // environments are positional, so only the second kind invalidates them.
-            before[name] = tableFile.Data;
-            engine.LoadTable(new TableEntry { Schema = schema, Rows = tableFile.Data });
+            p.Headers[name] = tableFile.Header;
+            p.Schemas[name] = schema;
+            p.RowEnvs[name] = tableFile.RowEnvironments;
+            p.Before[name] = tableFile.Data;
+            p.Engine.LoadTable(new TableEntry { Schema = schema, Rows = tableFile.Data });
         }
+        return p;
+    }
 
-        logger.LogInformation("Applying {Count} migration(s) to {Tables} tables", files.Count, manifest.Tables.Count);
+    private static int Apply(ISqlEngine engine, IEnumerable<string> files, string reportDir, ILogger logger, string again)
+    {
         var total = 0;
         foreach (var f in files)
         {
@@ -204,7 +239,7 @@ public static class Migrations
             var name = Path.GetFileName(f);
             try
             {
-                var affected = MigrationScript.Run(engine, sql, name, ReportDir(projectPath));
+                var affected = MigrationScript.Run(engine, sql, name, reportDir);
                 total += affected;
                 logger.LogInformation("  {File}: {Affected} row(s) affected", name, affected);
             }
@@ -213,9 +248,75 @@ public static class Migrations
                 logger.LogError("  {File}: FAILED - {Message}", name, ex.Message);
                 throw new InvalidOperationException(
                     $"migration {name} failed; nothing was saved. Fix the migration (or the data it " +
-                    $"expects) and run `fiesta migrate` again.", ex);
+                    $"expects) and run {again} again.", ex);
             }
         }
+        return total;
+    }
+
+    /// <summary>The migration files of one variant layer, in order. A layer may hold only .sql steps: a generated
+    /// step (NNNN-name.py and the like) has to become SQL before collab can build the variant.</summary>
+    public static List<string> LayerFiles(string projectPath, string layer)
+    {
+        var dir = Path.Combine(projectPath, layer);
+        if (!Directory.Exists(dir)) throw new InvalidOperationException($"variant layer '{layer}' not found at {dir}");
+        var generated = Directory.GetFiles(dir).Select(f => Path.GetFileName(f))
+            .Where(n => n.Length > 0 && char.IsDigit(n[0]) && !n.EndsWith(".sql", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(n => n, StringComparer.Ordinal).ToList();
+        if (generated.Count > 0)
+            throw new InvalidOperationException(
+                $"variant layer '{layer}' holds generated steps collab cannot run: {string.Join(", ", generated)}. " +
+                "Convert them to SQL (functions, @param / @assert / @report) or build this variant with the old tooling.");
+        return Directory.GetFiles(dir, "*.sql").OrderBy(Path.GetFileName, StringComparer.Ordinal).ToList();
+    }
+
+    /// <summary>Where a variant's builds and reports go: build/&lt;variant&gt;.</summary>
+    public static string VariantDir(string projectPath, string variant) => Path.Combine(projectPath, "build", variant);
+
+    /// <summary>
+    /// A build variant: data/ (the base migrations are already in it) plus the variant's layers, in order, in ONE
+    /// session - applied in memory, data/ untouched. Returns the tables whose data the layers changed; every other
+    /// table is data/ as it stands. Reports go to build/&lt;variant&gt;/reports.
+    /// </summary>
+    public static async Task<Dictionary<string, TableFile>> ApplyVariantAsync(string projectPath, string variant,
+        IServiceProvider services, ILogger logger)
+    {
+        var manifest = await services.GetRequiredService<IProjectService>().LoadProjectAsync(projectPath);
+        if (manifest.Variants is null || !manifest.Variants.TryGetValue(variant, out var layers))
+            throw new InvalidOperationException(
+                $"no variant '{variant}' in fiesta.json (known: {string.Join(", ", manifest.Variants?.Keys.AsEnumerable() ?? [])})");
+        var files = layers.SelectMany(l => LayerFiles(projectPath, l)).ToList();
+
+        using var p = await LoadAsync(projectPath, services);
+        logger.LogInformation("Variant {Variant}: {Count} migration(s) from {Layers}", variant, files.Count, string.Join(" + ", layers));
+        var total = Apply(p.Engine, files, Path.Combine(VariantDir(projectPath, variant), "reports"), logger,
+            $"`fiesta build --variant {variant}`");
+        var changed = new Dictionary<string, TableFile>();
+        if (total == 0) return changed;
+        foreach (var name in p.Manifest.Tables.Keys)
+            if (p.Changed(name) is { } t) changed[name] = t;
+        logger.LogInformation("Variant {Variant}: {Total} row(s) affected, {Tables} table(s) changed", variant, total, changed.Count);
+        return changed;
+    }
+
+    /// <summary>Apply every migration, in order, in ONE session.
+    ///
+    /// Migrations are written against the state the earlier ones produced, so they share a set of loaded
+    /// tables and are saved once at the end. Loading every table per migration would also be N x T work -
+    /// 31 migrations over 1,417 tables is 44,000 table loads to change a few thousand rows.
+    ///
+    /// A failing migration aborts the run and saves nothing, so a half-applied set never reaches disk.</summary>
+    public static async Task RunAsync(string projectPath, IServiceProvider services, ILogger logger)
+    {
+        var files = Files(projectPath);
+        if (files.Count == 0) return;
+
+        var projectService = services.GetRequiredService<IProjectService>();
+        using var p = await LoadAsync(projectPath, services);
+        var manifest = p.Manifest;
+
+        logger.LogInformation("Applying {Count} migration(s) to {Tables} tables", files.Count, manifest.Tables.Count);
+        var total = Apply(p.Engine, files, ReportDir(projectPath), logger, "`fiesta migrate`");
 
         if (total == 0)
         {
@@ -226,9 +327,6 @@ public static class Migrations
         var saved = 0;
         foreach (var (name, entryPath) in manifest.Tables)
         {
-            var schema = schemas[name];
-            var extracted = engine.ExtractTable(schema);
-
             // Row environments are positional. A migration that inserts, deletes or reorders rows makes the
             // old list meaningless - writing it back would hand one row's visibility to another. It cannot
             // be re-derived from SQL output, so the annotations are dropped and every row becomes visible to
@@ -239,17 +337,8 @@ public static class Migrations
             // environment's rows") can land on the same count AND the same key order while every value
             // behind those keys is now a different environment's. SetEffect did exactly that: 1,415 rows in
             // the JSON, 1,043 in the build, because rows kept an annotation describing what used to sit
-            // there. So any change at all to a table's data drops its annotations.
-            var envs = rowEnvs.GetValueOrDefault(name);
-            if (envs != null && !SameData(before[name], extracted.Rows, schema)) envs = null;
-
-            await projectService.WriteTableFileAsync(projectPath, entryPath, new TableFile
-            {
-                Header = headers[name],
-                Columns = schema.Columns,
-                Data = extracted.Rows,
-                RowEnvironments = envs
-            });
+            // there. So any change at all to a table's data drops its annotations (Loaded.Changed).
+            await projectService.WriteTableFileAsync(projectPath, entryPath, p.Changed(name, evenIfSame: true)!);
             saved++;
         }
         logger.LogInformation("Migrations applied: {Total} row(s) affected, {Saved} tables saved", total, saved);

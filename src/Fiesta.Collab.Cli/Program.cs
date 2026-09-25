@@ -601,8 +601,12 @@ buildCommand.AddOption(buildOutputOption);
 buildCommand.AddOption(buildEnvOption);
 buildCommand.AddOption(buildAllOption);
 buildCommand.AddOption(buildTablesOption);
+// --variant: data/ + the variant's layers (fiesta.json "variants"), applied in memory, built to build/<variant>/<env>.
+// Without --tables only the tables the layers changed are built - a patch set over the parity build.
+var buildVariantOption = new Option<string?>("--variant", "Build a variant (fiesta.json \"variants\") to build/<variant>/<env>; only the tables it changes unless --tables");
+buildCommand.AddOption(buildVariantOption);
 
-buildCommand.SetHandler(async (DirectoryInfo? projectOpt, DirectoryInfo? outputOpt, string? envName, bool buildAll, string? onlyTables) =>
+buildCommand.SetHandler(async (DirectoryInfo? projectOpt, DirectoryInfo? outputOpt, string? envName, bool buildAll, string? onlyTables, string? variant) =>
 {
     var logger = sp.GetRequiredService<ILogger<Program>>();
     var project = ResolveProjectOrExit(projectOpt, logger);
@@ -613,6 +617,42 @@ buildCommand.SetHandler(async (DirectoryInfo? projectOpt, DirectoryInfo? outputO
     var template = await TemplateResolver.LoadAsync(project.FullName);
     var allEnvs = EnvironmentStore.LoadAll(project.FullName);
 
+    // A variant's changed tables, held in memory; every read below goes through ReadTable so they replace data/.
+    Dictionary<string, TableFile>? overlay = null;
+    if (variant != null)
+    {
+        try
+        {
+            overlay = await Fiesta.Collab.Cli.Migrations.ApplyVariantAsync(project.FullName, variant, sp, logger);
+        }
+        catch (InvalidOperationException ex)
+        {
+            logger.LogError("{Message}", ex.InnerException is { } inner ? $"{ex.Message} ({inner.Message})" : ex.Message);
+            Environment.ExitCode = 1;
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(onlyTables))
+        {
+            if (overlay.Count == 0)
+            {
+                logger.LogInformation("Variant {Variant} changes no table: nothing to build", variant);
+                return;
+            }
+            onlyTables = string.Join(",", overlay.Keys);
+        }
+    }
+    var tableByPath = manifest.Tables.GroupBy(t => t.Value).ToDictionary(g => g.Key, g => g.First().Key);
+    async Task<TableFile> ReadTable(string entryPath)
+        => overlay != null && tableByPath.TryGetValue(entryPath, out var tn) && overlay.TryGetValue(tn, out var tf)
+            ? tf
+            : await projectService.ReadTableFileAsync(project.FullName, entryPath);
+    string EnvBuildDir(string eName, EnvironmentConfig? eConfig)
+    {
+        if (variant != null) return Path.Combine(Fiesta.Collab.Cli.Migrations.VariantDir(project.FullName, variant), eName);
+        var buildPath = eConfig?.BuildPath ?? Path.Combine("build", eName);
+        return Path.IsPathRooted(buildPath) ? buildPath : Path.Combine(project.FullName, buildPath);
+    }
+
     // Default to --all when no env or output specified
     if (!buildAll && envName == null && outputOpt == null)
         buildAll = true;
@@ -622,11 +662,7 @@ buildCommand.SetHandler(async (DirectoryInfo? projectOpt, DirectoryInfo? outputO
     if (buildAll)
     {
         foreach (var (eName, eConfig) in allEnvs)
-        {
-            var buildPath = eConfig.BuildPath ?? Path.Combine("build", eName);
-            var fullPath = Path.IsPathRooted(buildPath) ? buildPath : Path.Combine(project.FullName, buildPath);
-            envsToBuild[eName] = fullPath;
-        }
+            envsToBuild[eName] = EnvBuildDir(eName, eConfig);
     }
     else if (envName != null)
     {
@@ -637,8 +673,7 @@ buildCommand.SetHandler(async (DirectoryInfo? projectOpt, DirectoryInfo? outputO
         }
         else if (allEnvs.TryGetValue(envName, out var eConfig))
         {
-            var buildPath = eConfig.BuildPath ?? Path.Combine("build", envName);
-            outputDir = Path.IsPathRooted(buildPath) ? buildPath : Path.Combine(project.FullName, buildPath);
+            outputDir = EnvBuildDir(envName, eConfig);
         }
         else
         {
@@ -676,7 +711,7 @@ buildCommand.SetHandler(async (DirectoryInfo? projectOpt, DirectoryInfo? outputO
                 return;
             }
             selected.Add(n);
-            var header = (await projectService.ReadTableFileAsync(project.FullName, entry)).Header;
+            var header = (await ReadTable(entry)).Header;
             var src = header.Metadata?.TryGetValue("sourceFile", out var sf) == true ? sf?.ToString() : null;
             if (string.IsNullOrEmpty(src)) continue;
             var stem = Path.GetFileNameWithoutExtension(src);
@@ -703,7 +738,7 @@ buildCommand.SetHandler(async (DirectoryInfo? projectOpt, DirectoryInfo? outputO
 
         foreach (var (name, entryPath) in tableSet)
         {
-            var tableFile = await projectService.ReadTableFileAsync(project.FullName, entryPath);
+            var tableFile = await ReadTable(entryPath);
 
             // Check origin metadata to determine how to handle this table
             var origin = tableFile.Header.Metadata?.TryGetValue(SourceOrigin.MetadataKey, out var o) == true
@@ -888,7 +923,7 @@ buildCommand.SetHandler(async (DirectoryInfo? projectOpt, DirectoryInfo? outputO
             async Task<IReadOnlyList<Dictionary<string, object?>>> RowsOf(string table)
             {
                 if (!manifest.Tables.TryGetValue(table, out var entryPath)) return [];
-                var tf = await projectService.ReadTableFileAsync(project.FullName, entryPath);
+                var tf = await ReadTable(entryPath);
                 return tf.Data;
             }
 
@@ -1022,7 +1057,7 @@ buildCommand.SetHandler(async (DirectoryInfo? projectOpt, DirectoryInfo? outputO
 
     }
 
-}, buildProjectOption, buildOutputOption, buildEnvOption, buildAllOption, buildTablesOption);
+}, buildProjectOption, buildOutputOption, buildEnvOption, buildAllOption, buildTablesOption, buildVariantOption);
 
 // --- query command ---
 var queryCommand = new Command("query", "Run SQL against a fiesta project");

@@ -25,4 +25,12 @@ public sealed class FiestaProject
     /// </summary>
     [JsonPropertyName("tables")]
     public Dictionary<string, string> Tables { get; init; } = [];
+
+    /// <summary>
+    /// Build variants: name -> the layer directories (relative to the project) whose migrations are applied, in this
+    /// order, on top of data/ when building that variant (`fiesta build --variant name`). data/ never carries them.
+    /// </summary>
+    [JsonPropertyName("variants")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Dictionary<string, List<string>>? Variants { get; set; }
 }
