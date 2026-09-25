@@ -2,6 +2,12 @@
 
 Status: proposal (2026-09-24). Driven by Fiesta2026on2016, which today works around the gaps below with Python.
 
+**Progress (2026-09-26):** sections 1 and 2 are built - `variants` in fiesta.json, `fiesta build --variant X` (layers
+applied in memory, patch set of the changed tables in build/<variant>/<env>), the SQL functions (median, interp_log,
+blob_*; ln/exp/pow are SQLite's) and the `@param` / `@assert` / `@report` directives (in migrate, edit and session).
+A layer that still holds a generated `.py` step is refused by name. Not built yet: `--diff-against`, sections 3-6,
+and converting Fiesta2026on2016's Python steps.
+
 ## Why
 
 Fiesta2026on2016 ships three products from one project:
