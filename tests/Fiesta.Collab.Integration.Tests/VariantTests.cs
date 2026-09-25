@@ -149,4 +149,27 @@ public class VariantTests : IAsyncLifetime
         File.ReadAllText(files.Single(f => f.Relative.EndsWith("Both.txt")).Source).ShouldBe("from b");
         Migrations.LayerOverrides(_dir, ["layer-a"], "overlay").ShouldBeEmpty();
     }
+
+    [Fact]
+    public async Task A_layer_keeps_row_environments_and_can_add_an_environment_row()
+    {
+        // Mobs: row 1 shared, row 2 server-only
+        await _ps.WriteTableFileAsync(_dir, "data/Mobs.json", new TableFile
+        {
+            Header = new TableHeader { TableName = "Mobs", SourceFormat = "shn" },
+            Columns = [new ColumnDefinition { Name = "ID", Type = ColumnType.UInt32, Length = 4 },
+                       new ColumnDefinition { Name = "Name", Type = ColumnType.String, Length = 32 },
+                       new ColumnDefinition { Name = "Price", Type = ColumnType.UInt32, Length = 4 }],
+            Data = [Row(1, "Slime", 1), Row(2, "ServerSlime", 2), Row(3, "Gone", 3)],
+            RowEnvironments = [null, ["server"], ["overlay"]]
+        });
+        Layer("layer-a", "0002-mobs.sql",
+            "DELETE FROM Mobs WHERE ID = 3; INSERT INTO Mobs (ID, Name, Price, _envs) VALUES (4, 'ClientSlime', 4, 'client');");
+
+        var changed = await Migrations.ApplyVariantAsync(_dir, "qol", _sp, NullLogger.Instance);
+
+        var mobs = changed["Mobs"];
+        mobs.Data.Select(r => N(r["ID"])).ShouldBe([1L, 2L, 4L]);
+        mobs.RowEnvironments!.Select(e => e is null ? null : string.Join(",", e)).ShouldBe([null, "server", "client"]);
+    }
 }

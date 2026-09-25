@@ -8,6 +8,11 @@ namespace Fiesta.Collab.Sql;
 
 public sealed class SqlEngine : ISqlEngine
 {
+    /// <summary>The row-environment column every loaded table carries: a comma list of environments, NULL = every
+    /// environment (docs/DESIGN-variants-and-native-steps.md, section 3). Not a schema column: ExtractTable returns it as
+    /// TableEntry.RowEnvironments.</summary>
+    public const string EnvsColumn = "_envs";
+
     private readonly SqliteConnection _connection;
     private readonly ILogger<SqlEngine> _logger;
     private List<ResolvedConstraint> _constraints = [];
@@ -142,8 +147,10 @@ public sealed class SqlEngine : ISqlEngine
         }
 
         var paramNames = columns.Select((_, i) => $"@p{i}").ToList();
-        var insertSql = $"INSERT INTO [{schema.TableName}] ({string.Join(", ", columns.Select(c => $"[{c.Name}]"))}) " +
-                        $"VALUES ({string.Join(", ", paramNames)})";
+        var envs = data.RowEnvironments;
+        var insertSql = $"INSERT INTO [{schema.TableName}] ({string.Join(", ", columns.Select(c => $"[{c.Name}]"))}" +
+                        (envs != null ? $", [{EnvsColumn}]" : "") +
+                        $") VALUES ({string.Join(", ", paramNames)}{(envs != null ? ", @envs" : "")})";
 
         using var transaction = _connection.BeginTransaction();
         using var cmd = _connection.CreateCommand();
@@ -158,10 +165,18 @@ public sealed class SqlEngine : ISqlEngine
             cmd.Parameters.Add(parameters[i]);
         }
 
+        var envParam = cmd.CreateParameter();
+        envParam.ParameterName = "@envs";
+        if (envs != null) cmd.Parameters.Add(envParam);
+
         cmd.Prepare();
 
+        var rowIndex = 0;
         foreach (var row in data.Rows)
         {
+            if (envs != null)
+                envParam.Value = rowIndex < envs.Count && envs[rowIndex] is { } e ? string.Join(",", e) : DBNull.Value;
+            rowIndex++;
             for (int i = 0; i < columns.Count; i++)
             {
                 var colName = columns[i].Name;
@@ -227,17 +242,27 @@ public sealed class SqlEngine : ISqlEngine
         for (int i = 0; i < reader.FieldCount; i++)
             ordinals[reader.GetName(i)] = i;
         var cols = schema.Columns.Select(c => (c.Name, c.Type, Ordinal: ordinals.TryGetValue(c.Name, out var o) ? o : -1)).ToArray();
+        var envOrdinal = ordinals.TryGetValue(EnvsColumn, out var eo) ? eo : -1;
 
         var typedRows = new List<Dictionary<string, object?>>();
+        var envs = new List<List<string>?>();
+        var anyEnv = false;
         while (reader.Read())
         {
             var typedRow = new Dictionary<string, object?>(cols.Length);
             foreach (var (name, type, ordinal) in cols)
                 typedRow[name] = ordinal < 0 || reader.IsDBNull(ordinal) ? null : ConvertFromSqlite(reader.GetValue(ordinal), type);
             typedRows.Add(typedRow);
+            var env = envOrdinal < 0 || reader.IsDBNull(envOrdinal) ? null : reader.GetString(envOrdinal);
+            if (string.IsNullOrWhiteSpace(env)) envs.Add(null);
+            else
+            {
+                envs.Add(env.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList());
+                anyEnv = true;
+            }
         }
 
-        return new TableEntry { Schema = schema, Rows = typedRows };
+        return new TableEntry { Schema = schema, Rows = typedRows, RowEnvironments = anyEnv ? envs : null };
     }
 
     public IReadOnlyList<string> ListTables()
@@ -285,6 +310,7 @@ public sealed class SqlEngine : ISqlEngine
 
         foreach (var col in schema.Columns)
             parts.Add($"[{col.Name}] {GetSqliteType(col.Type)}");
+        parts.Add($"[{EnvsColumn}] TEXT");
 
         foreach (var fk in fkColumns)
             parts.Add($"FOREIGN KEY ([{fk.SourceColumn}]) REFERENCES [{fk.TargetTable}]([{fk.TargetColumn}])");

@@ -71,7 +71,7 @@ public static class Migrations
             headers[name] = tableFile.Header;
             schemas[name] = schema;
             rowEnvs[name] = tableFile.RowEnvironments;
-            engine.LoadTable(new TableEntry { Schema = schema, Rows = tableFile.Data });
+            engine.LoadTable(new TableEntry { Schema = schema, Rows = tableFile.Data, RowEnvironments = tableFile.RowEnvironments });
         }
 
         var affected = engine.Execute(sql);
@@ -82,14 +82,8 @@ public static class Migrations
             var schema = schemas[name];
             var extracted = engine.ExtractTable(schema);
 
-            // Row environments are positional. A migration that inserts, deletes or reorders rows makes the
-            // old list meaningless - writing it back would hand row 500's visibility to a different row.
-            // There is no way to re-derive it from SQL output, so when the count changes the annotations are
-            // dropped and every row becomes visible to every environment, which is what an unannotated
-            // table means anyway. Migrations that must keep rows environment-specific have to be written
-            // against a table whose row count they do not change.
-            var envs = rowEnvs.GetValueOrDefault(name);
-            if (envs != null && envs.Count != extracted.Rows.Count) envs = null;
+            // the row environments ride in the engine's _envs column, so they follow their rows
+            var envs = extracted.RowEnvironments;
 
             await projectService.WriteTableFileAsync(projectPath, entryPath, new TableFile
             {
@@ -114,6 +108,13 @@ public static class Migrations
                 if (!SameValue(a[i].GetValueOrDefault(c.Name), b[i].GetValueOrDefault(c.Name)))
                     return false;
         return true;
+    }
+
+    private static bool SameEnvs(IReadOnlyList<List<string>?>? a, IReadOnlyList<List<string>?>? b)
+    {
+        static string Key(IReadOnlyList<List<string>?>? l)
+            => l is null || l.All(e => e is null) ? "" : string.Join("|", l.Select(e => e is null ? "" : string.Join(",", e)));
+        return Key(a) == Key(b);
     }
 
     private static string FirstDifference(IReadOnlyList<Dictionary<string, object?>> a,
@@ -185,13 +186,13 @@ public static class Migrations
         public Dictionary<string, IReadOnlyList<Dictionary<string, object?>>> Before { get; } = new();
         public void Dispose() => Engine.Dispose();
 
-        /// <summary>The table as it now stands in the engine, its row environments dropped when its data changed
-        /// (see RunAsync). Null when nothing changed, unless <paramref name="evenIfSame"/>.</summary>
+        /// <summary>The table as it now stands in the engine, with the row environments its `_envs` column holds. Null
+        /// when neither its data nor its environments changed, unless <paramref name="evenIfSame"/>.</summary>
         public TableFile? Changed(string name, bool evenIfSame = false)
         {
             var schema = Schemas[name];
             var extracted = Engine.ExtractTable(schema);
-            var same = SameData(Before[name], extracted.Rows, schema);
+            var same = SameData(Before[name], extracted.Rows, schema) && SameEnvs(RowEnvs.GetValueOrDefault(name), extracted.RowEnvironments);
             if (!same && Environment.GetEnvironmentVariable("COLLAB_DEBUG_SAMEDATA") == "1")
                 Console.Error.WriteLine($"SameData {name}: {FirstDifference(Before[name], extracted.Rows, schema)}");
             if (same && !evenIfSame) return null;
@@ -200,7 +201,7 @@ public static class Migrations
                 Header = Headers[name],
                 Columns = schema.Columns,
                 Data = extracted.Rows,
-                RowEnvironments = same ? RowEnvs.GetValueOrDefault(name) : null
+                RowEnvironments = extracted.RowEnvironments
             };
         }
     }
@@ -224,7 +225,7 @@ public static class Migrations
             p.Schemas[name] = schema;
             p.RowEnvs[name] = tableFile.RowEnvironments;
             p.Before[name] = tableFile.Data;
-            p.Engine.LoadTable(new TableEntry { Schema = schema, Rows = tableFile.Data });
+            p.Engine.LoadTable(new TableEntry { Schema = schema, Rows = tableFile.Data, RowEnvironments = tableFile.RowEnvironments });
         }
         return p;
     }
@@ -345,17 +346,10 @@ public static class Migrations
         var saved = 0;
         foreach (var (name, entryPath) in manifest.Tables)
         {
-            // Row environments are positional. A migration that inserts, deletes or reorders rows makes the
-            // old list meaningless - writing it back would hand one row's visibility to another. It cannot
-            // be re-derived from SQL output, so the annotations are dropped and every row becomes visible to
-            // every environment, which is what an unannotated table means anyway.
-            //
-            // Comparing counts is not enough, and neither is comparing the key column. A migration that
-            // replaces a table's contents wholesale (DELETE then INSERT - the shape of "take the other
-            // environment's rows") can land on the same count AND the same key order while every value
-            // behind those keys is now a different environment's. SetEffect did exactly that: 1,415 rows in
-            // the JSON, 1,043 in the build, because rows kept an annotation describing what used to sit
-            // there. So any change at all to a table's data drops its annotations (Loaded.Changed).
+            // Row environments ride in the engine's `_envs` column, so a row keeps its own through inserts, deletes
+            // and reorders; a row a migration inserts is shared unless it names _envs. (They used to be a positional
+            // list, dropped whenever a table's data changed - SetEffect then built 1,415 rows where the server has
+            // 1,043, and every table with an inexact float lost its annotations on every migrate.)
             await projectService.WriteTableFileAsync(projectPath, entryPath, p.Changed(name, evenIfSame: true)!);
             saved++;
         }

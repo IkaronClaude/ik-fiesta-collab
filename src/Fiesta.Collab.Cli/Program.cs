@@ -1271,7 +1271,7 @@ editCommand.SetHandler(async (System.CommandLine.Invocation.InvocationContext ct
         tableHeaders[name] = tableFile.Header;
         tableSchemas[name] = schema;
         tableRowEnvironments[name] = tableFile.RowEnvironments;
-        engine.LoadTable(new TableEntry { Schema = schema, Rows = tableFile.Data });
+        engine.LoadTable(new TableEntry { Schema = schema, Rows = tableFile.Data, RowEnvironments = tableFile.RowEnvironments });
     }
 
     logger.LogInformation("Loaded {Count} of {Total} tables", wanted.Count, manifest.Tables.Count);
@@ -1298,7 +1298,7 @@ editCommand.SetHandler(async (System.CommandLine.Invocation.InvocationContext ct
             Header = tableHeaders[name],
             Columns = schema.Columns,
             Data = extracted.Rows,
-            RowEnvironments = tableRowEnvironments.GetValueOrDefault(name)
+            RowEnvironments = extracted.RowEnvironments
         };
 
         await projectService.WriteTableFileAsync(project.FullName, entryPath, tableFile);
@@ -1361,7 +1361,7 @@ sessionCommand.SetHandler(async (DirectoryInfo? projectOpt) =>
         schemas[name] = schema;
         rowEnvs[name] = tableFile.RowEnvironments;
         paths[name] = entryPath;
-        engine.LoadTable(new TableEntry { Schema = schema, Rows = tableFile.Data });
+        engine.LoadTable(new TableEntry { Schema = schema, Rows = tableFile.Data, RowEnvironments = tableFile.RowEnvironments });
     }
     Console.WriteLine($"READY {manifest.Tables.Count} tables (loaded on first use)");
     Console.Out.Flush();
@@ -1410,7 +1410,7 @@ sessionCommand.SetHandler(async (DirectoryInfo? projectOpt) =>
                         Header = headers[name],
                         Columns = schemas[name].Columns,
                         Data = extracted.Rows,
-                        RowEnvironments = rowEnvs.GetValueOrDefault(name)
+                        RowEnvironments = extracted.RowEnvironments
                     });
                     tWrite += sw.ElapsedMilliseconds - t0;
                     saved++;
@@ -1459,7 +1459,7 @@ shellCommand.SetHandler(async (DirectoryInfo? projectOpt) =>
         tableHeaders[name] = tableFile.Header;
         tableSchemas[name] = schema;
         tableRowEnvironments[name] = tableFile.RowEnvironments;
-        engine.LoadTable(new TableEntry { Schema = schema, Rows = tableFile.Data });
+        engine.LoadTable(new TableEntry { Schema = schema, Rows = tableFile.Data, RowEnvironments = tableFile.RowEnvironments });
     }
 
     Console.WriteLine($"Loaded {manifest.Tables.Count} tables. Type SQL or a dot-command.");
@@ -1979,7 +1979,8 @@ async Task LoadTablesWithConstraints(
                 Columns = tableFile.Columns,
                 Metadata = tableFile.Header.Metadata
             },
-            Rows = tableFile.Data
+            Rows = tableFile.Data,
+            RowEnvironments = tableFile.RowEnvironments
         };
         engine.LoadTable(entry);
     }
@@ -2021,7 +2022,7 @@ async Task SaveAllTables(
             Header = headers[name],
             Columns = schema.Columns,
             Data = extracted.Rows,
-            RowEnvironments = rowEnvironments.GetValueOrDefault(name)
+            RowEnvironments = extracted.RowEnvironments
         };
 
         await projectService.WriteTableFileAsync(projectDir, entryPath, tableFile);
