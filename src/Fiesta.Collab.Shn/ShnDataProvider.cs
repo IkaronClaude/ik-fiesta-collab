@@ -244,6 +244,20 @@ public sealed class ShnDataProvider : IDataProvider
         return length switch { 1 => (sbyte)v, 2 => (short)v, <= 4 => (int)v, _ => v };
     }
 
+    /// <summary>A little-endian integer of exactly <paramref name="length"/> bytes - the inverse of ReadInteger.</summary>
+    private static void WriteInteger(BinaryWriter writer, object? value, int length, bool signed)
+    {
+        if (length is <= 0 or > 8)
+            throw new InvalidDataException($"SHN integer column has an unusable width of {length}");
+        ulong raw = value is JsonElement je
+            ? je.ValueKind == JsonValueKind.String
+                ? (signed ? unchecked((ulong)long.Parse(je.GetString()!)) : ulong.Parse(je.GetString()!))
+                : je.TryGetInt64(out var l) ? unchecked((ulong)l) : je.GetUInt64()
+            : signed || value is sbyte or short or int or long ? unchecked((ulong)Convert.ToInt64(value)) : Convert.ToUInt64(value);
+        for (var i = 0; i < length; i++)
+            writer.Write((byte)(raw >> (8 * i)));
+    }
+
     private static void WriteColumns(BinaryWriter writer, IReadOnlyList<ColumnDefinition> columns)
     {
         foreach (var col in columns)
@@ -302,8 +316,11 @@ public sealed class ShnDataProvider : IDataProvider
                     case 26:
                         WriteNullTerminatedString(writer, value?.ToString() ?? "", ref varLength);
                         break;
-                    case 29:
-                        writer.Write(ConvertToUInt64(value));
+                    default:
+                        // 29 and any code the reader took by width: write the width the header declares, as the
+                        // reader reads it (29 is 8 bytes in the 2016 tables, 4 in the 2026 ones - writing 8 for every
+                        // 29 made the 2026 MobInfo 4 bytes a row too long and every row after the first garbage)
+                        WriteInteger(writer, value, col.Length, IsSigned((uint)typeCode));
                         break;
                 }
             }

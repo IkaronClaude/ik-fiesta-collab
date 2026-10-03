@@ -69,4 +69,27 @@ public class ShnColumnWidthTests
             if (File.Exists(tmp)) File.Delete(tmp);
         }
     }
+
+    [Fact]
+    public async Task Round_trips_a_2026_table_whose_type_29_is_four_bytes()
+    {
+        // The writer used to emit every 29 as 8 bytes: the 2026 MobInfo came back 4 bytes a row too long.
+        // MobLoca's type 28 too - the writer skipped a code it did not know.
+        foreach (var p in new[] { Path.Combine(Client2026, "MobInfo.shn"), Path.Combine(Client2026, "Loca", "MobLoca.shn") })
+        {
+            if (!File.Exists(p)) continue;
+            var provider = Provider();
+            var tables = await provider.ReadAsync(p);
+            var tmp = Path.Combine(Path.GetTempPath(), $"rt-{Guid.NewGuid():N}.shn");
+            try
+            {
+                await provider.WriteAsync(tmp, tables);
+                File.ReadAllBytes(tmp).ShouldBe(File.ReadAllBytes(p));
+            }
+            finally
+            {
+                if (File.Exists(tmp)) File.Delete(tmp);
+            }
+        }
+    }
 }
