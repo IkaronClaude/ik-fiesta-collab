@@ -475,6 +475,21 @@ importCommand.SetHandler(async (DirectoryInfo? projectOpt, bool reimport) =>
         }
     }
 
+    // Phase 3b: orderBy - {"action": "orderBy", "table": T, "column": C, "direction": "asc" | "desc"} sorts a table's rows
+    // by one column once every copy / merge is done (stable: equal values keep their order; row environments move with
+    // their rows). Numbers sort as numbers, everything else as ordinal text, NULL first.
+    foreach (var action in template.Actions.Where(a => a.Action == "orderBy"))
+    {
+        if (action.Table is null || action.Column is null || !mergedTables.TryGetValue(action.Table, out var t))
+        {
+            logger.LogWarning("orderBy: table {Table} / column {Column} not found - skipped", action.Table, action.Column);
+            continue;
+        }
+        var desc = string.Equals(action.Direction, "desc", StringComparison.OrdinalIgnoreCase);
+        mergedTables[action.Table] = TableOrdering.OrderBy(t, action.Column, desc);
+        logger.LogInformation("orderBy: {Table} by {Column} {Dir}", action.Table, action.Column, desc ? "desc" : "asc");
+    }
+
     // Phase 4: Write merged tables and update manifest
     manifest.Tables.Clear();
     int merged = 0;

@@ -88,6 +88,11 @@ public sealed class TemplateAction
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? ConflictStrategy { get; init; }
 
+    /// <summary>orderBy: "asc" (default) or "desc" - the direction `table` is sorted by `column` after the merges.</summary>
+    [JsonPropertyName("direction")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Direction { get; init; }
+
     /// <summary>
     /// Overrides the output filename (without extension) when building.
     /// Used for incompatible-schema tables that share a source filename but need
