@@ -213,6 +213,58 @@ public sealed class SqlEngine : ISqlEngine
         return cmd.ExecuteNonQuery();
     }
 
+    public int Execute(string sql, IReadOnlyDictionary<string, object?> parameters)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = sql;
+        Bind(cmd, parameters);
+        return cmd.ExecuteNonQuery();
+    }
+
+    public int ExecuteMany(string sql, IEnumerable<IReadOnlyDictionary<string, object?>> parameterSets)
+    {
+        using var transaction = _connection.BeginTransaction();
+        using var cmd = _connection.CreateCommand();
+        cmd.Transaction = transaction;
+        cmd.CommandText = sql;
+        var total = 0;
+        foreach (var set in parameterSets)
+        {
+            cmd.Parameters.Clear();
+            Bind(cmd, set);
+            total += cmd.ExecuteNonQuery();
+        }
+        transaction.Commit();
+        return total;
+    }
+
+    public (List<string> Columns, List<object?[]> Rows) QueryRows(string sql, IReadOnlyDictionary<string, object?> parameters)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = sql;
+        Bind(cmd, parameters);
+        using var reader = cmd.ExecuteReader();
+        var cols = Enumerable.Range(0, reader.FieldCount).Select(reader.GetName).ToList();
+        var rows = new List<object?[]>();
+        while (reader.Read())
+        {
+            var row = new object?[reader.FieldCount];
+            for (var i = 0; i < reader.FieldCount; i++)
+                row[i] = reader.IsDBNull(i) ? null : reader.GetValue(i);
+            rows.Add(row);
+        }
+        return (cols, rows);
+    }
+
+    private static void Bind(SqliteCommand cmd, IReadOnlyDictionary<string, object?> parameters)
+    {
+        foreach (var (k, v) in parameters)
+        {
+            var name = k.Length > 0 && (k[0] == '@' || k[0] == ':' || k[0] == '$') ? k : "@" + k;
+            cmd.Parameters.AddWithValue(name, v ?? DBNull.Value);
+        }
+    }
+
     public List<Dictionary<string, object?>> Query(string sql)
     {
         using var cmd = _connection.CreateCommand();

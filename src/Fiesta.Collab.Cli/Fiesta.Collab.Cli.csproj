@@ -7,6 +7,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <None Include="python\**\*.py" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Fiesta.Collab.Core\Fiesta.Collab.Core.csproj" />
     <ProjectReference Include="..\Fiesta.Collab.Shn\Fiesta.Collab.Shn.csproj" />
     <ProjectReference Include="..\Fiesta.Collab.ShineTable\Fiesta.Collab.ShineTable.csproj" />

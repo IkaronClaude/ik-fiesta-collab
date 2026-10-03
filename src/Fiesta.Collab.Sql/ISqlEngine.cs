@@ -39,6 +39,15 @@ public interface ISqlEngine : IDisposable
     /// </summary>
     int Execute(string sql);
 
+    /// <summary>Execute a statement with named parameters (@name / :name / $name); returns rows affected.</summary>
+    int Execute(string sql, IReadOnlyDictionary<string, object?> parameters);
+
+    /// <summary>Execute one statement once per parameter set, in one transaction; returns rows affected.</summary>
+    int ExecuteMany(string sql, IEnumerable<IReadOnlyDictionary<string, object?>> parameterSets);
+
+    /// <summary>A query with named parameters: (column names, rows as value arrays).</summary>
+    (List<string> Columns, List<object?[]> Rows) QueryRows(string sql, IReadOnlyDictionary<string, object?> parameters);
+
     /// <summary>
     /// Execute a SQL query and return results as a list of row dictionaries.
     /// </summary>

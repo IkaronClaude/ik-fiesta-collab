@@ -33,7 +33,9 @@ public static class Migrations
     {
         var dir = Dir(projectPath);
         if (!Directory.Exists(dir)) return [];
-        return Directory.GetFiles(dir, "*.sql")
+        // .sql steps and, where SQL truly cannot express a rule, .py steps (PythonStep: they talk to the live engine)
+        return Directory.GetFiles(dir)
+            .Where(f => f.EndsWith(".sql", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".py", StringComparison.OrdinalIgnoreCase))
             .OrderBy(Path.GetFileName, StringComparer.Ordinal)
             .ToList();
     }
@@ -240,12 +242,13 @@ public static class Migrations
         var total = 0;
         foreach (var f in files)
         {
-            var sql = File.ReadAllText(f);
-            if (string.IsNullOrWhiteSpace(sql)) continue;
             var name = Path.GetFileName(f);
+            var isPy = f.EndsWith(".py", StringComparison.OrdinalIgnoreCase);
+            var sql = isPy ? "" : File.ReadAllText(f);
+            if (!isPy && string.IsNullOrWhiteSpace(sql)) continue;
             try
             {
-                var affected = MigrationScript.Run(engine, sql, name, reportDir, onTable);
+                var affected = isPy ? PythonStep.Run(engine, f, logger) : MigrationScript.Run(engine, sql, name, reportDir, onTable);
                 total += affected;
                 logger.LogInformation("  {File}: {Affected} row(s) affected", name, affected);
             }
