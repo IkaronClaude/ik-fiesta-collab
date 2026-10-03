@@ -490,6 +490,31 @@ importCommand.SetHandler(async (DirectoryInfo? projectOpt, bool reimport) =>
         logger.LogInformation("orderBy: {Table} by {Column} {Dir}", action.Table, action.Column, desc ? "desc" : "asc");
     }
 
+    // Phase 3c: buildAs - {"action": "buildAs", "table": T, "env": E, "as": A, "path": P}: when env E is built, T's env-A
+    // view (A's columns, rows and file-format header) is written into E's output too, in directory P, replacing the file
+    // E builds under that name. For a file E must hold exactly as A has it - the 2016 zone loads the 2026 client's own
+    // tables and checksums them against the client (Fiesta2026on2016, operator 2026-10-03: "that should be a merge rule
+    // in the collab template to take the client side, then you can run sql on them fine"). Stored in T's metadata so
+    // `build` needs no template.
+    foreach (var action in template.Actions.Where(a => a.Action == "buildAs"))
+    {
+        if (action.Table is null || action.Env is null || action.As is null || !mergedTables.TryGetValue(action.Table, out var t))
+        {
+            logger.LogWarning("buildAs: table {Table} not found (or env / as missing) - skipped", action.Table);
+            continue;
+        }
+        var meta = t.Header.Metadata;
+        if (meta is null)
+        {
+            logger.LogWarning("buildAs: {Table} has no metadata - skipped", action.Table);
+            continue;
+        }
+        var map = BuildAs.Read(meta.TryGetValue(BuildAs.MetadataKey, out var existing) ? existing : null);
+        map[action.Env] = new BuildAs.Target(action.As, action.Path ?? "");
+        meta[BuildAs.MetadataKey] = BuildAs.ToJson(map);
+        logger.LogInformation("buildAs: {Table} for env {Env} is built from {As} into {Path}", action.Table, action.Env, action.As, action.Path);
+    }
+
     // Phase 4: Write merged tables and update manifest
     manifest.Tables.Clear();
     int merged = 0;
@@ -756,6 +781,8 @@ buildCommand.SetHandler(async (DirectoryInfo? projectOpt, DirectoryInfo? outputO
 
         // Buffer for multi-section files that share a sourceFile (e.g. ServerInfo.txt with multiple #DEFINE sections)
         var groupedEntries = new Dictionary<(IDataProvider provider, string dir, string sourceFile), List<TableEntry>>();
+        // buildAs: tables whose other-env view this env takes; written after everything else, over the env's own file
+        var buildAsPass = new List<(string name, TableFile table, string? origin, BuildAs.Target target)>();
 
         foreach (var (name, entryPath) in tableSet)
         {
@@ -773,6 +800,10 @@ buildCommand.SetHandler(async (DirectoryInfo? projectOpt, DirectoryInfo? outputO
             {
                 envMeta = EnvMergeMetadata.FromJsonElement(je);
             }
+
+            var buildAs = eName != "" ? BuildAs.For(tableFile.Header.Metadata, eName) : null;
+            if (buildAs != null)
+                buildAsPass.Add((name, tableFile, origin, buildAs));
 
             TableFile outputTable;
             if (origin == EnvironmentInfo.MergedOrigin && eName != "")
@@ -874,6 +905,54 @@ buildCommand.SetHandler(async (DirectoryInfo? projectOpt, DirectoryInfo? outputO
             {
                 logger.LogError(ex, "Failed to build grouped file {File}", gSourceFile);
             }
+        }
+
+        // buildAs, after the env's own files: the other env's view replaces the file of that name (whatever its case)
+        foreach (var (name, tableFile, origin, target) in buildAsPass)
+        {
+            EnvMergeMetadata? asMeta = null;
+            if (tableFile.Header.Metadata!.TryGetValue(target.As, out var rawAs) && rawAs is System.Text.Json.JsonElement jeAs)
+                asMeta = EnvMergeMetadata.FromJsonElement(jeAs);
+            if (asMeta == null || (origin != EnvironmentInfo.MergedOrigin && origin != target.As))
+            {
+                logger.LogWarning("buildAs: {Table} has no {As} view - skipped", name, target.As);
+                continue;
+            }
+            var view = origin == EnvironmentInfo.MergedOrigin ? TableSplitter.Split(tableFile, target.As, asMeta) : tableFile;
+            if (view.Header.Metadata?.TryGetValue("sourceFile", out var sfa) == true && !string.IsNullOrEmpty(sfa?.ToString()))
+            {
+                logger.LogWarning("buildAs: {Table} is a section of a multi-table file - not supported, skipped", name);
+                continue;
+            }
+            if (!providers.TryGetValue(view.Header.SourceFormat, out var asProvider))
+            {
+                logger.LogWarning("buildAs: no provider for format {Format}, skipping {Table}", view.Header.SourceFormat, name);
+                continue;
+            }
+            var asDir = string.IsNullOrEmpty(target.Path) ? outputDir : Path.Combine(outputDir, target.Path);
+            var fileName = $"{asMeta.OutputName ?? name}{asProvider.SupportedExtensions[0]}";
+            Directory.CreateDirectory(asDir);
+            var existing = Directory.EnumerateFiles(asDir)
+                .FirstOrDefault(f => string.Equals(Path.GetFileName(f), fileName, StringComparison.OrdinalIgnoreCase));
+            if (existing != null)
+            {
+                fileName = Path.GetFileName(existing);  // keep the env's own spelling - the server looks it up by that
+                File.Delete(existing);
+            }
+            await asProvider.WriteAsync(Path.Combine(asDir, fileName), [new TableEntry
+            {
+                Schema = new TableSchema
+                {
+                    TableName = view.Header.TableName,
+                    SourceFormat = view.Header.SourceFormat,
+                    Columns = view.Columns,
+                    Metadata = view.Header.Metadata
+                },
+                Rows = view.Data
+            }]);
+            logger.LogInformation("buildAs: {File} for {Env} built from {Table}'s {As} view{Replaced}", Path.Combine(target.Path, fileName),
+                eName, name, target.As, existing != null ? " (replaces its own)" : "");
+            if (existing == null) built++;
         }
 
         logger.LogInformation("Built {Count} files for {Env}", built, eName == "" ? "all" : eName);

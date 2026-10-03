@@ -158,6 +158,11 @@ public sealed class TemplateAction
     [JsonPropertyName("path")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Path { get; init; }
+
+    /// <summary>buildAs: the env whose view `env` builds `table` from (columns, rows, file header), at `env`'s own path.</summary>
+    [JsonPropertyName("as")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? As { get; init; }
 }
 
 public sealed class TableRef
