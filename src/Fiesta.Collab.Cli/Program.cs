@@ -288,7 +288,8 @@ importCommand.SetHandler(async (DirectoryInfo? projectOpt, bool reimport) =>
             var conflictStrategy = action.ConflictStrategy ?? "report";
             var targetEnvName = tableTargetEnvs.GetValueOrDefault(action.Into);
             var result = TableMerger.Merge(target, source, action.On, action.From.Env, strategy, conflictStrategy,
-                                           targetEnvName, action.SharedRows ?? false, allEnvs.Keys);
+                                           targetEnvName, action.SharedRows ?? false, allEnvs.Keys,
+                                           orderBySource: action.RowOrder == "source");
             mergedTables[action.Into] = result.Table;
 
             // Accumulate env metadata
