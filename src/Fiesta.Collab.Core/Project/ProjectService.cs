@@ -35,6 +35,10 @@ public sealed class ProjectService : IProjectService
     {
         var fullPath = Path.Combine(projectDir, relativePath);
         Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
+        // a rowEnvironments list that is null for every row says what no list says (every row shared): leave it out, so
+        // a table's file does not grow or lose 5,000 "null" lines depending on which path wrote it last
+        if (tableFile.RowEnvironments is { } envs && envs.All(e => e is null))
+            tableFile = new TableFile { Header = tableFile.Header, Columns = tableFile.Columns, Data = tableFile.Data };
         await using var stream = File.Create(fullPath);
         await JsonSerializer.SerializeAsync(stream, tableFile, JsonOptions, ct);
     }
