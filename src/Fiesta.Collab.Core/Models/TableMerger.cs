@@ -16,8 +16,7 @@ public static class TableMerger
         string conflictStrategy = "report",
         string? targetEnvName = null,
         bool sharedRows = false,
-        IReadOnlyCollection<string>? allEnvs = null,
-        bool orderBySource = false)
+        IReadOnlyCollection<string>? allEnvs = null)
     {
         var conflicts = new List<MergeConflict>();
         var envMetadata = new Dictionary<string, EnvMergeMetadata>();
@@ -263,7 +262,6 @@ public static class TableMerger
         }
 
         // Source-only rows
-        var sourceOnlyIdxByMergedRowIdx = new Dictionary<int, int>();
         for (int i = 0; i < source.Data.Count; i++)
         {
             if (matchedSourceRows.Contains(i)) continue;
@@ -284,7 +282,6 @@ public static class TableMerger
                     row[col.Name] = null; // target-only col → null for source row
                 }
             }
-            sourceOnlyIdxByMergedRowIdx[mergedRows.Count] = i;
             mergedRows.Add(row);
             // null means "every environment". With sharedRows the source's new rows join the shared
             // content instead of staying visible only to the environment they came from.
@@ -368,36 +365,12 @@ public static class TableMerger
             RowEnvironments = mergedRowEnvs
         };
 
-        if (orderBySource)
-            mergedTable = OrderBySource(mergedTable, matchedSourceIdxByMergedRowIdx, sourceOnlyIdxByMergedRowIdx);
-
         return new MergeResult
         {
             Table = mergedTable,
             Conflicts = conflicts,
             EnvMetadata = envMetadata,
             DuplicateJoinKeys = duplicateJoinKeys
-        };
-    }
-
-    /// <summary>rowOrder "source": the rows the source has (matched or source-only) in the source's order, then the
-    /// target-only rows in the target's order; row environments move with their rows.</summary>
-    private static TableFile OrderBySource(TableFile t, Dictionary<int, int> matched, Dictionary<int, int> sourceOnly)
-    {
-        var src = new List<(int sourceIdx, int mergedIdx)>();
-        var rest = new List<int>();
-        for (var m = 0; m < t.Data.Count; m++)
-        {
-            if (matched.TryGetValue(m, out var s) || sourceOnly.TryGetValue(m, out s)) src.Add((s, m));
-            else rest.Add(m);
-        }
-        var order = src.OrderBy(x => x.sourceIdx).Select(x => x.mergedIdx).Concat(rest).ToList();
-        return new TableFile
-        {
-            Header = t.Header,
-            Columns = t.Columns,
-            Data = order.Select(m => t.Data[m]).ToList(),
-            RowEnvironments = t.RowEnvironments is null ? null : order.Select(m => t.RowEnvironments[m]).ToList()
         };
     }
 

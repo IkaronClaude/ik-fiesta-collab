@@ -89,15 +89,6 @@ public sealed class TemplateAction
     public string? ConflictStrategy { get; init; }
 
     /// <summary>
-    /// merge: the merged table's row order. Unset = the target's order, source-only rows appended. "source" = every
-    /// row the source has, in the SOURCE's order, then the target-only rows in their order (Fiesta2026on2016: the
-    /// 2026 item order, 2016-only items after it - what the server's lockstep tables are built in).
-    /// </summary>
-    [JsonPropertyName("rowOrder")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? RowOrder { get; init; }
-
-    /// <summary>
     /// Overrides the output filename (without extension) when building.
     /// Used for incompatible-schema tables that share a source filename but need
     /// distinct internal names (e.g. GBHouse__server builds to GBHouse.shn).
