@@ -15,6 +15,9 @@ public sealed class SqlEngine : ISqlEngine
 
     private readonly SqliteConnection _connection;
     private readonly ILogger<SqlEngine> _logger;
+    // tables loaded WITH a rowEnvironments list (even an all-null one): ExtractTable gives them a list back, so a save
+    // keeps the file's shape (every table carries _envs, so the column itself cannot tell)
+    private readonly HashSet<string> _hadEnvList = new(StringComparer.OrdinalIgnoreCase);
     private List<ResolvedConstraint> _constraints = [];
     private Dictionary<string, TableKeyInfo> _tableKeys = [];
 
@@ -120,6 +123,8 @@ public sealed class SqlEngine : ISqlEngine
     {
         var schema = data.Schema;
         _logger.LogDebug("Loading table {TableName} ({RowCount} rows)", schema.TableName, data.Rows.Count);
+        if (data.RowEnvironments != null) _hadEnvList.Add(schema.TableName);
+        else _hadEnvList.Remove(schema.TableName);
 
         // Resolve which columns have FK constraints + build CREATE TABLE
         var fkColumns = ResolveFkColumns(schema);
@@ -262,7 +267,10 @@ public sealed class SqlEngine : ISqlEngine
             }
         }
 
-        return new TableEntry { Schema = schema, Rows = typedRows, RowEnvironments = anyEnv ? envs : null };
+        // a table loaded WITH a rowEnvironments list (_hadEnvList) keeps it even when every entry is null
+        // (all rows shared): dropping it is lossless but rewrote the whole file - QuestData__overlay lost its 3,127-entry
+        // list on a one-row edit (Fiesta2026on2016 0377, 2026-10-03). A table loaded without one still extracts null.
+        return new TableEntry { Schema = schema, Rows = typedRows, RowEnvironments = anyEnv || _hadEnvList.Contains(schema.TableName) ? envs : null };
     }
 
     public IReadOnlyList<string> ListTables()

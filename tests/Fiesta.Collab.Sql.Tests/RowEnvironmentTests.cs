@@ -81,4 +81,13 @@ public class RowEnvironmentTests : IDisposable
 
         _engine.ExtractTable(Schema).RowEnvironments.ShouldBeNull();
     }
+
+    [Fact]
+    public void A_table_loaded_with_an_all_shared_list_keeps_it()
+    {
+        // dropping it is lossless but rewrote the whole file on a one-row edit (QuestData__overlay, 3,127 entries)
+        Load([null, null, null]);
+
+        Flat(_engine.ExtractTable(Schema).RowEnvironments).ShouldBe([null, null, null]);
+    }
 }
