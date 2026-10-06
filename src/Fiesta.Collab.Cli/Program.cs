@@ -1169,6 +1169,19 @@ buildCommand.SetHandler(async (DirectoryInfo? projectOpt, DirectoryInfo? outputO
                 logger.LogInformation("Variant {Variant}: copied {Count} layer override file(s) for {Env}", variant, layerFiles.Count, eName);
         }
 
+        // scenario scripts with variant blocks (--#if FLAG / ;#if FLAG): resolved by FIESTA_SCRIPT_FLAGS, stock when unset
+        {
+            var scriptFlags = Fiesta.Collab.Cli.ScriptFlags.FromEnvironment();
+            int resolved = 0;
+            if (Directory.Exists(outputDir))
+                foreach (var f in Directory.EnumerateFiles(outputDir, "*", SearchOption.AllDirectories))
+                    if (Fiesta.Collab.Cli.ScriptFlags.Applies(f) && Fiesta.Collab.Cli.ScriptFlags.ResolveFile(f, scriptFlags))
+                        resolved++;
+            if (resolved > 0)
+                logger.LogInformation("Script flags [{Flags}]: resolved variant blocks in {Count} script(s)",
+                    string.Join(",", scriptFlags), resolved);
+        }
+
     }
 
 }, buildProjectOption, buildOutputOption, buildEnvOption, buildAllOption, buildTablesOption, buildVariantOption);
