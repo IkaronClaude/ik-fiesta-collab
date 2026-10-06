@@ -21,9 +21,13 @@ internal static class TextFormatDetector
             if (trimmed.StartsWith("#DEFINE", StringComparison.OrdinalIgnoreCase))
                 return TextFormat.Define;
 
+            // #delimiter / #delimeter is a table preprocessor directive too (the parser handles it): World/PineScript.txt,
+            // NPCAction.txt, MiscDataTable.txt ... open with it and were left as raw passthrough files.
             if (trimmed.StartsWith("#table", StringComparison.OrdinalIgnoreCase) ||
                 trimmed.StartsWith("#ignore", StringComparison.OrdinalIgnoreCase) ||
-                trimmed.StartsWith("#exchange", StringComparison.OrdinalIgnoreCase))
+                trimmed.StartsWith("#exchange", StringComparison.OrdinalIgnoreCase) ||
+                trimmed.StartsWith("#delimiter", StringComparison.OrdinalIgnoreCase) ||
+                trimmed.StartsWith("#delimeter", StringComparison.OrdinalIgnoreCase))
                 return TextFormat.Table;
 
             return TextFormat.Unknown;
