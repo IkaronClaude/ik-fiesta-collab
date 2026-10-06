@@ -13,6 +13,9 @@ namespace Fiesta.Collab.Sql;
 /// <item><c>blob_u8/u16/u32(hex, off)</c> and <c>blob_set_u8/u16/u32(hex, off, v)</c>: little-endian reads and
 /// writes over the hex strings blob columns are stored as (QuestData.FixedData); NULL past the end. A write returns
 /// uppercase hex.</item>
+/// <item><c>x REGEXP p</c>, <c>regexp_group(x, p, n)</c> (capture n, NULL without a match) and
+/// <c>regexp_replace(x, p, r [, count])</c> (every match, or the first count - Python's re.sub): .NET regex syntax,
+/// replacements write groups as <c>$1</c>.</item>
 /// </list>
 /// </summary>
 public static class SqlFunctions
@@ -27,6 +30,16 @@ public static class SqlFunctions
             isDeterministic: true);
         c.CreateFunction<double?, string?, double?>("interp_log",
             (x, pts) => x is { } v && pts is not null ? InterpLog(v, pts) : null, isDeterministic: true);
+        // x REGEXP p calls regexp(p, x); NULL in, NULL out (no match)
+        c.CreateFunction<string?, string?, bool?>("regexp",
+            (p, x) => p is null || x is null ? null : Rx(p).IsMatch(x), isDeterministic: true);
+        c.CreateFunction<string?, string?, long?, string?>("regexp_group",
+            (x, p, g) => x is null || p is null || g is null ? null : Group(x, p, (int)g), isDeterministic: true);
+        c.CreateFunction<string?, string?, string?, string?>("regexp_replace",
+            (x, p, r) => x is null || p is null || r is null ? null : Rx(p).Replace(x, r), isDeterministic: true);
+        c.CreateFunction<string?, string?, string?, long?, string?>("regexp_replace",
+            (x, p, r, n) => x is null || p is null || r is null || n is null ? null : Rx(p).Replace(x, r, (int)n),
+            isDeterministic: true);
         foreach (var (name, size) in new[] { ("u8", 1), ("u16", 2), ("u32", 4) })
         {
             var n = size;
@@ -59,6 +72,18 @@ public static class SqlFunctions
         var (a, b) = (pts[i - 1], pts[i]);
         var t = (x - a.k) / (b.k - a.k);
         return Math.Exp(Math.Log(a.v) * (1 - t) + Math.Log(b.v) * t);
+    }
+
+    // a migration applies one pattern to thousands of rows: compiled once per pattern
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, System.Text.RegularExpressions.Regex> Patterns = new();
+
+    private static System.Text.RegularExpressions.Regex Rx(string pattern) =>
+        Patterns.GetOrAdd(pattern, p => new System.Text.RegularExpressions.Regex(p, System.Text.RegularExpressions.RegexOptions.CultureInvariant));
+
+    private static string? Group(string x, string pattern, int group)
+    {
+        var m = Rx(pattern).Match(x);
+        return m.Success && group < m.Groups.Count && m.Groups[group].Success ? m.Groups[group].Value : null;
     }
 
     private static long? Read(string hex, int off, int size)

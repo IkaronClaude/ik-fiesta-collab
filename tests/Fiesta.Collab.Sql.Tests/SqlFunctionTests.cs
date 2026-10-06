@@ -58,6 +58,36 @@ public class SqlFunctionTests : IDisposable
     }
 
     [Fact]
+    public void Regexp_operator_matches_anywhere_and_is_case_sensitive()
+    {
+        _engine.Execute("CREATE TABLE n (s TEXT); INSERT INTO n VALUES ('HP Potion (Tier 7)'), ('Wood'), (NULL);");
+        _engine.Query(@"SELECT s FROM n WHERE s REGEXP '\(Tier \d+\)$'").Count.ShouldBe(1);
+        _engine.Query("SELECT s FROM n WHERE s REGEXP 'wood'").Count.ShouldBe(0);
+        _engine.Query("SELECT s FROM n WHERE s REGEXP '(?i)wood'").Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public void Regexp_group_returns_a_capture_or_null()
+    {
+        const string rx = @"'^(.*?)\s*\(\s*Tier\s*(\d+)\s*\)\s*$'";
+        Scalar($"regexp_group('HP Potion (Tier 7)', {rx}, 1)").ShouldBe("HP Potion");
+        Scalar($"regexp_group('HP Potion (Tier 7)', {rx}, 2)").ShouldBe("7");
+        Scalar($"regexp_group('Wood', {rx}, 1)").ShouldBeNull();             // no match
+        Scalar($"regexp_group(NULL, {rx}, 1)").ShouldBeNull();
+    }
+
+    [Fact]
+    public void Regexp_replace_all_or_the_first_n()
+    {
+        Scalar(@"regexp_replace('SEclipseBow', '^S[Ee]clipse ?(?=[A-Z])', 'Solar Eclipse ')").ShouldBe("Solar Eclipse Bow");
+        Scalar(@"regexp_replace('Hat [Quest Item]', '\s*\[Quest Item\]$', '')").ShouldBe("Hat");
+        Scalar("regexp_replace('a-a-a', 'a', 'b')").ShouldBe("b-b-b");               // every match, like re.sub
+        Scalar("regexp_replace('a-a-a', 'a', 'b', 1)").ShouldBe("b-a-a");            // count, like re.sub(count=1)
+        Scalar("regexp_replace('x12', '(\\d)(\\d)', '$2$1')").ShouldBe("x21");       // .NET replacement syntax
+        Scalar("regexp_replace(NULL, 'a', 'b')").ShouldBeNull();
+    }
+
+    [Fact]
     public void Blob_set_returns_the_edited_hex_and_keeps_the_rest()
     {
         Scalar("blob_set_u16('0102030405', 1, 4660)").ShouldBe("0134120405");    // 0x1234
