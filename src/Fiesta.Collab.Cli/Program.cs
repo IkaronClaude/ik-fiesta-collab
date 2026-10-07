@@ -898,6 +898,10 @@ buildCommand.SetHandler(async (DirectoryInfo? projectOpt, DirectoryInfo? outputO
                     int idxB = GetSectionIndex(b.Schema.Metadata);
                     return idxA.CompareTo(idxB);
                 });
+                // a section a migration declared (-- @table) past the first is written only when it holds rows: a step
+                // declares as many tabs as a list can need and fills the ones it uses (a shop's tab count follows the data)
+                entries.RemoveAll(e => e.Rows.Count == 0 && GetSectionIndex(e.Schema.Metadata) > 0
+                                       && e.Schema.Metadata?.TryGetValue("declared", out var dv) == true && dv is true or System.Text.Json.JsonElement { ValueKind: System.Text.Json.JsonValueKind.True });
                 Directory.CreateDirectory(gDir);
                 await gProvider.WriteAsync(Path.Combine(gDir, gSourceFile), entries);
             }
@@ -1528,6 +1532,7 @@ sessionCommand.SetHandler(async (DirectoryInfo? projectOpt) =>
                 var metadata = like.Metadata is null ? new Dictionary<string, object>() : new Dictionary<string, object>(like.Metadata);
                 metadata["sourceFile"] = d.File;
                 metadata["sectionIndex"] = d.Section;
+                metadata["declared"] = true;              // an @table section: left out of the file while it is empty
                 if (d.As != null || metadata.ContainsKey("tableName")) metadata["tableName"] = d.As ?? metadata["tableName"];
                 headers[d.Name] = new TableHeader { TableName = d.Name, SourceFormat = like.SourceFormat, Metadata = metadata };
                 schemas[d.Name] = new TableSchema

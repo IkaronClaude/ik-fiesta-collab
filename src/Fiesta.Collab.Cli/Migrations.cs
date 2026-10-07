@@ -344,6 +344,7 @@ public static class Migrations
         var metadata = like.Metadata is null ? new Dictionary<string, object>() : new Dictionary<string, object>(like.Metadata);
         metadata["sourceFile"] = d.File;
         metadata["sectionIndex"] = d.Section;
+        metadata["declared"] = true;                  // left out of the file while empty (Program.cs, grouped files)
         if (d.As != null || metadata.ContainsKey("tableName")) metadata["tableName"] = d.As ?? metadata["tableName"];
         var schema = new TableSchema
         {
