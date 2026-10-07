@@ -1514,11 +1514,40 @@ sessionCommand.SetHandler(async (DirectoryInfo? projectOpt) =>
             if (targets.Count == 0) targets.UnionWith(schemas.Keys.Where(words.Contains));
             var sw = System.Diagnostics.Stopwatch.StartNew();
             // the registry is re-read per edit: a Python step between two edits may have added entries to the same file
+            // -- @table: a new table of this project (a variant build's project copy): the template's header naming its own
+            // file / section / in-file name (as Migrations.NewTable does for `build --variant`), stored under
+            // data/variant-tables/ and entered in the project's manifest so the next `fiesta build` builds it
+            var created = new List<string>();
+            void OnTable(TableDeclaration d)
+            {
+                if (entries.ContainsKey(d.Name) || schemas.ContainsKey(d.Name))
+                    throw new InvalidOperationException($"@table {d.Name}: a table of that name exists");
+                if (!schemas.ContainsKey(d.Like))
+                    throw new InvalidOperationException($"@table {d.Name}: no template table {d.Like}");
+                var like = headers[d.Like];
+                var metadata = like.Metadata is null ? new Dictionary<string, object>() : new Dictionary<string, object>(like.Metadata);
+                metadata["sourceFile"] = d.File;
+                metadata["sectionIndex"] = d.Section;
+                if (d.As != null || metadata.ContainsKey("tableName")) metadata["tableName"] = d.As ?? metadata["tableName"];
+                headers[d.Name] = new TableHeader { TableName = d.Name, SourceFormat = like.SourceFormat, Metadata = metadata };
+                schemas[d.Name] = new TableSchema
+                {
+                    TableName = d.Name, SourceFormat = like.SourceFormat, Columns = schemas[d.Like].Columns, Metadata = metadata
+                };
+                paths[d.Name] = entries[d.Name] = $"data/variant-tables/{d.Name}.json";
+                created.Add(d.Name);
+            }
             var affected = MigrationScript.Run(engine, sql, Path.GetFileName(line[5..].Trim()), Fiesta.Collab.Cli.Migrations.ReportDir(project.FullName),
-                registry: IdRegistry.ForProject(project.FullName, manifest.IdRegistry));
+                OnTable, IdRegistry.ForProject(project.FullName, manifest.IdRegistry));
+            targets.UnionWith(created);
+            if (created.Count > 0)
+            {
+                foreach (var name in created) manifest.Tables[name] = paths[name];
+                await projectService.SaveProjectAsync(project.FullName, manifest);
+            }
             long tExec = sw.ElapsedMilliseconds, tExtract = 0, tWrite = 0;
             int saved = 0;
-            if (affected != 0)
+            if (affected != 0 || created.Count > 0)
             {
                 foreach (var name in targets.ToList())
                 {
