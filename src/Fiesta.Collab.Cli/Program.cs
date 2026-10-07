@@ -1060,6 +1060,13 @@ buildCommand.SetHandler(async (DirectoryInfo? projectOpt, DirectoryInfo? outputO
             Directory.CreateDirectory(mapDest);
             var dirs = action.SearchDirs is { Count: > 0 } ? action.SearchDirs : [""];
 
+            // the raw files a copyFile action of this env writes: a full build copies them BEFORE this fills gaps, so they
+            // win; a partial build skips copyFile and would otherwise fill exactly those paths from the client's resmap -
+            // shipping a client walk grid in place of the server's own (found 2026-10-07: GuildT01.sbi 2612 B for 11540 B)
+            var ownedByCopyFile = new HashSet<string>(template.Actions
+                .Where(a => a.Action == "copyFile" && a.Path != null && (eName == "" || a.Env == eName))
+                .Select(a => System.IO.Path.GetFullPath(System.IO.Path.Combine(outputDir, a.Path!.Replace('/', System.IO.Path.DirectorySeparatorChar)))),
+                StringComparer.Ordinal);
             int copied = 0, noFolder = 0;
             foreach (var map in maps)
             {
@@ -1067,6 +1074,7 @@ buildCommand.SetHandler(async (DirectoryInfo? projectOpt, DirectoryInfo? outputO
                 foreach (var ext in action.Extensions)
                 {
                     var dest = System.IO.Path.Combine(mapDest, map + ext);
+                    if (ownedByCopyFile.Contains(System.IO.Path.GetFullPath(dest))) continue;
                     // A file the project already produced wins; this fills gaps. Checked case-sensitively
                     // on purpose: eld.shbd sitting there is not Eld.shbd, and the server wants the latter.
                     if (Directory.EnumerateFiles(mapDest, map + ext).Any(
