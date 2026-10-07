@@ -186,6 +186,31 @@ public static class MigrationScript
         while (i < sql.Length)
         {
             var c = sql[i];
+            // a comment is copied as it is: an apostrophe in one ("the client's list") must not open a string literal and
+            // leave every later :NAME unsubstituted (found 2026-10-07: "Must add values for the following parameters").
+            // A -- @copy line is SQL in comment form - it goes through as code.
+            if (c == '-' && i + 1 < sql.Length && sql[i + 1] == '-')
+            {
+                var eol = sql.IndexOf('\n', i);
+                if (eol < 0) eol = sql.Length;
+                if (!CopyLine.IsMatch(sql[i..eol]))
+                {
+                    sb.Append(sql, i, eol - i);
+                    i = eol;
+                    continue;
+                }
+                sb.Append("--");
+                i += 2;
+                continue;
+            }
+            if (c == '/' && i + 1 < sql.Length && sql[i + 1] == '*')
+            {
+                var end = sql.IndexOf("*/", i + 2, StringComparison.Ordinal);
+                end = end < 0 ? sql.Length : end + 2;
+                sb.Append(sql, i, end - i);
+                i = end;
+                continue;
+            }
             if (c == '\'')
             {
                 var j = i + 1;

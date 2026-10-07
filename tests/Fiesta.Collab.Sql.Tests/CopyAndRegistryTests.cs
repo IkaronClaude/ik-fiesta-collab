@@ -55,6 +55,24 @@ public class CopyAndRegistryTests : IDisposable
     }
 
     [Fact]
+    public void Params_reach_statements_and_copy_lines_after_a_comment_with_an_apostrophe()
+    {
+        MigrationScript.Run(_engine, """
+            -- @param NEW = 'Sword2'
+            -- @param PRICE = 7
+            -- the template's row (an apostrophe in a comment must not hide the params below)
+            -- @copy Items WHERE InxName = 'Sword' SET ID = 3, InxName = :NEW, Price = :PRICE
+            UPDATE Items SET Name = :NEW || ' x' WHERE ID = 3; /* a block comment's apostrophe */
+            UPDATE Items SET Price = Price + :PRICE WHERE ID = 3;
+            """, "t.sql", null);
+
+        var r = _engine.Query("SELECT * FROM Items WHERE ID = 3").ShouldHaveSingleItem();
+        r["InxName"].ShouldBe("Sword2");
+        r["Name"].ShouldBe("Sword2 x");
+        Convert.ToInt64(r["Price"]).ShouldBe(14);
+    }
+
+    [Fact]
     public void Copy_refuses_an_unknown_column()
         => Should.Throw<InvalidOperationException>(() => MigrationScript.Run(_engine,
             "-- @copy Items WHERE ID = 1 SET Nope = 1", "t.sql", null)).Message.ShouldContain("Nope");
