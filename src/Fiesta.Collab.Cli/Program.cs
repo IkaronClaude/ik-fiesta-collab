@@ -1395,7 +1395,8 @@ editCommand.SetHandler(async (System.CommandLine.Invocation.InvocationContext ct
     logger.LogInformation("Loaded {Count} of {Total} tables", wanted.Count, manifest.Tables.Count);
 
     // Execute modification SQL (with its @param / @assert / @report directives)
-    var affected = MigrationScript.Run(engine, sql, sqlFile?.Name ?? "edit", Fiesta.Collab.Cli.Migrations.ReportDir(project.FullName));
+    var affected = MigrationScript.Run(engine, sql, sqlFile?.Name ?? "edit", Fiesta.Collab.Cli.Migrations.ReportDir(project.FullName),
+        registry: IdRegistry.ForProject(project.FullName, manifest.IdRegistry));
     logger.LogInformation("Executed: {Affected} rows affected", affected);
 
     if (affected == 0)
@@ -1506,13 +1507,15 @@ sessionCommand.SetHandler(async (DirectoryInfo? projectOpt) =>
             // written back: the tables a statement CHANGES (UPDATE / INSERT INTO / DELETE FROM / REPLACE INTO), not every
             // table the SQL reads; if none can be found, every table it names (the safe side)
             var targets = new HashSet<string>(System.Text.RegularExpressions.Regex.Matches(sql,
-                    @"\b(?:UPDATE|INSERT\s+(?:OR\s+\w+\s+)?INTO|DELETE\s+FROM|REPLACE\s+INTO)\s+""?([A-Za-z_][A-Za-z0-9_]*)""?",
+                    @"(?:\b(?:UPDATE|INSERT\s+(?:OR\s+\w+\s+)?INTO|DELETE\s+FROM|REPLACE\s+INTO)|--\s*@copy)\s+""?([A-Za-z_][A-Za-z0-9_]*)""?",
                     System.Text.RegularExpressions.RegexOptions.IgnoreCase)
                 .Select(m => m.Groups[1].Value), StringComparer.OrdinalIgnoreCase);
             targets.IntersectWith(schemas.Keys);
             if (targets.Count == 0) targets.UnionWith(schemas.Keys.Where(words.Contains));
             var sw = System.Diagnostics.Stopwatch.StartNew();
-            var affected = MigrationScript.Run(engine, sql, Path.GetFileName(line[5..].Trim()), Fiesta.Collab.Cli.Migrations.ReportDir(project.FullName));
+            // the registry is re-read per edit: a Python step between two edits may have added entries to the same file
+            var affected = MigrationScript.Run(engine, sql, Path.GetFileName(line[5..].Trim()), Fiesta.Collab.Cli.Migrations.ReportDir(project.FullName),
+                registry: IdRegistry.ForProject(project.FullName, manifest.IdRegistry));
             long tExec = sw.ElapsedMilliseconds, tExtract = 0, tWrite = 0;
             int saved = 0;
             if (affected != 0)

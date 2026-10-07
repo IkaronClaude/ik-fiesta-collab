@@ -237,7 +237,7 @@ public static class Migrations
     }
 
     private static int Apply(ISqlEngine engine, IEnumerable<string> files, string reportDir, ILogger logger, string again,
-                             Action<TableDeclaration>? onTable = null)
+                             Action<TableDeclaration>? onTable = null, IdRegistry? registry = null)
     {
         var total = 0;
         foreach (var f in files)
@@ -248,7 +248,7 @@ public static class Migrations
             if (!isPy && string.IsNullOrWhiteSpace(sql)) continue;
             try
             {
-                var affected = isPy ? PythonStep.Run(engine, f, logger) : MigrationScript.Run(engine, sql, name, reportDir, onTable);
+                var affected = isPy ? PythonStep.Run(engine, f, logger) : MigrationScript.Run(engine, sql, name, reportDir, onTable, registry);
                 total += affected;
                 logger.LogInformation("  {File}: {Affected} row(s) affected", name, affected);
             }
@@ -325,7 +325,7 @@ public static class Migrations
                 if (!p.Schemas.ContainsKey(d.Like))
                     throw new InvalidOperationException($"@table {d.Name}: no template table {d.Like}");
                 declared.Add(d);
-            });
+            }, IdRegistry.ForProject(projectPath, p.Manifest.IdRegistry));
         var changed = new Dictionary<string, TableFile>();
         foreach (var d in declared)
             changed[d.Name] = NewTable(p, d);
@@ -379,7 +379,8 @@ public static class Migrations
         var manifest = p.Manifest;
 
         logger.LogInformation("Applying {Count} migration(s) to {Tables} tables", files.Count, manifest.Tables.Count);
-        var total = Apply(p.Engine, files, ReportDir(projectPath), logger, "`fiesta migrate`");
+        var total = Apply(p.Engine, files, ReportDir(projectPath), logger, "`fiesta migrate`",
+            registry: IdRegistry.ForProject(projectPath, manifest.IdRegistry));
 
         if (total == 0)
         {

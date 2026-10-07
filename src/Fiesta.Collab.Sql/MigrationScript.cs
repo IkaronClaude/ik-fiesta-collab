@@ -24,6 +24,11 @@ public sealed record TableDeclaration(string Name, string Like, string File, int
 /// <item><c>-- @table Name LIKE Template FILE file.txt [SECTION n] [AS InFileName]</c>: BEFORE the statements, an empty
 /// table with the template's columns; the caller (a variant build) keeps it and builds it into that file. Refused
 /// where no caller keeps it (<paramref name="onTable"/> null).</item>
+/// <item><c>-- @copy Table WHERE &lt;condition&gt; [SET col = expr, ...]</c>: IN PLACE among the statements (they run in
+/// order around it), a copy of every row of Table the condition picks - all columns, the hidden ones (_envs) too - with
+/// the SET columns replaced by their expressions, evaluated against the copied row. Appended in the rows' order.</item>
+/// <item>A script naming <c>_id_registry</c> sees the project's id registry (<see cref="IdRegistry"/>) as that temp
+/// table: allocate by INSERT, read by SELECT; new entries are written back to the registry file afterwards.</item>
 /// </list>
 /// A directive is one line. Returns the statements' affected-row count.
 /// </summary>
@@ -33,10 +38,14 @@ public static class MigrationScript
     private static readonly Regex TableDef = new(
         @"^([A-Za-z_]\w*)\s+LIKE\s+([A-Za-z_]\w*)\s+FILE\s+(\S+)(?:\s+SECTION\s+(\d+))?(?:\s+AS\s+(\S+))?\s*$",
         RegexOptions.IgnoreCase);
-    private static readonly Regex ParamDef = new(@"^([A-Za-z_]\w*)\s*=\s*(.+?)\s*$");
+    private static readonly Regex CopyLine = new(@"^\s*--\s*@copy\b\s*(.*)$", RegexOptions.Multiline);
+    private static readonly Regex CopyDef = new(
+        @"^""?([A-Za-z_]\w*)""?\s+WHERE\s+(.+?)(?:\s+SET\s+(.+))?\s*$", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+    private static readonly Regex ParamDef =new(@"^([A-Za-z_]\w*)\s*=\s*(.+?)\s*$");
     private static readonly Regex ReportDef = new(@"^([\w.-]+)\s+(.+)$", RegexOptions.Singleline);
 
-    public static int Run(ISqlEngine engine, string sql, string name, string? reportDir, Action<TableDeclaration>? onTable = null)
+    public static int Run(ISqlEngine engine, string sql, string name, string? reportDir, Action<TableDeclaration>? onTable = null,
+                          IdRegistry? registry = null)
     {
         var parms = new Dictionary<string, string>(StringComparer.Ordinal);
         var asserts = new List<string>();
@@ -79,8 +88,30 @@ public static class MigrationScript
             onTable!(t);
         }
 
+        var useRegistry = IdRegistry.UsedBy(sql);
+        if (useRegistry)
+        {
+            if (registry is null)
+                throw new NotSupportedException($"{name}: uses {IdRegistry.TableName} but the project has no id registry (fiesta.json \"idRegistry\" / $FIESTA_ID_REGISTRY)");
+            registry.Expose(engine);
+        }
+
+        // the statements, split at each -- @copy line: the parts run in order with the copies between them
         var body = Substitute(Directive.Replace(sql, ""), parms);
-        var affected = HasStatements(body) ? Math.Max(0, engine.Execute(body)) : 0;
+        var affected = 0;
+        var at = 0;
+        foreach (Match c in CopyLine.Matches(body))
+        {
+            var part = body[at..c.Index];
+            if (HasStatements(part)) affected += Math.Max(0, engine.Execute(part));
+            affected += Copy(engine, c.Groups[1].Value.Trim(), name);
+            at = c.Index + c.Length;
+        }
+        var rest = body[at..];
+        if (HasStatements(rest)) affected += Math.Max(0, engine.Execute(rest));
+
+        if (useRegistry)
+            registry!.Collect(engine, name);
 
         foreach (var a in asserts)
         {
@@ -97,6 +128,53 @@ public static class MigrationScript
             File.WriteAllText(Path.Combine(reportDir, rname + ".md"), $"# {rname}\n\nFrom `{name}`, {rows.Count} row(s).\n\n" + Markdown(rows));
         }
         return affected;
+    }
+
+    /// <summary>One <c>@copy</c>: INSERT INTO T (every column) SELECT (each column, or its SET expression) FROM T WHERE ...</summary>
+    private static int Copy(ISqlEngine engine, string arg, string name)
+    {
+        var m = CopyDef.Match(arg);
+        if (!m.Success) throw new FormatException($"{name}: bad @copy '{arg}' (want Table WHERE condition [SET col = expr, ...])");
+        var table = m.Groups[1].Value;
+        var cols = engine.Query($"SELECT name FROM pragma_table_info('{table.Replace("'", "''")}')")
+            .Select(r => (string)r["name"]!).ToList();
+        if (cols.Count == 0) throw new InvalidOperationException($"{name}: @copy: no table {table}");
+        var set = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (m.Groups[3].Success)
+            foreach (var a in SplitTopLevel(m.Groups[3].Value))
+            {
+                var eq = a.IndexOf('=');
+                if (eq <= 0) throw new FormatException($"{name}: @copy SET '{a}' (want col = expr)");
+                var col = a[..eq].Trim().Trim('"', '[', ']');
+                if (!cols.Contains(col, StringComparer.OrdinalIgnoreCase))
+                    throw new InvalidOperationException($"{name}: @copy {table}: no column {col}");
+                set[col] = a[(eq + 1)..].Trim();
+            }
+        var list = string.Join(", ", cols.Select(c => $"[{c}]"));
+        var select = string.Join(", ", cols.Select(c => set.TryGetValue(c, out var e) ? $"({e})" : $"[{c}]"));
+        return engine.Execute($"INSERT INTO [{table}] ({list}) SELECT {select} FROM [{table}] WHERE {m.Groups[2].Value} ORDER BY rowid");
+    }
+
+    /// <summary>Splits at commas outside parentheses and '...' literals.</summary>
+    private static List<string> SplitTopLevel(string s)
+    {
+        var parts = new List<string>();
+        int depth = 0, start = 0;
+        var quoted = false;
+        for (var i = 0; i < s.Length; i++)
+        {
+            var c = s[i];
+            if (c == '\'') quoted = !quoted;
+            else if (!quoted && c == '(') depth++;
+            else if (!quoted && c == ')') depth--;
+            else if (!quoted && depth == 0 && c == ',')
+            {
+                parts.Add(s[start..i]);
+                start = i + 1;
+            }
+        }
+        parts.Add(s[start..]);
+        return parts.Select(p => p.Trim()).Where(p => p.Length > 0).ToList();
     }
 
     /// <summary>Replace :NAME tokens outside '...' literals (and never a longer name that starts with NAME).</summary>

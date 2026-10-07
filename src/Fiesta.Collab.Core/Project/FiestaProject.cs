@@ -33,4 +33,12 @@ public sealed class FiestaProject
     [JsonPropertyName("variants")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public Dictionary<string, List<string>>? Variants { get; set; }
+
+    /// <summary>
+    /// The id registry file (relative to the project): ids handed out once and kept forever, seen by migrations as the
+    /// temp table _id_registry (Fiesta.Collab.Sql.IdRegistry). $FIESTA_ID_REGISTRY overrides it.
+    /// </summary>
+    [JsonPropertyName("idRegistry")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? IdRegistry { get; set; }
 }
