@@ -127,6 +127,18 @@ FIRST. Order stays as listed: 2 before 3.
 Proof for the port, per converted step: build the variant with the Python step and with the `@clone` SQL - build/server,
 build/overlay and the client26 set byte-identical (`diff -rq`), and variant-ids.json unchanged.
 
+BUILT 2026-10-07 AS PRIMITIVES, not one `@clone` that would have to know Fiesta2026on2016's table layout:
+- `-- @copy Table WHERE cond [SET col = expr, ...] [ORDER BY expr]` (MigrationScript): the rows copied with overrides, in
+  place among the statements; window functions in SET number a list of copies.
+- the registry as the temp table `_id_registry(kind, key, idx, value)` (IdRegistry; fiesta.json `idRegistry` /
+  `$FIESTA_ID_REGISTRY`): allocate by INSERT with the rules above written as SQL, entries immutable, written back in the
+  Python json layout byte for byte. The Server2016 "reserved" list turned out unnecessary: every id the 2016 server
+  used is still in the merged ItemInfo / skill tables.
+- `-- @table` in `fiesta session` (the table goes to data/variant-tables/ and the manifest) and `blob_compact` for
+  QuestData record lists.
+Each clone kind is a few `@copy` lines (Fiesta2026on2016 migrations-qol/0002-permanent-perks.sql: 13 item clones, an NPC
+clone and its shop; REB 0016 / 0006 single items) - proven byte-identical as above.
+
 ## What stays outside collab
 
 Generators that need non-table inputs - walkable NPC spots from `.shbd`, reverse-engineered constants - run ONCE and
