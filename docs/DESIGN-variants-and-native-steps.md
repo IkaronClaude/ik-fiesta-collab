@@ -118,6 +118,12 @@ What a clone writes (variant_lib today; the `@clone` kinds):
 - **npc** (`clone_npc`): the mob rows above + NpcDialogData (both copies) + an NPC.txt row + a MobLoca entry (its name).
   Shop lists are `@table` files.
 
+DEPENDENCY (found 2026-10-07): an item clone also appends the 2026 client's ChargedIconItem / ChargedMessageItem rows
+(the buff-list icon + text; variant_lib.charged_list_rows - CII_ID / CMI_ID = max + 1, text without its duration), and
+a mob / npc clone the 2026 MobInfo / MobViewInfo / species / MobLoca rows. Today those go through the client26-*.json
+patcher, not collab tables - so `@clone` needs 3/4 (`_envs` + the 2026-only tables, Loca/MobLoca, as overlay tables)
+FIRST. Order stays as listed: 2 before 3.
+
 Proof for the port, per converted step: build the variant with the Python step and with the `@clone` SQL - build/server,
 build/overlay and the client26 set byte-identical (`diff -rq`), and variant-ids.json unchanged.
 
