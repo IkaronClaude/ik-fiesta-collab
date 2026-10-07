@@ -10,7 +10,7 @@ namespace Fiesta.Collab.Sql;
 /// <list type="bullet">
 /// <item><c>median(x)</c>: aggregate, NULLs ignored, NULL for no rows; an even count averages the middle two.</item>
 /// <item><c>interp_log(x, 'k:v,k:v,...')</c>: log-linear between the anchors, flat outside them.</item>
-/// <item><c>blob_u8/u16/u32(hex, off)</c> and <c>blob_set_u8/u16/u32(hex, off, v)</c>: little-endian reads and
+/// <item><c>blob_u8/u16/u32/u64(hex, off)</c> and <c>blob_set_u8/u16/u32/u64(hex, off, v)</c>: little-endian reads and
 /// writes over the hex strings blob columns are stored as (QuestData.FixedData); NULL past the end. A write returns
 /// uppercase hex.</item>
 /// <item><c>blob_compact(hex, off, size, count, drop)</c>: the <c>count</c> records of <c>size</c> bytes at <c>off</c>
@@ -53,7 +53,7 @@ public static class SqlFunctions
         c.CreateFunction<string?, long?, long?, long?, string?, string?>("blob_compact",
             (hex, off, size, count, drop) => hex is null || off is null || size is null || count is null ? null
                 : Compact(hex, (int)off, (int)size, (int)count, drop), isDeterministic: true);
-        foreach (var (name, size) in new[] { ("u8", 1), ("u16", 2), ("u32", 4) })
+        foreach (var (name, size) in new[] { ("u8", 1), ("u16", 2), ("u32", 4), ("u64", 8) })
         {
             var n = size;
             c.CreateFunction<string?, long?, long?>("blob_" + name,

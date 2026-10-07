@@ -65,6 +65,8 @@ public class SqlFunctionTests : IDisposable
         Convert.ToInt64(Scalar($"blob_u16({hex}, 1)")).ShouldBe(0x0302);
         Convert.ToInt64(Scalar($"blob_u32({hex}, 4)")).ShouldBe(0x08070605);
         Scalar($"blob_u32({hex}, 6)").ShouldBeNull();                    // past the end
+        Convert.ToInt64(Scalar($"blob_u64({hex}, 0)")).ShouldBe(0x0807060504030201);
+        Scalar("blob_set_u64('00000000000000000000', 1, 2147483648)").ShouldBe("00000000800000000000");   // a QuestData reward value
     }
 
     [Fact]
