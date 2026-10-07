@@ -34,7 +34,8 @@ public sealed record TableDeclaration(string Name, string Like, string File, int
 /// order around it), a copy of every row of Table the condition picks - all columns, the hidden ones (_envs) too - with
 /// the SET columns replaced by their expressions, evaluated against the copied row. Appended in the rows' order, or by a
 /// trailing <c>ORDER BY expr</c> (outside parentheses). A SET expression may use window functions (ROW_NUMBER() OVER
-/// ...) to give each copy its own id.</item>
+/// ...) to give each copy its own id. <c>@copy Table JOIN x ON cond WHERE ...</c>: one copy per (row, joined row) - the SET
+/// expressions see the joined row (one template, a copy per destination).</item>
 /// <item><c>-- @each GLOB statement</c>: IN PLACE among the statements, the statement once per table whose name the
 /// GLOB matches (sqlite_master, in name order; <c>HAVING col[,col]</c> after the GLOB keeps only the tables with those
 /// columns), <c>{table}</c> replaced by that table's name - every shop table of a
@@ -54,6 +55,8 @@ public static class MigrationScript
     private static readonly Regex CopyLine = new(@"^\s*--\s*@(copy|each)\b\s*(.*)$", RegexOptions.Multiline);
     private static readonly Regex CopyDef = new(
         @"^""?([A-Za-z_]\w*)""?\s+WHERE\s+(.+?)(?:\s+SET\s+(.+))?\s*$", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+    private static readonly Regex CopyJoin = new(
+        @"^(""?[A-Za-z_]\w*""?)\s+JOIN\s+(.+?)\s+ON\s+(.+?)\s+WHERE\s+(.+)$", RegexOptions.IgnoreCase | RegexOptions.Singleline);
     private static readonly Regex ParamDef =new(@"^([A-Za-z_]\w*)\s*=\s*(.+?)\s*$");
     private static readonly Regex ReportDef = new(@"^([\w.-]+)\s+(.+)$", RegexOptions.Singleline);
 
@@ -163,8 +166,16 @@ public static class MigrationScript
             orderBy = arg[(ob + " ORDER BY ".Length)..].Trim();
             arg = arg[..ob];
         }
+        // an optional JOIN x ON cond after the table: one copy per (template row, joined row) - one template, N copies
+        var join = "";
+        var jm = CopyJoin.Match(arg);
+        if (jm.Success)
+        {
+            join = $" JOIN {jm.Groups[2].Value} ON {jm.Groups[3].Value}";
+            arg = jm.Groups[1].Value + " WHERE " + jm.Groups[4].Value;
+        }
         var m = CopyDef.Match(arg);
-        if (!m.Success) throw new FormatException($"{name}: bad @copy '{arg}' (want Table WHERE condition [SET col = expr, ...] [ORDER BY expr])");
+        if (!m.Success) throw new FormatException($"{name}: bad @copy '{arg}' (want Table [JOIN x ON cond] WHERE condition [SET col = expr, ...] [ORDER BY expr])");
         var table = m.Groups[1].Value;
         var cols = engine.Query($"SELECT name FROM pragma_table_info('{table.Replace("'", "''")}')")
             .Select(r => (string)r["name"]!).ToList();
@@ -181,8 +192,9 @@ public static class MigrationScript
                 set[col] = a[(eq + 1)..].Trim();
             }
         var list = string.Join(", ", cols.Select(c => $"[{c}]"));
-        var select = string.Join(", ", cols.Select(c => set.TryGetValue(c, out var e) ? $"({e})" : $"[{c}]"));
-        return engine.Execute($"INSERT INTO [{table}] ({list}) SELECT {select} FROM [{table}] WHERE {m.Groups[2].Value} ORDER BY {orderBy}");
+        var select = string.Join(", ", cols.Select(c => set.TryGetValue(c, out var e) ? $"({e})" : $"[{table}].[{c}]"));
+        if (join.Length > 0 && orderBy == "rowid") orderBy = $"[{table}].rowid";
+        return engine.Execute($"INSERT INTO [{table}] ({list}) SELECT {select} FROM [{table}]{join} WHERE {m.Groups[2].Value} ORDER BY {orderBy}");
     }
 
     /// <summary>One <c>@each GLOB statement</c>: the statement once per table whose name the GLOB matches (by name),

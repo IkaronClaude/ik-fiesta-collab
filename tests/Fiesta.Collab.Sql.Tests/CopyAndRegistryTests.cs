@@ -86,6 +86,20 @@ public class CopyAndRegistryTests : IDisposable
     }
 
     [Fact]
+    public void Copy_JOIN_makes_one_copy_per_joined_row()
+    {
+        // one template, N copies (a warp scroll per gate): the joined row's columns feed the SET expressions
+        MigrationScript.Run(_engine, """
+            CREATE TEMP TABLE dest (k INTEGER, inx TEXT, name TEXT);
+            INSERT INTO dest VALUES (2, 'ScrollB', 'Bera'), (1, 'ScrollA', 'Adeline');
+            -- @copy Items JOIN "dest" d ON 1 WHERE Items.InxName = 'Sword' SET ID = 100 + d.k, InxName = d.inx ORDER BY d.k
+            """, "t.sql", null);
+
+        _engine.Query("SELECT ID, InxName FROM Items WHERE ID >= 100 ORDER BY rowid")
+            .Select(r => $"{r["ID"]}:{r["InxName"]}").ShouldBe(["101:ScrollA", "102:ScrollB"]);
+    }
+
+    [Fact]
     public void Each_runs_the_statement_for_every_table_the_glob_names_in_place()
     {
         _engine.Execute("CREATE TABLE Shop_A_Tab00 (Item TEXT); INSERT INTO Shop_A_Tab00 VALUES ('Sword');" +
