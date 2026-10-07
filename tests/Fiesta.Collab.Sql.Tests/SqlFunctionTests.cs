@@ -98,6 +98,18 @@ public class SqlFunctionTests : IDisposable
     }
 
     [Fact]
+    public void Regexp_split_join_drops_the_matching_parts()
+    {
+        // a tooltip's sentences without the ones that state a stat (Python: ' '.join(p for p in re.split(s, x) if not re.search(d, p)))
+        Scalar(@"regexp_split_join('Adds 3% crit. A cute hat! Very red.', '(?<=[.!?])\s+', '(?i)\d+\s*%|crit', ' ')")
+            .ShouldBe("A cute hat! Very red.");
+        Scalar(@"regexp_split_join('a,b,,c', ',', NULL, '-')").ShouldBe("a-b--c");                 // NULL drop keeps every part
+        Scalar(@"regexp_split_join('x1 y z2', ' ', '\d', ' ')").ShouldBe("y");
+        Scalar(@"regexp_split_join('x1', ' ', '\d', ' ')").ShouldBe("");                          // every part dropped
+        Scalar(@"regexp_split_join(NULL, ' ', NULL, ' ')").ShouldBeNull();
+    }
+
+    [Fact]
     public void Blob_set_returns_the_edited_hex_and_keeps_the_rest()
     {
         Scalar("blob_set_u16('0102030405', 1, 4660)").ShouldBe("0134120405");    // 0x1234

@@ -19,6 +19,9 @@ namespace Fiesta.Collab.Sql;
 /// <item><c>x REGEXP p</c>, <c>regexp_group(x, p, n)</c> (capture n, NULL without a match) and
 /// <c>regexp_replace(x, p, r [, count])</c> (every match, or the first count - Python's re.sub): .NET regex syntax,
 /// replacements write groups as <c>$1</c>.</item>
+/// <item><c>regexp_split_join(x, split, drop, joiner)</c>: <c>x</c> split on the pattern <c>split</c>, the parts
+/// <c>drop</c> matches left out (NULL keeps every part), the rest joined with <c>joiner</c> - a text's sentences
+/// without some of them.</item>
 /// </list>
 /// </summary>
 public static class SqlFunctions
@@ -42,6 +45,10 @@ public static class SqlFunctions
             (x, p, r) => x is null || p is null || r is null ? null : Rx(p).Replace(x, r), isDeterministic: true);
         c.CreateFunction<string?, string?, string?, long?, string?>("regexp_replace",
             (x, p, r, n) => x is null || p is null || r is null || n is null ? null : Rx(p).Replace(x, r, (int)n),
+            isDeterministic: true);
+        c.CreateFunction<string?, string?, string?, string?, string?>("regexp_split_join",
+            (x, split, drop, joiner) => x is null || split is null ? null
+                : string.Join(joiner ?? "", Rx(split).Split(x).Where(p => drop is null || !Rx(drop).IsMatch(p))),
             isDeterministic: true);
         c.CreateFunction<string?, long?, long?, long?, string?, string?>("blob_compact",
             (hex, off, size, count, drop) => hex is null || off is null || size is null || count is null ? null
