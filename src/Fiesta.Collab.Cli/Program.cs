@@ -1506,7 +1506,8 @@ sessionCommand.SetHandler(async (DirectoryInfo? projectOpt) =>
             var sql = await File.ReadAllTextAsync(line[5..].Trim());
             var words = new HashSet<string>(System.Text.RegularExpressions.Regex.Matches(sql, @"[A-Za-z_][A-Za-z0-9_]*")
                 .Select(m => m.Value), StringComparer.OrdinalIgnoreCase);
-            foreach (var name in entries.Keys.Where(words.Contains).ToList())
+            foreach (var name in entries.Keys.Where(words.Contains)
+                         .Union(Fiesta.Collab.Sql.MigrationScript.EachTables(sql, entries.Keys, false)).ToList())
                 await Ensure(name);
             // written back: the tables a statement CHANGES (UPDATE / INSERT INTO / DELETE FROM / REPLACE INTO), not every
             // table the SQL reads; if none can be found, every table it names (the safe side)
@@ -1514,6 +1515,7 @@ sessionCommand.SetHandler(async (DirectoryInfo? projectOpt) =>
                     @"(?:\b(?:UPDATE|INSERT\s+(?:OR\s+\w+\s+)?INTO|DELETE\s+FROM|REPLACE\s+INTO)|--\s*@copy)\s+""?([A-Za-z_][A-Za-z0-9_]*)""?",
                     System.Text.RegularExpressions.RegexOptions.IgnoreCase)
                 .Select(m => m.Groups[1].Value), StringComparer.OrdinalIgnoreCase);
+            targets.UnionWith(Fiesta.Collab.Sql.MigrationScript.EachTables(sql, schemas.Keys, true));
             targets.IntersectWith(schemas.Keys);
             if (targets.Count == 0) targets.UnionWith(schemas.Keys.Where(words.Contains));
             var sw = System.Diagnostics.Stopwatch.StartNew();

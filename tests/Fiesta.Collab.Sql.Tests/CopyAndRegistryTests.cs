@@ -86,6 +86,29 @@ public class CopyAndRegistryTests : IDisposable
     }
 
     [Fact]
+    public void Each_runs_the_statement_for_every_table_the_glob_names_in_place()
+    {
+        _engine.Execute("CREATE TABLE Shop_A_Tab00 (Item TEXT); INSERT INTO Shop_A_Tab00 VALUES ('Sword');" +
+                        "CREATE TABLE Shop_B_Tab00 (Item TEXT); INSERT INTO Shop_B_Tab00 VALUES ('Shield');" +
+                        "CREATE TABLE Shop_B_Tab01 (Item TEXT); INSERT INTO Shop_B_Tab01 VALUES ('Bow');" +
+                        "CREATE TABLE Other (Item TEXT); INSERT INTO Other VALUES ('Nope');");
+        MigrationScript.Run(_engine, """
+            -- @param PREFIX = 'Shop'
+            CREATE TEMP TABLE sold (shop TEXT, item TEXT);
+            -- @each Shop_*_Tab[0-9][0-9] INSERT INTO sold SELECT '{table}', Item FROM "{table}" WHERE :PREFIX <> ''
+            UPDATE sold SET item = upper(item);
+            """, "t.sql", null);
+
+        _engine.Query("SELECT shop, item FROM sold ORDER BY rowid").Select(r => $"{r["shop"]}:{r["item"]}")
+            .ShouldBe(["Shop_A_Tab00:SWORD", "Shop_B_Tab00:SHIELD", "Shop_B_Tab01:BOW"]);   // by table name, before the UPDATE
+    }
+
+    [Fact]
+    public void Each_refuses_a_statement_without_the_table_placeholder()
+        => Should.Throw<FormatException>(() => MigrationScript.Run(_engine,
+            "-- @each Items SELECT 1", "t.sql", null)).Message.ShouldContain("{table}");
+
+    [Fact]
     public void Copy_refuses_an_unknown_column()
         => Should.Throw<InvalidOperationException>(() => MigrationScript.Run(_engine,
             "-- @copy Items WHERE ID = 1 SET Nope = 1", "t.sql", null)).Message.ShouldContain("Nope");

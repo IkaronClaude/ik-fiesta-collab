@@ -29,6 +29,9 @@ public sealed record TableDeclaration(string Name, string Like, string File, int
 /// the SET columns replaced by their expressions, evaluated against the copied row. Appended in the rows' order, or by a
 /// trailing <c>ORDER BY expr</c> (outside parentheses). A SET expression may use window functions (ROW_NUMBER() OVER
 /// ...) to give each copy its own id.</item>
+/// <item><c>-- @each GLOB statement</c>: IN PLACE among the statements, the statement once per table whose name the
+/// GLOB matches (sqlite_master, in name order), <c>{table}</c> replaced by that table's name - every shop table of a
+/// layer (<c>QoL_*_Tab[0-9][0-9]</c>) without listing them.</item>
 /// <item>A script naming <c>_id_registry</c> sees the project's id registry (<see cref="IdRegistry"/>) as that temp
 /// table: allocate by INSERT, read by SELECT; new entries are written back to the registry file afterwards.</item>
 /// </list>
@@ -40,7 +43,8 @@ public static class MigrationScript
     private static readonly Regex TableDef = new(
         @"^([A-Za-z_]\w*)\s+LIKE\s+([A-Za-z_]\w*)\s+FILE\s+(\S+)(?:\s+SECTION\s+(\d+))?(?:\s+AS\s+(\S+))?\s*$",
         RegexOptions.IgnoreCase);
-    private static readonly Regex CopyLine = new(@"^\s*--\s*@copy\b\s*(.*)$", RegexOptions.Multiline);
+    // the in-place directives: SQL in comment form, run among the statements at their line
+    private static readonly Regex CopyLine = new(@"^\s*--\s*@(copy|each)\b\s*(.*)$", RegexOptions.Multiline);
     private static readonly Regex CopyDef = new(
         @"^""?([A-Za-z_]\w*)""?\s+WHERE\s+(.+?)(?:\s+SET\s+(.+))?\s*$", RegexOptions.IgnoreCase | RegexOptions.Singleline);
     private static readonly Regex ParamDef =new(@"^([A-Za-z_]\w*)\s*=\s*(.+?)\s*$");
@@ -106,7 +110,8 @@ public static class MigrationScript
         {
             var part = body[at..c.Index];
             if (HasStatements(part)) affected += Math.Max(0, engine.Execute(part));
-            affected += Copy(engine, c.Groups[1].Value.Trim(), name);
+            affected += c.Groups[1].Value == "copy" ? Copy(engine, c.Groups[2].Value.Trim(), name)
+                                                    : Each(engine, c.Groups[2].Value.Trim(), name);
             at = c.Index + c.Length;
         }
         var rest = body[at..];
@@ -165,6 +170,39 @@ public static class MigrationScript
         return engine.Execute($"INSERT INTO [{table}] ({list}) SELECT {select} FROM [{table}] WHERE {m.Groups[2].Value} ORDER BY {orderBy}");
     }
 
+    /// <summary>One <c>@each GLOB statement</c>: the statement once per table whose name the GLOB matches (by name),
+    /// <c>{table}</c> replaced by that name.</summary>
+    private static int Each(ISqlEngine engine, string arg, string name)
+    {
+        var sp = arg.IndexOfAny([' ', '\t']);
+        var stmt = sp < 0 ? "" : arg[(sp + 1)..].Trim();
+        if (sp < 0 || !stmt.Contains("{table}"))
+            throw new FormatException($"{name}: bad @each '{arg}' (want GLOB statement-naming-{{table}})");
+        var glob = arg[..sp];
+        var tables = engine.Query($"SELECT name FROM sqlite_master WHERE type = 'table' AND name GLOB '{glob.Replace("'", "''")}' ORDER BY name")
+            .Select(r => (string)r["name"]!).ToList();
+        return tables.Sum(t => Math.Max(0, engine.Execute(stmt.Replace("{table}", t))));
+    }
+
+    /// <summary>The tables among <paramref name="tables"/> an <c>@each</c> line of <paramref name="sql"/> matches (a
+    /// session loads them: the script names none of them) - with <paramref name="writtenOnly"/>, only where its statement
+    /// UPDATEs / INSERTs INTO / DELETEs FROM / REPLACEs INTO <c>{table}</c> (they are saved back).</summary>
+    public static IEnumerable<string> EachTables(string sql, IEnumerable<string> tables, bool writtenOnly)
+    {
+        var all = tables.ToList();
+        foreach (Match m in CopyLine.Matches(sql))
+        {
+            if (m.Groups[1].Value != "each") continue;
+            var arg = m.Groups[2].Value.Trim();
+            var sp = arg.IndexOfAny([' ', '\t']);
+            if (sp < 0) continue;
+            if (writtenOnly && !Regex.IsMatch(arg[sp..], @"\b(?:UPDATE|INSERT\s+(?:OR\s+\w+\s+)?INTO|DELETE\s+FROM|REPLACE\s+INTO)\s+""?\{table\}",
+                    RegexOptions.IgnoreCase)) continue;
+            var rx = new Regex("^" + Regex.Escape(arg[..sp]).Replace(@"\*", ".*").Replace(@"\?", ".").Replace(@"\[", "[") + "$");
+            foreach (var t in all.Where(t => rx.IsMatch(t))) yield return t;
+        }
+    }
+
     /// <summary>The last index of <paramref name="word"/> (case-insensitive) outside parentheses and '...' literals, or -1.</summary>
     private static int TopLevelIndex(string s, string word)
     {
@@ -215,7 +253,7 @@ public static class MigrationScript
             var c = sql[i];
             // a comment is copied as it is: an apostrophe in one ("the client's list") must not open a string literal and
             // leave every later :NAME unsubstituted (found 2026-10-07: "Must add values for the following parameters").
-            // A -- @copy line is SQL in comment form - it goes through as code.
+            // A -- @copy / -- @each line is SQL in comment form - it goes through as code.
             if (c == '-' && i + 1 < sql.Length && sql[i + 1] == '-')
             {
                 var eol = sql.IndexOf('\n', i);
