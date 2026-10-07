@@ -336,6 +336,24 @@ public static class Migrations
         return changed;
     }
 
+    /// <summary>@table ... COLUMNS: every env block of the new table's header (the ones carrying a columnOrder) gets a
+    /// columnRenames map template column -> file column, which the build applies when it writes that env's file.</summary>
+    internal static void AddColumnRenames(Dictionary<string, object> metadata, IReadOnlyList<ColumnDefinition> templateColumns,
+                                          TableDeclaration d)
+    {
+        if (d.ColumnNames is not { } names) return;
+        var map = new Dictionary<string, string>();
+        for (var i = 0; i < names.Count; i++) map[templateColumns[i].Name] = names[i];
+        foreach (var key in metadata.Keys.ToList())
+        {
+            if (metadata[key] is not JsonElement je || je.ValueKind != JsonValueKind.Object || !je.TryGetProperty("columnOrder", out _))
+                continue;
+            var node = System.Text.Json.Nodes.JsonNode.Parse(je.GetRawText())!.AsObject();
+            node["columnRenames"] = System.Text.Json.Nodes.JsonNode.Parse(JsonSerializer.Serialize(map));
+            metadata[key] = JsonSerializer.SerializeToElement(node);
+        }
+    }
+
     /// <summary>A table a layer created with -- @table: the template's columns and header, with the header naming the new
     /// file (sourceFile), its section and in-file table name, so the build writes it beside the template's file.</summary>
     private static TableFile NewTable(Loaded p, TableDeclaration d)
@@ -346,6 +364,7 @@ public static class Migrations
         metadata["sectionIndex"] = d.Section;
         metadata["declared"] = true;                  // left out of the file while empty (Program.cs, grouped files)
         if (d.As != null || metadata.ContainsKey("tableName")) metadata["tableName"] = d.As ?? metadata["tableName"];
+        AddColumnRenames(metadata, p.Schemas[d.Like].Columns, d);
         var schema = new TableSchema
         {
             TableName = d.Name,

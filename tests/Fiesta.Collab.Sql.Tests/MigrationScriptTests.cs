@@ -106,6 +106,25 @@ public class MigrationScriptTests : IDisposable
     }
 
     [Fact]
+    public void Table_directive_takes_its_own_column_names_for_the_file()
+    {
+        var decls = new List<TableDeclaration>();
+        MigrationScript.Run(_engine, """
+            -- @table Dismantle LIKE Items FILE Dismantle.shn COLUMNS ItemNo, Product, Lot
+            INSERT INTO Dismantle (ID, Name, Price) VALUES (7, 'Potion', 5);
+            """, "t.sql", _reports, decls.Add);
+
+        // the table keeps the template's names (statements use them); the build writes the file with these
+        decls.Single().ShouldBe(new TableDeclaration("Dismantle", "Items", "Dismantle.shn", 0, null, "ItemNo,Product,Lot"));
+        _engine.Query("SELECT Name FROM Dismantle")[0]["Name"].ShouldBe("Potion");
+    }
+
+    [Fact]
+    public void Table_directive_refuses_a_column_list_of_another_length()
+        => Should.Throw<FormatException>(() => MigrationScript.Run(_engine,
+            "-- @table Dismantle LIKE Items FILE Dismantle.shn COLUMNS A, B", "t.sql", _reports, _ => { })).Message.ShouldContain("COLUMNS");
+
+    [Fact]
     public void Table_directive_is_refused_where_nobody_can_keep_the_table()
     {
         Should.Throw<NotSupportedException>(() => MigrationScript.Run(_engine,

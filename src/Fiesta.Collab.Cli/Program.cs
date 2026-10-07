@@ -822,6 +822,23 @@ buildCommand.SetHandler(async (DirectoryInfo? projectOpt, DirectoryInfo? outputO
                 logger.LogDebug("Skipping {Table} for env {Env} (belongs to {Origin})", name, eName, origin);
                 continue;
             }
+            else if (envMeta is { ColumnRenames.Count: > 0 })
+            {
+                // a single-env table with its own file column names (-- @table ... COLUMNS): renamed as it is written
+                var ren = envMeta.ColumnRenames;
+                outputTable = new TableFile
+                {
+                    Header = tableFile.Header,
+                    Columns = tableFile.Columns.Select(c => new ColumnDefinition
+                    {
+                        Name = ren.TryGetValue(c.Name, out var n) ? n : c.Name, Type = c.Type, Length = c.Length,
+                        SourceTypeCode = c.SourceTypeCode, SourceName = ren.ContainsKey(c.Name) ? null : c.SourceName,
+                        Environments = c.Environments
+                    }).ToList(),
+                    Data = tableFile.Data.Select(r => r.ToDictionary(kv => ren.TryGetValue(kv.Key, out var n) ? n : kv.Key, kv => kv.Value)).ToList(),
+                    RowEnvironments = tableFile.RowEnvironments
+                };
+            }
             else
             {
                 outputTable = tableFile;
@@ -1536,6 +1553,7 @@ sessionCommand.SetHandler(async (DirectoryInfo? projectOpt) =>
                 metadata["sectionIndex"] = d.Section;
                 metadata["declared"] = true;              // an @table section: left out of the file while it is empty
                 if (d.As != null || metadata.ContainsKey("tableName")) metadata["tableName"] = d.As ?? metadata["tableName"];
+                Fiesta.Collab.Cli.Migrations.AddColumnRenames(metadata, schemas[d.Like].Columns, d);
                 headers[d.Name] = new TableHeader { TableName = d.Name, SourceFormat = like.SourceFormat, Metadata = metadata };
                 schemas[d.Name] = new TableSchema
                 {

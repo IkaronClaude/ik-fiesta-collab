@@ -11,7 +11,12 @@ public sealed class MigrationAssertException(string message) : Exception(message
 /// template's columns and header, written to <c>file.txt</c> beside the template's own file, as section <c>n</c> (0) under
 /// the in-file table name <c>InFileName</c> (the template's).
 /// </summary>
-public sealed record TableDeclaration(string Name, string Like, string File, int Section, string? As);
+public sealed record TableDeclaration(string Name, string Like, string File, int Section, string? As, string? Columns = null)
+{
+    /// <summary><c>COLUMNS a, b, c</c>: the file's column names, the template's columns in order (null = the template's own).
+    /// The table keeps the template's names - the statements use them - and the build writes these.</summary>
+    public IReadOnlyList<string>? ColumnNames => Columns?.Split(',');
+}
 
 /// <summary>
 /// Runs one migration file with its comment directives (docs/DESIGN-variants-and-native-steps.md, section 2):
@@ -21,9 +26,10 @@ public sealed record TableDeclaration(string Name, string Like, string File, int
 /// <item><c>-- @assert &lt;SELECT&gt;</c>: after the statements; any row returned fails the migration.</item>
 /// <item><c>-- @report name &lt;SELECT&gt;</c>: after the statements (and the asserts); the result becomes
 /// <c>&lt;reportDir&gt;/name.md</c>, a markdown table.</item>
-/// <item><c>-- @table Name LIKE Template FILE file.txt [SECTION n] [AS InFileName]</c>: BEFORE the statements, an empty
-/// table with the template's columns; the caller (a variant build) keeps it and builds it into that file. Refused
-/// where no caller keeps it (<paramref name="onTable"/> null).</item>
+/// <item><c>-- @table Name LIKE Template FILE file.txt [SECTION n] [AS InFileName] [COLUMNS a, b, ...]</c>: BEFORE the
+/// statements, an empty table with the template's columns; the caller (a variant build) keeps it and builds it into that
+/// file - with COLUMNS, the file's column names (one per template column, in order; the statements still use the
+/// template's). Refused where no caller keeps it (<paramref name="onTable"/> null).</item>
 /// <item><c>-- @copy Table WHERE &lt;condition&gt; [SET col = expr, ...]</c>: IN PLACE among the statements (they run in
 /// order around it), a copy of every row of Table the condition picks - all columns, the hidden ones (_envs) too - with
 /// the SET columns replaced by their expressions, evaluated against the copied row. Appended in the rows' order, or by a
@@ -41,7 +47,7 @@ public static class MigrationScript
 {
     private static readonly Regex Directive = new(@"^\s*--\s*@(param|assert|report|table)\b\s*(.*)$", RegexOptions.Multiline);
     private static readonly Regex TableDef = new(
-        @"^([A-Za-z_]\w*)\s+LIKE\s+([A-Za-z_]\w*)\s+FILE\s+(\S+)(?:\s+SECTION\s+(\d+))?(?:\s+AS\s+(\S+))?\s*$",
+        @"^([A-Za-z_]\w*)\s+LIKE\s+([A-Za-z_]\w*)\s+FILE\s+(\S+)(?:\s+SECTION\s+(\d+))?(?:\s+AS\s+(\S+))?(?:\s+COLUMNS\s+(\w+(?:\s*,\s*\w+)*))?\s*$",
         RegexOptions.IgnoreCase);
     // the in-place directives: SQL in comment form, run among the statements at their line
     private static readonly Regex CopyLine = new(@"^\s*--\s*@(copy|each)\b\s*(.*)$", RegexOptions.Multiline);
@@ -73,9 +79,10 @@ public static class MigrationScript
                 case "table":
                     var t = TableDef.Match(arg);
                     if (!t.Success)
-                        throw new FormatException($"{name}: bad @table '{arg}' (want Name LIKE Template FILE file.txt [SECTION n] [AS InFileName])");
+                        throw new FormatException($"{name}: bad @table '{arg}' (want Name LIKE Template FILE file.txt [SECTION n] [AS InFileName] [COLUMNS a, b, ...])");
                     tables.Add(new TableDeclaration(t.Groups[1].Value, t.Groups[2].Value, t.Groups[3].Value,
-                        t.Groups[4].Success ? int.Parse(t.Groups[4].Value) : 0, t.Groups[5].Success ? t.Groups[5].Value : null));
+                        t.Groups[4].Success ? int.Parse(t.Groups[4].Value) : 0, t.Groups[5].Success ? t.Groups[5].Value : null,
+                        t.Groups[6].Success ? Regex.Replace(t.Groups[6].Value, @"\s+", "") : null));
                     break;
                 case "report":
                     var r = ReportDef.Match(arg);
@@ -89,6 +96,13 @@ public static class MigrationScript
             throw new NotSupportedException($"{name}: @table creates a table only a variant build keeps (fiesta build --variant)");
         foreach (var t in tables)
         {
+            if (t.ColumnNames is { } names)
+            {
+                var have = engine.Query($"SELECT name FROM pragma_table_info('{t.Like.Replace("'", "''")}')")
+                    .Select(r => (string)r["name"]!).Count(c => c != SqlEngine.EnvsColumn);
+                if (have != names.Count)
+                    throw new FormatException($"{name}: @table {t.Name} COLUMNS names {names.Count} column(s), {t.Like} has {have}");
+            }
             // the template's columns (and the _envs column), no rows
             engine.Execute($"CREATE TABLE [{t.Name}] AS SELECT * FROM [{t.Like}] WHERE 0");
             onTable!(t);
