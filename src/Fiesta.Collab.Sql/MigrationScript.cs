@@ -26,7 +26,9 @@ public sealed record TableDeclaration(string Name, string Like, string File, int
 /// where no caller keeps it (<paramref name="onTable"/> null).</item>
 /// <item><c>-- @copy Table WHERE &lt;condition&gt; [SET col = expr, ...]</c>: IN PLACE among the statements (they run in
 /// order around it), a copy of every row of Table the condition picks - all columns, the hidden ones (_envs) too - with
-/// the SET columns replaced by their expressions, evaluated against the copied row. Appended in the rows' order.</item>
+/// the SET columns replaced by their expressions, evaluated against the copied row. Appended in the rows' order, or by a
+/// trailing <c>ORDER BY expr</c> (outside parentheses). A SET expression may use window functions (ROW_NUMBER() OVER
+/// ...) to give each copy its own id.</item>
 /// <item>A script naming <c>_id_registry</c> sees the project's id registry (<see cref="IdRegistry"/>) as that temp
 /// table: allocate by INSERT, read by SELECT; new entries are written back to the registry file afterwards.</item>
 /// </list>
@@ -133,8 +135,16 @@ public static class MigrationScript
     /// <summary>One <c>@copy</c>: INSERT INTO T (every column) SELECT (each column, or its SET expression) FROM T WHERE ...</summary>
     private static int Copy(ISqlEngine engine, string arg, string name)
     {
+        // an optional trailing ORDER BY (outside parentheses and literals): the order the copies are appended in
+        var orderBy = "rowid";
+        var ob = TopLevelIndex(arg, " ORDER BY ");
+        if (ob >= 0)
+        {
+            orderBy = arg[(ob + " ORDER BY ".Length)..].Trim();
+            arg = arg[..ob];
+        }
         var m = CopyDef.Match(arg);
-        if (!m.Success) throw new FormatException($"{name}: bad @copy '{arg}' (want Table WHERE condition [SET col = expr, ...])");
+        if (!m.Success) throw new FormatException($"{name}: bad @copy '{arg}' (want Table WHERE condition [SET col = expr, ...] [ORDER BY expr])");
         var table = m.Groups[1].Value;
         var cols = engine.Query($"SELECT name FROM pragma_table_info('{table.Replace("'", "''")}')")
             .Select(r => (string)r["name"]!).ToList();
@@ -152,7 +162,24 @@ public static class MigrationScript
             }
         var list = string.Join(", ", cols.Select(c => $"[{c}]"));
         var select = string.Join(", ", cols.Select(c => set.TryGetValue(c, out var e) ? $"({e})" : $"[{c}]"));
-        return engine.Execute($"INSERT INTO [{table}] ({list}) SELECT {select} FROM [{table}] WHERE {m.Groups[2].Value} ORDER BY rowid");
+        return engine.Execute($"INSERT INTO [{table}] ({list}) SELECT {select} FROM [{table}] WHERE {m.Groups[2].Value} ORDER BY {orderBy}");
+    }
+
+    /// <summary>The last index of <paramref name="word"/> (case-insensitive) outside parentheses and '...' literals, or -1.</summary>
+    private static int TopLevelIndex(string s, string word)
+    {
+        int depth = 0, found = -1;
+        var quoted = false;
+        for (var i = 0; i < s.Length; i++)
+        {
+            var c = s[i];
+            if (c == '\'') quoted = !quoted;
+            else if (!quoted && c == '(') depth++;
+            else if (!quoted && c == ')') depth--;
+            else if (!quoted && depth == 0 && string.Compare(s, i, word, 0, word.Length, StringComparison.OrdinalIgnoreCase) == 0)
+                found = i;
+        }
+        return found;
     }
 
     /// <summary>Splits at commas outside parentheses and '...' literals.</summary>

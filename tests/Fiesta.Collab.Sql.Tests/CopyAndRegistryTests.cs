@@ -73,6 +73,19 @@ public class CopyAndRegistryTests : IDisposable
     }
 
     [Fact]
+    public void Copy_appends_in_the_order_given_with_window_numbered_ids()
+    {
+        MigrationScript.Run(_engine, """
+            CREATE TEMP TABLE pick (ord INTEGER, inx TEXT);
+            INSERT INTO pick VALUES (1, 'Shield'), (2, 'Sword');
+            -- @copy Items WHERE InxName IN (SELECT inx FROM pick) SET ID = (SELECT MAX(ID) FROM Items) + ROW_NUMBER() OVER (ORDER BY (SELECT ord FROM pick WHERE pick.inx = Items.InxName)), InxName = InxName || '2' ORDER BY (SELECT ord FROM pick WHERE pick.inx = Items.InxName)
+            """, "t.sql", null);
+
+        _engine.Query("SELECT ID, InxName FROM Items WHERE ID > 2 ORDER BY rowid")
+            .Select(r => $"{r["ID"]}:{r["InxName"]}").ShouldBe(["3:Shield2", "4:Sword2"]);
+    }
+
+    [Fact]
     public void Copy_refuses_an_unknown_column()
         => Should.Throw<InvalidOperationException>(() => MigrationScript.Run(_engine,
             "-- @copy Items WHERE ID = 1 SET Nope = 1", "t.sql", null)).Message.ShouldContain("Nope");
