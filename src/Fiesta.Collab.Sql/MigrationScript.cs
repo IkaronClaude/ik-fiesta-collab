@@ -36,7 +36,8 @@ public sealed record TableDeclaration(string Name, string Like, string File, int
 /// trailing <c>ORDER BY expr</c> (outside parentheses). A SET expression may use window functions (ROW_NUMBER() OVER
 /// ...) to give each copy its own id.</item>
 /// <item><c>-- @each GLOB statement</c>: IN PLACE among the statements, the statement once per table whose name the
-/// GLOB matches (sqlite_master, in name order), <c>{table}</c> replaced by that table's name - every shop table of a
+/// GLOB matches (sqlite_master, in name order; <c>HAVING col[,col]</c> after the GLOB keeps only the tables with those
+/// columns), <c>{table}</c> replaced by that table's name - every shop table of a
 /// layer (<c>QoL_*_Tab[0-9][0-9]</c>) without listing them.</item>
 /// <item>A script naming <c>_id_registry</c> sees the project's id registry (<see cref="IdRegistry"/>) as that temp
 /// table: allocate by INSERT, read by SELECT; new entries are written back to the registry file afterwards.</item>
@@ -195,6 +196,19 @@ public static class MigrationScript
         var glob = arg[..sp];
         var tables = engine.Query($"SELECT name FROM sqlite_master WHERE type = 'table' AND name GLOB '{glob.Replace("'", "''")}' ORDER BY name")
             .Select(r => (string)r["name"]!).ToList();
+        // HAVING col[,col...]: only the tables that have every one of those columns (one glob can match two layouts)
+        var having = Regex.Match(stmt, @"^HAVING\s+(\w+(?:,\w+)*)\s+(.+)$", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        if (having.Success)
+        {
+            var need = having.Groups[1].Value.Split(',');
+            stmt = having.Groups[2].Value;
+            tables = tables.Where(t =>
+            {
+                var cols = engine.Query($"SELECT name FROM pragma_table_info('{t.Replace("'", "''")}')")
+                    .Select(r => (string)r["name"]!).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                return need.All(cols.Contains);
+            }).ToList();
+        }
         return tables.Sum(t => Math.Max(0, engine.Execute(stmt.Replace("{table}", t))));
     }
 

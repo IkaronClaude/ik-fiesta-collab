@@ -104,6 +104,22 @@ public class CopyAndRegistryTests : IDisposable
     }
 
     [Fact]
+    public void Each_HAVING_skips_the_tables_without_those_columns()
+    {
+        // two layouts under one glob (Fiesta's KQ MobRegen tables lack KillNum): SELECT * into one table only works on one
+        _engine.Execute("CREATE TABLE A_Regen (Mob TEXT, Num INTEGER, Kill INTEGER); INSERT INTO A_Regen VALUES ('Bat', 3, 0);" +
+                        "CREATE TABLE B_Regen (Mob TEXT, Num INTEGER); INSERT INTO B_Regen VALUES ('Slime', 2);" +
+                        "CREATE TABLE C_Regen (Mob TEXT, Num INTEGER, Kill INTEGER); INSERT INTO C_Regen VALUES ('Boar', 1, 5);");
+        MigrationScript.Run(_engine, """
+            CREATE TEMP TABLE full_rows (t TEXT, Mob TEXT, Num INTEGER, Kill INTEGER);
+            -- @each *_Regen HAVING Kill,Num INSERT INTO full_rows SELECT '{table}', * FROM "{table}"
+            """, "t.sql", null);
+
+        _engine.Query("SELECT t, Mob, Kill FROM full_rows ORDER BY rowid").Select(r => $"{r["t"]}:{r["Mob"]}:{r["Kill"]}")
+            .ShouldBe(["A_Regen:Bat:0", "C_Regen:Boar:5"]);
+    }
+
+    [Fact]
     public void Each_refuses_a_statement_without_the_table_placeholder()
         => Should.Throw<FormatException>(() => MigrationScript.Run(_engine,
             "-- @each Items SELECT 1", "t.sql", null)).Message.ShouldContain("{table}");
