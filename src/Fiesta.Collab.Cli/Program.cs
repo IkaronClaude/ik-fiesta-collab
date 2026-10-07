@@ -1503,6 +1503,11 @@ sessionCommand.SetHandler(async (DirectoryInfo? projectOpt) =>
         paths[name] = entryPath;
         engine.LoadTable(new TableEntry { Schema = schema, Rows = tableFile.Data, RowEnvironments = tableFile.RowEnvironments });
     }
+    // helper tables (-- @helper, HelperTables): loaded when an edit names one, written back when it declares or writes it
+    var helperPaths = new Dictionary<string, string>(manifest.Helpers ?? new Dictionary<string, string>(), StringComparer.OrdinalIgnoreCase);
+    var helpersLoaded = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    // what is being built, seen by a migration as the table _build: `set key value` lines (environment, layer ...)
+    var buildVars = new Dictionary<string, string>(StringComparer.Ordinal);
     Console.WriteLine($"READY {manifest.Tables.Count} tables (loaded on first use)");
     Console.Out.Flush();
 
@@ -1512,6 +1517,14 @@ sessionCommand.SetHandler(async (DirectoryInfo? projectOpt) =>
         line = line.Trim();
         if (line.Length == 0) continue;
         if (line == "quit") break;
+        if (line.StartsWith("set "))
+        {
+            var kv = line[4..].Trim().Split(' ', 2, StringSplitOptions.TrimEntries);
+            if (kv.Length == 2 && kv[0].Length > 0) { buildVars[kv[0]] = kv[1]; Console.WriteLine($"OK set {kv[0]}"); }
+            else Console.WriteLine("ERR want: set <key> <value>");
+            Console.Out.Flush();
+            continue;
+        }
         if (!line.StartsWith("edit "))
         {
             Console.WriteLine($"ERR unknown command: {line}");
@@ -1526,6 +1539,11 @@ sessionCommand.SetHandler(async (DirectoryInfo? projectOpt) =>
             foreach (var name in entries.Keys.Where(words.Contains)
                          .Union(Fiesta.Collab.Sql.MigrationScript.EachTables(sql, entries.Keys, false)).ToList())
                 await Ensure(name);
+            foreach (var h in helperPaths.Keys.Where(words.Contains).Where(h => !helpersLoaded.Contains(h)).ToList())
+            {
+                Fiesta.Collab.Sql.HelperTables.FromJson(engine, h, await File.ReadAllTextAsync(Path.Combine(project.FullName, helperPaths[h])));
+                helpersLoaded.Add(h);
+            }
             // written back: the tables a statement CHANGES (UPDATE / INSERT INTO / DELETE FROM / REPLACE INTO), not every
             // table the SQL reads; if none can be found, every table it names (the safe side)
             var targets = new HashSet<string>(System.Text.RegularExpressions.Regex.Matches(sql,
@@ -1562,9 +1580,36 @@ sessionCommand.SetHandler(async (DirectoryInfo? projectOpt) =>
                 paths[d.Name] = entries[d.Name] = $"data/variant-tables/{d.Name}.json";
                 created.Add(d.Name);
             }
+            var declared = new List<string>();
             var affected = MigrationScript.Run(engine, sql, Path.GetFileName(line[5..].Trim()), Fiesta.Collab.Cli.Migrations.ReportDir(project.FullName),
-                OnTable, IdRegistry.ForProject(project.FullName, manifest.IdRegistry));
+                OnTable, IdRegistry.ForProject(project.FullName, manifest.IdRegistry), buildVars, declared.Add);
             targets.UnionWith(created);
+            // the helpers to keep: the ones it declares, and loaded ones it writes to
+            var helperWrites = new HashSet<string>(declared, StringComparer.OrdinalIgnoreCase);
+            helperWrites.UnionWith(System.Text.RegularExpressions.Regex.Matches(sql,
+                    @"\b(?:UPDATE|INSERT\s+(?:OR\s+\w+\s+)?INTO|DELETE\s+FROM|REPLACE\s+INTO)\s+""?([A-Za-z_][A-Za-z0-9_]*)""?",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase)
+                .Select(m => m.Groups[1].Value).Where(helpersLoaded.Contains));
+            var newHelper = false;
+            foreach (var h in helperWrites)
+            {
+                if (schemas.ContainsKey(h) || entries.ContainsKey(h))
+                    throw new InvalidOperationException($"-- @helper {h}: a game table of that name exists");
+                if (!helperPaths.TryGetValue(h, out var hp))
+                {
+                    hp = helperPaths[h] = $"data/helpers/{h}.json";
+                    newHelper = true;
+                }
+                var full = Path.Combine(project.FullName, hp);
+                Directory.CreateDirectory(Path.GetDirectoryName(full)!);
+                await File.WriteAllTextAsync(full, Fiesta.Collab.Sql.HelperTables.ToJson(engine, h));
+                helpersLoaded.Add(h);
+            }
+            if (newHelper)
+            {
+                manifest.Helpers = new Dictionary<string, string>(helperPaths, StringComparer.Ordinal);
+                await projectService.SaveProjectAsync(project.FullName, manifest);
+            }
             if (created.Count > 0)
             {
                 foreach (var name in created) manifest.Tables[name] = paths[name];

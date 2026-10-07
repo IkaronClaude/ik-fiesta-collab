@@ -112,6 +112,32 @@ public class SqlFunctionTests : IDisposable
     }
 
     [Fact]
+    public void Regexp_matches_gives_character_positions_substr_agrees_with()
+    {
+        // an emoji (two UTF-16 units) before the match: positions count it once, as SQLite does
+        Scalar(@"regexp_matches('😀 kill 40 Stonies', '(\d+) (\w+)')")
+            .ShouldBe(@"[{""s"":7,""e"":17,""m"":""40 Stonies"",""g"":[""40"",""Stonies""]}]");
+        Scalar(@"(SELECT substr('😀 kill 40 Stonies', json_extract(value, '$.s') + 1, json_extract(value, '$.e') - json_extract(value, '$.s'))
+                  FROM json_each(regexp_matches('😀 kill 40 Stonies', '\d+')))").ShouldBe("40");
+        Scalar(@"regexp_matches('none', '\d')").ShouldBe("[]");
+        Scalar(@"regexp_matches('a1', '(x)?(\d)')").ShouldBe(@"[{""s"":1,""e"":2,""m"":""1"",""g"":[null,""1""]}]");
+    }
+
+    [Fact]
+    public void Text_splice_puts_a_decision_per_match_back()
+    {
+        // Python: re.sub(r'\d+', lambda m: str(int(m.group(0)) * 2) if int(m.group(0)) > 5 else m.group(0), x)
+        Scalar(@"text_splice('😀 3 and 40 and 7', (SELECT json_group_array(json_array(json_extract(value, '$.s'), json_extract(value, '$.e'),
+                    CAST(json_extract(value, '$.m') AS INTEGER) * 2))
+                  FROM json_each(regexp_matches('😀 3 and 40 and 7', '\d+')) WHERE CAST(json_extract(value, '$.m') AS INTEGER) > 5))")
+            .ShouldBe("😀 3 and 80 and 14");
+        Scalar(@"text_splice('abc', '[[2, 3, ""Z""], [0, 1, ""X""]]')").ShouldBe("XbZ");      // any order
+        Scalar(@"text_splice('abc', '[]')").ShouldBe("abc");
+        Scalar(@"text_splice('abc', NULL)").ShouldBe("abc");
+        Should.Throw<Exception>(() => Scalar(@"text_splice('abc', '[[0, 2, ""x""], [1, 3, ""y""]]')"));   // overlapping
+    }
+
+    [Fact]
     public void Blob_set_returns_the_edited_hex_and_keeps_the_rest()
     {
         Scalar("blob_set_u16('0102030405', 1, 4660)").ShouldBe("0134120405");    // 0x1234

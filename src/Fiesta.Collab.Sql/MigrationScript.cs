@@ -40,6 +40,8 @@ public sealed record TableDeclaration(string Name, string Like, string File, int
 /// GLOB matches (sqlite_master, in name order; <c>HAVING col[,col]</c> after the GLOB keeps only the tables with those
 /// columns), <c>{table}</c> replaced by that table's name - every shop table of a
 /// layer (<c>QoL_*_Tab[0-9][0-9]</c>) without listing them.</item>
+/// <item><c>-- @helper Name</c>: the table Name the script's own SQL creates is a HELPER - kept for later migrations,
+/// never built (<see cref="HelperTables"/>). A script naming <c>_build</c> sees what is being built (key, value).</item>
 /// <item>A script naming <c>_id_registry</c> sees the project's id registry (<see cref="IdRegistry"/>) as that temp
 /// table: allocate by INSERT, read by SELECT; new entries are written back to the registry file afterwards.</item>
 /// </list>
@@ -61,7 +63,8 @@ public static class MigrationScript
     private static readonly Regex ReportDef = new(@"^([\w.-]+)\s+(.+)$", RegexOptions.Singleline);
 
     public static int Run(ISqlEngine engine, string sql, string name, string? reportDir, Action<TableDeclaration>? onTable = null,
-                          IdRegistry? registry = null)
+                          IdRegistry? registry = null, IReadOnlyDictionary<string, string>? build = null,
+                          Action<string>? onHelper = null)
     {
         var parms = new Dictionary<string, string>(StringComparer.Ordinal);
         var asserts = new List<string>();
@@ -112,6 +115,13 @@ public static class MigrationScript
             onTable!(t);
         }
 
+        // _build: what is being built (HelperTables), this migration's file name as "step"
+        if (sql.Contains(HelperTables.BuildTable, StringComparison.OrdinalIgnoreCase))
+        {
+            var vars = new Dictionary<string, string>(build ?? new Dictionary<string, string>(), StringComparer.Ordinal) { ["step"] = name };
+            HelperTables.ExposeBuild(engine, vars);
+        }
+
         var useRegistry = IdRegistry.UsedBy(sql);
         if (useRegistry)
         {
@@ -144,6 +154,13 @@ public static class MigrationScript
             if (rows.Count > 0)
                 throw new MigrationAssertException(
                     $"{name}: @assert returned {rows.Count} row(s): {a}\n" + Markdown(rows.Take(20).ToList()));
+        }
+        // the helpers it declares: made by its own SQL, handed to the caller to keep (a session writes them to the project)
+        foreach (var h in HelperTables.Declared(sql))
+        {
+            if (!HelperTables.Exists(engine, h))
+                throw new InvalidOperationException($"{name}: -- @helper {h}, but the migration did not create a table {h}");
+            onHelper?.Invoke(h);
         }
         foreach (var (rname, q) in reports)
         {

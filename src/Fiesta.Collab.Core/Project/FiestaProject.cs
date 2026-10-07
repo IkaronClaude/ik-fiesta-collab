@@ -41,4 +41,12 @@ public sealed class FiestaProject
     [JsonPropertyName("idRegistry")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? IdRegistry { get; set; }
+
+    /// <summary>
+    /// Helper tables (name -> relative path of their JSON): working tables migrations keep for later migrations
+    /// (<c>-- @helper Name</c>, Fiesta.Collab.Sql.HelperTables) - never built into a game file.
+    /// </summary>
+    [JsonPropertyName("helpers")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Dictionary<string, string>? Helpers { get; set; }
 }
