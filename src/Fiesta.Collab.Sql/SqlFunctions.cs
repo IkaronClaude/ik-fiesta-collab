@@ -13,6 +13,9 @@ namespace Fiesta.Collab.Sql;
 /// <item><c>blob_u8/u16/u32(hex, off)</c> and <c>blob_set_u8/u16/u32(hex, off, v)</c>: little-endian reads and
 /// writes over the hex strings blob columns are stored as (QuestData.FixedData); NULL past the end. A write returns
 /// uppercase hex.</item>
+/// <item><c>blob_compact(hex, off, size, count, drop)</c>: the <c>count</c> records of <c>size</c> bytes at <c>off</c>
+/// with the ones listed in <c>drop</c> (comma-separated indexes, '' or NULL = none) removed, the later ones moved up and
+/// zeros at the end (a QuestData reward list keeps its slots contiguous). Uppercase hex; NULL past the end.</item>
 /// <item><c>x REGEXP p</c>, <c>regexp_group(x, p, n)</c> (capture n, NULL without a match) and
 /// <c>regexp_replace(x, p, r [, count])</c> (every match, or the first count - Python's re.sub): .NET regex syntax,
 /// replacements write groups as <c>$1</c>.</item>
@@ -40,6 +43,9 @@ public static class SqlFunctions
         c.CreateFunction<string?, string?, string?, long?, string?>("regexp_replace",
             (x, p, r, n) => x is null || p is null || r is null || n is null ? null : Rx(p).Replace(x, r, (int)n),
             isDeterministic: true);
+        c.CreateFunction<string?, long?, long?, long?, string?, string?>("blob_compact",
+            (hex, off, size, count, drop) => hex is null || off is null || size is null || count is null ? null
+                : Compact(hex, (int)off, (int)size, (int)count, drop), isDeterministic: true);
         foreach (var (name, size) in new[] { ("u8", 1), ("u16", 2), ("u32", 4) })
         {
             var n = size;
@@ -93,6 +99,19 @@ public static class SqlFunctions
         long v = 0;
         for (var i = size - 1; i >= 0; i--) v = (v << 8) | b[off + i];
         return v;
+    }
+
+    private static string? Compact(string hex, int off, int size, int count, string? drop)
+    {
+        var b = Convert.FromHexString(hex);
+        if (off < 0 || size <= 0 || count < 0 || off + size * count > b.Length) return null;
+        var gone = (drop ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(x => int.Parse(x, CultureInfo.InvariantCulture)).ToHashSet();
+        var kept = Enumerable.Range(0, count).Where(k => !gone.Contains(k))
+            .SelectMany(k => b.Skip(off + k * size).Take(size)).ToArray();
+        Array.Clear(b, off, size * count);
+        kept.CopyTo(b, off);
+        return Convert.ToHexString(b);
     }
 
     private static string? Write(string hex, int off, int size, long value)

@@ -19,6 +19,16 @@ public class SqlFunctionTests : IDisposable
     private double Num(string expr) => Convert.ToDouble(Scalar(expr));
 
     [Fact]
+    public void Blob_compact_removes_records_and_moves_the_rest_up()
+    {
+        // header byte, then four 2-byte records AA01 BB02 CC03 DD04, then a trailer byte
+        Scalar("blob_compact('FFAA01BB02CC03DD04EE', 1, 2, 4, '1,2')").ShouldBe("FFAA01DD0400000000EE");
+        Scalar("blob_compact('FFAA01BB02CC03DD04EE', 1, 2, 4, '')").ShouldBe("FFAA01BB02CC03DD04EE");
+        Scalar("blob_compact('ffaa01', 1, 2, 1, NULL)").ShouldBe("FFAA01");
+        Scalar("blob_compact('FFAA01', 1, 2, 4, '0')").ShouldBeNull();       // past the end
+    }
+
+    [Fact]
     public void Ln_exp_pow()
     {
         Num("ln(exp(2.5))").ShouldBe(2.5, 1e-12);
