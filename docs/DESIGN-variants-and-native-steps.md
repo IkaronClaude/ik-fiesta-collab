@@ -92,6 +92,35 @@ normalized tables (QuestReward / QuestEndNpc / QuestEndItem / QuestAction), movi
   `-- @clone mob RouItemMctPey AS QoL_Perks SET Name = '[QoL] Perks'` appends one row per member table, in step,
   with the next free id.
 
+#### 6a. `@clone` ids - designed 2026-10-07 from Fiesta2026on2016 `tools/variant_lib.py` (it must allocate EXACTLY so)
+
+Characters hold item ids (inventory, storage) and ChargedEffect handles (active buffs) in the live database, so an id a
+clone was given once is that clone's forever. Fiesta2026on2016 keeps that promise in a committed registry,
+`variant-ids.json` = `{"items": {InxName: id}, "handles": {InxName: [handle, ...]}}` (832 items / 213 handle sets on
+2026-10-07). collab takes the registry over unchanged: its path in `fiesta.json` (`"idRegistry"`), read at the start of a
+migrate, written back when an id is handed out. Entries are never changed or removed.
+
+| what | rule (today's variant_lib, to be reproduced bit for bit) |
+|---|---|
+| item id | the registry's, else the LOWEST n >= 60000 not in: every id the 2016 server ever used (Server2016 ItemInfo - collab: the import's server-env ItemInfo ids, recorded once in the registry as `"reserved"` so a migrate never reads the reference tree), the current ItemInfo / ItemViewInfo ids of every env, every registry id. > 0xFFFF = error (u16). |
+| ChargedEffect handles | the registry's (the clone's handle COUNT must equal the template's ChargedEffect row count - else error: "handles are forever, give the new item a new InxName"); else top+1 .. top+n, top = max(all registry handles, the table's next handle - 1, the 2026 copy's max handle). A clone with no ChargedEffect rows reserves nothing. |
+| mob id | NOT registry-backed (no character holds a mob id): MobInfo / MobInfoServer / MobSpecies / QuestSpecies must end on the same id (else error), next = that + 1, skipping every id in MobViewInfo (all envs). |
+| MobLoca id | max(Identifier) + 1 of the 2026 Loca/MobLoca. |
+
+What a clone writes (variant_lib today; the `@clone` kinds):
+- **item** (`clone_item`): ItemInfo (+ its `__overlay` columns where set), ItemInfoServer, ItemViewInfo, ChargedEffect /
+  `__server` / `__overlay` rows with the registry handles (the template's i-th row gets handle i), the charged-list rows,
+  and the 2026 rows (ItemInfo / ItemViewInfo / ChargedEffect `__overlay`). `PERMANENT` option = KeepTime_Hour 0 +
+  MaxLot 1 + BT_Inx = the BelongTypeInfo row with no restriction + the tooltip text without its duration.
+- **mob** (`clone_mob`): MobInfo, MobInfoServer (optional stat scale: hp / damage / defense / evasion), MobSpecies,
+  QuestSpecies, MobViewInfo + `__server`, MobWeapon + `__server` (damage scale), its ItemDropTable row, the 2026 MobInfo /
+  MobViewInfo / species rows. Its AIScript FILE stays outside collab (a generator writes it once).
+- **npc** (`clone_npc`): the mob rows above + NpcDialogData (both copies) + an NPC.txt row + a MobLoca entry (its name).
+  Shop lists are `@table` files.
+
+Proof for the port, per converted step: build the variant with the Python step and with the `@clone` SQL - build/server,
+build/overlay and the client26 set byte-identical (`diff -rq`), and variant-ids.json unchanged.
+
 ## What stays outside collab
 
 Generators that need non-table inputs - walkable NPC spots from `.shbd`, reverse-engineered constants - run ONCE and
