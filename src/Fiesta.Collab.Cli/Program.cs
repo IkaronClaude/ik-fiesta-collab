@@ -1563,19 +1563,28 @@ sessionCommand.SetHandler(async (DirectoryInfo? projectOpt) =>
             {
                 if (entries.ContainsKey(d.Name) || schemas.ContainsKey(d.Name))
                     throw new InvalidOperationException($"@table {d.Name}: a table of that name exists");
-                if (!schemas.ContainsKey(d.Like))
+                if (d.Standalone)
+                {
+                    var (sh, ss) = Fiesta.Collab.Cli.Migrations.StandaloneTable(d);
+                    headers[d.Name] = sh;
+                    schemas[d.Name] = ss;
+                    paths[d.Name] = entries[d.Name] = $"data/variant-tables/{d.Name}.json";
+                    created.Add(d.Name);
+                    return;
+                }
+                if (!schemas.ContainsKey(d.Like!))
                     throw new InvalidOperationException($"@table {d.Name}: no template table {d.Like}");
-                var like = headers[d.Like];
+                var like = headers[d.Like!];
                 var metadata = like.Metadata is null ? new Dictionary<string, object>() : new Dictionary<string, object>(like.Metadata);
                 metadata["sourceFile"] = d.File;
                 metadata["sectionIndex"] = d.Section;
                 metadata["declared"] = true;              // an @table section: left out of the file while it is empty
                 if (d.As != null || metadata.ContainsKey("tableName")) metadata["tableName"] = d.As ?? metadata["tableName"];
-                Fiesta.Collab.Cli.Migrations.AddColumnRenames(metadata, schemas[d.Like].Columns, d);
+                Fiesta.Collab.Cli.Migrations.AddColumnRenames(metadata, schemas[d.Like!].Columns, d);
                 headers[d.Name] = new TableHeader { TableName = d.Name, SourceFormat = like.SourceFormat, Metadata = metadata };
                 schemas[d.Name] = new TableSchema
                 {
-                    TableName = d.Name, SourceFormat = like.SourceFormat, Columns = schemas[d.Like].Columns, Metadata = metadata
+                    TableName = d.Name, SourceFormat = like.SourceFormat, Columns = schemas[d.Like!].Columns, Metadata = metadata
                 };
                 paths[d.Name] = entries[d.Name] = $"data/variant-tables/{d.Name}.json";
                 created.Add(d.Name);

@@ -11,11 +11,41 @@ public sealed class MigrationAssertException(string message) : Exception(message
 /// template's columns and header, written to <c>file.txt</c> beside the template's own file, as section <c>n</c> (0) under
 /// the in-file table name <c>InFileName</c> (the template's).
 /// </summary>
-public sealed record TableDeclaration(string Name, string Like, string File, int Section, string? As, string? Columns = null)
+public sealed record TableDeclaration(string Name, string? Like, string File, int Section, string? As, string? Columns = null,
+                                      IReadOnlyList<Fiesta.Collab.Core.Models.ColumnDefinition>? Defined = null)
 {
     /// <summary><c>COLUMNS a, b, c</c>: the file's column names, the template's columns in order (null = the template's own).
-    /// The table keeps the template's names - the statements use them - and the build writes these.</summary>
-    public IReadOnlyList<string>? ColumnNames => Columns?.Split(',');
+    /// The table keeps the template's names - the statements use them - and the build writes these. Only with LIKE.</summary>
+    public IReadOnlyList<string>? ColumnNames => Like is null ? null : Columns?.Split(',');
+
+    /// <summary>No LIKE: the table's own columns, typed in the declaration (<c>COLUMNS a INDEX, b STRING[64], c DWRD</c>),
+    /// and the file's place comes from FILE itself (<c>Shine/ItemDropTogether.txt</c>: folder Shine) - a table needs no
+    /// template to exist (operator 2026-10-08, P4: "allow sql to define new tables with storage metadata").</summary>
+    public bool Standalone => Like is null;
+
+    /// <summary>A text-table column type as the files spell it: INDEX (a 32-byte key), STRING[n], BYTE, WORD, DWRD, FLOAT -
+    /// the same mapping the shinetable reader uses (sourceTypeCode 0 = INDEX, n = STRING[n], none = numeric).</summary>
+    public static Fiesta.Collab.Core.Models.ColumnDefinition ParseColumn(string name, string type)
+    {
+        var t = type.Trim().ToUpperInvariant();
+        if (t == "INDEX")
+            return new() { Name = name, Type = Fiesta.Collab.Core.Models.ColumnType.String, Length = 32, SourceTypeCode = 0 };
+        var m = Regex.Match(t, @"^STRING\[(\d+)\]$");
+        if (m.Success)
+        {
+            var n = int.Parse(m.Groups[1].Value);
+            return new() { Name = name, Type = Fiesta.Collab.Core.Models.ColumnType.String, Length = n, SourceTypeCode = n };
+        }
+        var (ct, len) = t switch
+        {
+            "BYTE" => (Fiesta.Collab.Core.Models.ColumnType.Byte, 1),
+            "WORD" => (Fiesta.Collab.Core.Models.ColumnType.UInt16, 2),
+            "DWRD" or "DWORD" => (Fiesta.Collab.Core.Models.ColumnType.Int32, 4),
+            "FLOAT" => (Fiesta.Collab.Core.Models.ColumnType.Float, 4),
+            _ => throw new FormatException($"column {name}: unknown type '{type}' (INDEX, STRING[n], BYTE, WORD, DWRD, FLOAT)")
+        };
+        return new() { Name = name, Type = ct, Length = len };
+    }
 }
 
 /// <summary>
@@ -51,7 +81,7 @@ public static class MigrationScript
 {
     private static readonly Regex Directive = new(@"^\s*--\s*@(param|assert|report|table)\b\s*(.*)$", RegexOptions.Multiline);
     private static readonly Regex TableDef = new(
-        @"^([A-Za-z_]\w*)\s+LIKE\s+([A-Za-z_]\w*)\s+FILE\s+(\S+)(?:\s+SECTION\s+(\d+))?(?:\s+AS\s+(\S+))?(?:\s+COLUMNS\s+(\w+(?:\s*,\s*\w+)*))?\s*$",
+        @"^([A-Za-z_]\w*)(?:\s+LIKE\s+([A-Za-z_]\w*))?\s+FILE\s+(\S+)(?:\s+SECTION\s+(\d+))?(?:\s+AS\s+(\S+))?(?:\s+COLUMNS\s+(.+?))?\s*$",
         RegexOptions.IgnoreCase);
     // the in-place directives: SQL in comment form, run among the statements at their line
     private static readonly Regex CopyLine = new(@"^\s*--\s*@(copy|each)\b\s*(.*)$", RegexOptions.Multiline);
@@ -86,10 +116,27 @@ public static class MigrationScript
                 case "table":
                     var t = TableDef.Match(arg);
                     if (!t.Success)
-                        throw new FormatException($"{name}: bad @table '{arg}' (want Name LIKE Template FILE file.txt [SECTION n] [AS InFileName] [COLUMNS a, b, ...])");
-                    tables.Add(new TableDeclaration(t.Groups[1].Value, t.Groups[2].Value, t.Groups[3].Value,
+                        throw new FormatException($"{name}: bad @table '{arg}' (want Name [LIKE Template] FILE file.txt [SECTION n] [AS InFileName] [COLUMNS a, b, ...] - without LIKE, COLUMNS a TYPE, b TYPE, ...)");
+                    var like = t.Groups[2].Success ? t.Groups[2].Value : null;
+                    var cols = t.Groups[6].Success ? t.Groups[6].Value : null;
+                    List<Fiesta.Collab.Core.Models.ColumnDefinition>? defined = null;
+                    if (like is null)
+                    {
+                        if (cols is null) throw new FormatException($"{name}: @table {t.Groups[1].Value} without LIKE needs COLUMNS name TYPE, ...");
+                        defined = new();
+                        foreach (var c in cols.Split(','))
+                        {
+                            var parts = c.Trim().Split((char[]?)null, 2, StringSplitOptions.RemoveEmptyEntries);
+                            if (parts.Length != 2) throw new FormatException($"{name}: @table {t.Groups[1].Value}: column '{c.Trim()}' wants 'name TYPE'");
+                            defined.Add(TableDeclaration.ParseColumn(parts[0], parts[1]));
+                        }
+                        cols = null;
+                    }
+                    else if (cols is not null && !Regex.IsMatch(cols, @"^\w+(?:\s*,\s*\w+)*$"))
+                        throw new FormatException($"{name}: @table {t.Groups[1].Value} LIKE {like}: COLUMNS takes names only (the template's types)");
+                    tables.Add(new TableDeclaration(t.Groups[1].Value, like, t.Groups[3].Value,
                         t.Groups[4].Success ? int.Parse(t.Groups[4].Value) : 0, t.Groups[5].Success ? t.Groups[5].Value : null,
-                        t.Groups[6].Success ? Regex.Replace(t.Groups[6].Value, @"\s+", "") : null));
+                        cols is null ? null : Regex.Replace(cols, @"\s+", ""), defined));
                     break;
                 case "report":
                     var r = ReportDef.Match(arg);
@@ -103,9 +150,18 @@ public static class MigrationScript
             throw new NotSupportedException($"{name}: @table creates a table only a variant build keeps (fiesta build --variant)");
         foreach (var t in tables)
         {
+            if (t.Standalone)
+            {
+                // its own columns (and the _envs column every loaded table carries), no rows
+                var colSql = t.Defined!.Select(c => $"[{c.Name}] " + (c.Type == Fiesta.Collab.Core.Models.ColumnType.String ? "TEXT"
+                    : c.Type == Fiesta.Collab.Core.Models.ColumnType.Float ? "REAL" : "INTEGER"));
+                engine.Execute($"CREATE TABLE [{t.Name}] ({string.Join(", ", colSql)}, [{SqlEngine.EnvsColumn}] TEXT)");
+                onTable!(t);
+                continue;
+            }
             if (t.ColumnNames is { } names)
             {
-                var have = engine.Query($"SELECT name FROM pragma_table_info('{t.Like.Replace("'", "''")}')")
+                var have = engine.Query($"SELECT name FROM pragma_table_info('{t.Like!.Replace("'", "''")}')")
                     .Select(r => (string)r["name"]!).Count(c => c != SqlEngine.EnvsColumn);
                 if (have != names.Count)
                     throw new FormatException($"{name}: @table {t.Name} COLUMNS names {names.Count} column(s), {t.Like} has {have}");

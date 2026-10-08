@@ -322,7 +322,7 @@ public static class Migrations
             {
                 if (p.Schemas.ContainsKey(d.Name) || declared.Any(x => x.Name == d.Name))
                     throw new InvalidOperationException($"@table {d.Name}: a table of that name exists");
-                if (!p.Schemas.ContainsKey(d.Like))
+                if (!d.Standalone && !p.Schemas.ContainsKey(d.Like!))
                     throw new InvalidOperationException($"@table {d.Name}: no template table {d.Like}");
                 declared.Add(d);
             }, IdRegistry.ForProject(projectPath, p.Manifest.IdRegistry));
@@ -354,22 +354,60 @@ public static class Migrations
         }
     }
 
+    /// <summary>A STANDALONE @table (no LIKE): the header a server text table carries, built from the declaration alone -
+    /// FILE gives the folder and file name (<c>Shine/ItemDropTogether.txt</c>), AS the in-file #table name (the table's own
+    /// name), COLUMNS the typed columns; the stock text-table directives (#ignore the double quote, # => space) as every
+    /// server .txt has them. Server only: a new text table no client reads.</summary>
+    internal static (TableHeader Header, TableSchema Schema) StandaloneTable(TableDeclaration d)
+    {
+        var file = d.File.Replace('\\', '/');
+        var slash = file.LastIndexOf('/');
+        var dir = slash < 0 ? "" : file[..slash];
+        var name = slash < 0 ? file : file[(slash + 1)..];
+        var cols = d.Defined!.ToList();
+        var metadata = new Dictionary<string, object>
+        {
+            ["sourceFile"] = name,
+            ["tableName"] = d.As ?? d.Name,
+            ["format"] = "table",
+            ["directives"] = JsonSerializer.SerializeToElement(new[] { "#ignore\t\\o042", "#exchange\t#\t\\x20" }),
+            ["sectionIndex"] = d.Section,
+            ["sourceOrigin"] = "server",
+            ["declared"] = true,
+            ["server"] = JsonSerializer.SerializeToElement(new Dictionary<string, object?>
+            {
+                ["columnOrder"] = cols.Select(c => c.Name).ToList(),
+                ["columnOverrides"] = null, ["columnRenames"] = null,
+                ["sourceRelDir"] = dir, ["outputName"] = null, ["formatMetadata"] = null,
+            }),
+        };
+        var header = new TableHeader { TableName = d.Name, SourceFormat = "shinetable", Metadata = metadata };
+        var schema = new TableSchema { TableName = d.Name, SourceFormat = "shinetable", Columns = cols, Metadata = metadata };
+        return (header, schema);
+    }
+
     /// <summary>A table a layer created with -- @table: the template's columns and header, with the header naming the new
     /// file (sourceFile), its section and in-file table name, so the build writes it beside the template's file.</summary>
     private static TableFile NewTable(Loaded p, TableDeclaration d)
     {
-        var like = p.Headers[d.Like];
+        if (d.Standalone)
+        {
+            var (h, sc) = StandaloneTable(d);
+            var ex = p.Engine.ExtractTable(sc);
+            return new TableFile { Header = h, Columns = sc.Columns, Data = ex.Rows, RowEnvironments = ex.RowEnvironments };
+        }
+        var like = p.Headers[d.Like!];
         var metadata = like.Metadata is null ? new Dictionary<string, object>() : new Dictionary<string, object>(like.Metadata);
         metadata["sourceFile"] = d.File;
         metadata["sectionIndex"] = d.Section;
         metadata["declared"] = true;                  // left out of the file while empty (Program.cs, grouped files)
         if (d.As != null || metadata.ContainsKey("tableName")) metadata["tableName"] = d.As ?? metadata["tableName"];
-        AddColumnRenames(metadata, p.Schemas[d.Like].Columns, d);
+        AddColumnRenames(metadata, p.Schemas[d.Like!].Columns, d);
         var schema = new TableSchema
         {
             TableName = d.Name,
             SourceFormat = like.SourceFormat,
-            Columns = p.Schemas[d.Like].Columns,
+            Columns = p.Schemas[d.Like!].Columns,
             Metadata = metadata
         };
         var extracted = p.Engine.ExtractTable(schema);
